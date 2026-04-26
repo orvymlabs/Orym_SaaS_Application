@@ -38,6 +38,8 @@ const MODELS: Record<string, any[]> = {
   ],
 };
 
+const DEFAULT_TEMPLATES = ['menu'];
+
 export default function SettingsPage() {
   const [bot, setBot] = useState<any>(null);
   const [settings, setSettings] = useState<any>(null);
@@ -53,16 +55,13 @@ export default function SettingsPage() {
   const [templateEnabled, setTemplateEnabled] = useState(true);
   const [templateStatuses, setTemplateStatuses] = useState<Record<string, boolean>>({});
   const [customResponses, setCustomResponses] = useState<Array<{keyword: string, response: string}>>([]);
-  const [customProducts, setCustomProducts] = useState<Array<{name: string, description: string, image_url: string}>>([]);
   
   const { showToast, ToastContainer } = useToast();
 
   const templateConfigs = [
     { id: 'greeting', name: 'Greeting Message', placeholder: '👋 Hi {user_name}! Welcome to {site_name}. Type *menu* to see how I can help you today!' },
-    { id: 'menu', name: 'Main Menu', placeholder: '📋 *Main Menu*\n\n1. Services\n2. Order Products\n3. Product Catalog\n\n💬 Reply with a number to continue!' },
+    { id: 'menu', name: 'Main Menu', placeholder: '📋 *Main Menu*\n\n1. Services\n2. Contact Us\n\n💬 Reply with a number to continue!' },
     { id: 'services', name: 'Services', placeholder: '🏭 *Our Services*\n\nOur services include:\n• Web Development\n• Mobile Apps\n• UI/UX Design' },
-    { id: 'order', name: 'Order', placeholder: '🛍️ *Order Products*\n\nBrowse our product catalog and place your order!' },
-    { id: 'product_list', name: 'Product Catalog', placeholder: '🛍️ *Product Catalog* ({total} items)\n\n{item_list}\n\n💬 Reply with a product name to order!' },
     { id: 'delivery', name: 'Delivery Info', placeholder: '🚚 *Delivery Information*\n\nWe offer fast nationwide delivery within 3-5 business days.' },
     { id: 'contact', name: 'Contact Us', placeholder: '📞 *Contact Us*\n\n🏢 {site_name}\n📱 {phone}\n📧 {email}\n📍 {address}' },
   ];
@@ -84,7 +83,6 @@ export default function SettingsPage() {
         setTemperature(s.temperature || 70);
         setLanguage(s.language || "english");
 
-        // Load templates - handle both old format (greeting) and new format (template_greeting)
         const loadedTemplates: Record<string, string> = {};
         const rawTemplates = s.templates || s.custom_responses || {};
         if (rawTemplates && typeof rawTemplates === 'object') {
@@ -98,11 +96,8 @@ export default function SettingsPage() {
 
         setTemplateEnabled(s.template_enabled ?? true);
 
-        // Load template statuses with defaults
         const defaultStatuses: Record<string, boolean> = {
           'template_services_enabled': false,
-          'template_order_enabled': true,
-          'template_product_list_enabled': true,
           'template_delivery_enabled': true,
           'template_contact_enabled': true,
           'template_greeting_enabled': true,
@@ -112,14 +107,16 @@ export default function SettingsPage() {
         setTemplateStatuses({ ...defaultStatuses, ...loadedStatuses });
 
         if (s.custom_responses && typeof s.custom_responses === "object") {
-          const entries = Object.entries(s.custom_responses).map(([keyword, response]) => ({
-            keyword,
-            response: response as string,
-          }));
-          setCustomResponses(entries);
-        }
-        if (s.custom_products && Array.isArray(s.custom_products)) {
-          setCustomProducts(s.custom_products);
+          let loadedCustomResponses: Array<{keyword: string, response: string}> = [];
+          if (Array.isArray(s.custom_responses)) {
+            loadedCustomResponses = s.custom_responses;
+          } else {
+            loadedCustomResponses = Object.entries(s.custom_responses).map(([keyword, response]) => ({
+              keyword,
+              response: response as string,
+            }));
+          }
+          setCustomResponses(loadedCustomResponses);
         }
       }
     });
@@ -146,7 +143,6 @@ export default function SettingsPage() {
             temperature,
             language,
             custom_responses: customResponsesObj,
-            custom_products: customProducts.filter(p => p.name.trim()),
             templates,
             template_enabled: templateEnabled,
             template_statuses: templateStatuses,
@@ -189,7 +185,17 @@ export default function SettingsPage() {
     reader.onload = (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
-        if (json.custom_responses) setCustomResponses(json.custom_responses);
+        if (json.custom_responses) {
+          if (Array.isArray(json.custom_responses)) {
+            setCustomResponses(json.custom_responses);
+          } else if (typeof json.custom_responses === 'object') {
+            const customResponsesArray = Object.entries(json.custom_responses).map(([keyword, response]) => ({
+              keyword: keyword,
+              response: response as string,
+            }));
+            setCustomResponses(customResponsesArray);
+          }
+        }
         if (json.templates) setTemplates(json.templates);
         if (typeof json.template_enabled === 'boolean') setTemplateEnabled(json.template_enabled);
         if (json.template_statuses && typeof json.template_statuses === 'object') setTemplateStatuses(json.template_statuses);
@@ -275,15 +281,12 @@ export default function SettingsPage() {
               <p className="text-blue-100 font-medium">Customize templates and enable/disable specific menu options.</p>
             </div>
 
-            {/* Menu Section Toggles */}
             <div className="bg-white rounded-[3rem] border border-slate-200 p-10">
               <h3 className="text-xl font-black text-slate-900 mb-6">📋 Menu Options</h3>
               <p className="text-slate-500 text-sm mb-6">Enable or disable specific menu items. Disabled options won't appear in the menu.</p>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {[
                   { id: 'services', label: 'Services', icon: 'ℹ️', defaultOn: false },
-                  { id: 'order', label: 'Order Products', icon: '🛍️', defaultOn: true },
-                  { id: 'product_list', label: 'Product Catalog', icon: '💰', defaultOn: true },
                   { id: 'delivery', label: 'Delivery Info', icon: '🚚', defaultOn: true },
                   { id: 'contact', label: 'Contact Us', icon: '📞', defaultOn: true },
                 ].map((item) => {
@@ -306,7 +309,6 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* Template Text Editors */}
             <div className="bg-white rounded-[3rem] border border-slate-200 p-10">
               <h3 className="text-xl font-black text-slate-900 mb-6">✏️ Template Messages</h3>
               <p className="text-slate-500 text-sm mb-6">Edit the text for each template. Leave empty to show nothing to users.</p>
@@ -314,36 +316,42 @@ export default function SettingsPage() {
                 {templateConfigs.map((config) => {
                   const templateKey = `template_${config.id}`;
                   const isEnabled = templateStatuses[`${templateKey}_enabled`] ?? true;
+                  const isDefault = DEFAULT_TEMPLATES.includes(config.id);
                   const hasCustomContent = !!templates[templateKey];
 
                   return (
-                    <div key={config.id} className={`bg-slate-50 rounded-[2.5rem] border p-8 flex flex-col ${!isEnabled && 'opacity-50'}`}>
+                    <div key={config.id} className={`bg-slate-50 rounded-[2.5rem] border p-8 flex flex-col ${!isEnabled && 'opacity-50'} ${isDefault && 'bg-slate-200 border-slate-300'}`}>
                       <div className="flex justify-between items-center mb-4">
                         <h4 className="text-lg font-black text-slate-900">{config.name}</h4>
                         <button
+                          disabled={isDefault}
                           onClick={() => setTemplateStatuses({ ...templateStatuses, [`${templateKey}_enabled`]: !isEnabled })}
-                          className={`w-12 h-6 rounded-full transition-all relative ${isEnabled ? 'bg-green-500' : 'bg-slate-300'}`}
+                          className={`w-12 h-6 rounded-full transition-all relative ${isDefault || isEnabled ? 'bg-green-500' : 'bg-slate-300'} ${isDefault ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
-                          <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all shadow-sm ${isEnabled ? 'left-6' : 'left-0.5'}`} />
+                          <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all shadow-sm ${isDefault || isEnabled ? 'left-6' : 'left-0.5'}`} />
                         </button>
                       </div>
                       <textarea
-                        disabled={!isEnabled}
+                        disabled={!isEnabled || isDefault}
                         value={templates[templateKey] || ""}
                         placeholder={config.placeholder}
                         onChange={(e) => setTemplates({ ...templates, [templateKey]: e.target.value })}
                         rows={6}
-                        className="w-full bg-white border border-slate-200 rounded-2xl p-5 text-sm outline-none focus:border-blue-500 transition-all resize-none font-mono"
+                        className={`w-full rounded-[2.5rem] p-5 text-sm outline-none transition-all resize-none font-mono
+                          ${isDefault ? 'bg-slate-200 border-slate-300 text-slate-500 cursor-not-allowed' : 'bg-white border border-slate-200 focus:border-blue-500'}`}
                       />
                       <div className="flex justify-between items-center mt-3">
-                        {!hasCustomContent && isEnabled && (
+                        {!hasCustomContent && isEnabled && !isDefault && (
                           <p className="text-[10px] text-amber-600 font-bold uppercase tracking-widest">⚠️ Using default message</p>
                         )}
-                        {hasCustomContent && isEnabled && (
+                        {hasCustomContent && isEnabled && !isDefault && (
                           <p className="text-[10px] text-green-600 font-bold uppercase tracking-widest">✓ Custom message set</p>
                         )}
-                        {!isEnabled && (
+                        {!isEnabled && !isDefault && (
                           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Disabled</p>
+                        )}
+                        {isDefault && (
+                           <p className="text-[10px] text-blue-600 font-bold uppercase tracking-widest">Fixed Default Template</p>
                         )}
                       </div>
                     </div>

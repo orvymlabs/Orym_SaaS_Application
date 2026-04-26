@@ -57,17 +57,18 @@ def process_whatsapp_message_background(
         products, categories = [], []
         contact_info_data = {}
         try:
-            if integ.woocommerce_url:
+            website_url = integ.woocommerce_url or integ.wp_base_url
+            if website_url:
                 # 1. Fetch products
-                fetcher_data = UniversalWebsiteFetcher.scrape_products_from_website(integ.woocommerce_url)
+                fetcher_data = UniversalWebsiteFetcher.scrape_products_from_website(website_url)
                 products = fetcher_data.get("products", [])
                 categories = fetcher_data.get("categories", [])
-                logger.info(f"[{webhook_id}] Fetched {len(products)} products from {integ.woocommerce_url}")
+                logger.info(f"[{webhook_id}] Fetched {len(products)} products from {website_url}")
                 
                 # 2. Fetch site info (contact, about, services)
-                site_info = UniversalWebsiteFetcher.fetch_site_info(integ.woocommerce_url)
+                site_info = UniversalWebsiteFetcher.fetch_site_info(website_url)
                 contact_info_data = {
-                    "site_name": site_info.get("site_name") or integ.woocommerce_url,
+                    "site_name": site_info.get("site_name") or website_url,
                     "site_description": site_info.get("site_description", ""),
                     "about": site_info.get("about", ""),
                     "services": site_info.get("services", []),
@@ -76,7 +77,7 @@ def process_whatsapp_message_background(
                     "address": site_info.get("contact", {}).get("address", ""),
                     "hours": site_info.get("contact", {}).get("hours", "")
                 }
-                logger.info(f"[{webhook_id}] Fetched site info for {integ.woocommerce_url}")
+                logger.info(f"[{webhook_id}] Fetched site info for {website_url}")
         except Exception as e:
             logger.error(f"[{webhook_id}] Website data fetch error: {e}")
 

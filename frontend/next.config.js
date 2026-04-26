@@ -1,11 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'export',
-  trailingSlash: false, // Set to false
+  // output: 'export', // Removed for development server
+  trailingSlash: false,
   images: {
     unoptimized: true,
   },
-  // Disable server-side features for static export
   eslint: {
     ignoreDuringBuilds: true,
   },

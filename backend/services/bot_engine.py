@@ -1,26 +1,15 @@
 """
-Bot Engine — Intelligent Routing with Plan-based Feature Gating
+Bot Engine — Intelligent Routing with Plan-based Feature Gating (No Product Features)
 """
 import re
 import logging
 from typing import Optional
-from .default_bot import process as default_process, _t_all_products, _get_contact_info, _get_services, PRODUCT_LIMIT_WARNING
+from .default_bot import process as default_process, _get_contact_info, _get_services
 from .ai_service import ai_reply
 
 logger = logging.getLogger(__name__)
 
 PLAN_ERROR = "⚠️ This feature is available in Growth plan. Please upgrade."
-
-
-def _is_product_query(text: str, categories: list) -> bool:
-    tl = text.lower()
-    product_keywords = ['product', 'products', 'price', 'buy', 'order', 'cost', 'rate', 'catalog', 'item', 'items', 'stock', 'samaan', 'list']
-    if any(w in tl for w in product_keywords):
-        return True
-    for cat in categories:
-        if cat.lower() in tl:
-            return True
-    return False
 
 
 def _is_website_query(text: str) -> bool:
@@ -57,50 +46,29 @@ def handle_message(bot_mode: str, bot_id: int, text: str, phone: str, name: str,
     if bot_mode == "predefined":
 
         if tl.startswith("1") or "service" in tl or "serivce" in tl:
-            return _get_services(contact_info.get("services"), lang)
+            return _get_services(bot_settings)
 
-        elif tl.startswith("2") or "product" in tl or "products" in tl or "catalog" in tl:
-            if user_plan == "free":
-                return "⚠️ Product features are not available in Free plan. Please upgrade to Starter or Growth plan."
+        elif tl.startswith("2") or "delivery" in tl or "shipping" in tl:
+             # In new simplified menu, 2 is Delivery Info
+             from .default_bot import _get_delivery_info
+             return _get_delivery_info(bot_settings)
 
-            if products:
-                display_count = 10 if user_plan == "starter" else len(products)
-                items = [f"• {p.get('name','')} - {p.get('price','Contact')} PKR" for p in products[:display_count]]
-                result = _t_all_products(items, len(products))
-
-                if user_plan == "starter" and len(products) > 10:
-                    result += "\n\n" + PRODUCT_LIMIT_WARNING
-
-                return result
-            else:
-                return "I can't find any products right now. Please check back later or contact us for more information."
-
-        elif tl.startswith("3") or "order" in tl or "buy" in tl:
-            if products:
-                display_count = 10 if user_plan == "starter" else len(products)
-                items = [f"• {p.get('name','')} - {p.get('price','Contact')} PKR" for p in products[:display_count]]
-                result = _t_all_products(items, len(products))
-
-                if user_plan == "starter" and len(products) > 10:
-                    result += "\n\n" + PRODUCT_LIMIT_WARNING
-
-                return result
-            else:
-                return _get_contact_info(contact_info, lang=lang) or "You can find order information on our website or by contacting us."
-
-        elif tl.startswith("4") or "contact" in tl:
-            return _get_contact_info(contact_info, lang=lang)
+        elif tl.startswith("3") or "contact" in tl:
+            # In new simplified menu, 3 is Contact Us
+            return _get_contact_info(bot_settings, contact_info)
 
         if _is_website_query(text):
             if "service" in tl or business_type == "service":
-                return _get_services(contact_info.get("services"), lang)
-            return _get_contact_info(contact_info, lang=lang)
+                return _get_services(bot_settings)
+            return _get_contact_info(bot_settings, contact_info)
 
+        # Keyword Engine logic
         custom = bot_settings.get("custom_responses") or bot_settings.get("templates") or {}
         for keyword, response in custom.items():
             if keyword.lower() in tl:
                 return response.replace("{name}", name or "Customer").replace("{phone}", phone).replace("{last_message}", text)
 
+        # AI Fallback if API key exists
         if api_key:
             ai_resp = ai_reply(text, lang, api_key, provider, prompt, temp, contact_info, products, categories, model_name=specific_model, business_type=business_type)
             if ai_resp:
