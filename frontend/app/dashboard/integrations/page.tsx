@@ -69,7 +69,7 @@ export default function IntegrationsPage() {
   const [activeTab, setActiveTab] = useState<"whatsapp" | "website" | "button">("whatsapp");
   const { showToast, ToastContainer } = useToast();
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? 'https://orvym-saas-platform.onrender.com' : '');
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? 'https://orym-saas-application.onrender.com' : '');
   const webhookUrl = `${apiUrl}/webhook`;
 
   useEffect(() => {
