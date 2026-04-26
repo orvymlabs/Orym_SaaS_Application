@@ -25,17 +25,11 @@ app = FastAPI(title=settings.APP_NAME, version="2.0")
 
 # Configure CORS origins
 origins = [
-    "https://orvymlabs.brandlessdigital.com",
-    "https://orvym-saas-platform.onrender.com",
+    "https://orvym.com",
+    "https://www.orvym.com",
     "https://orym-saas-application.onrender.com",
     "http://localhost:3000",
-    "http://localhost:3001",
-    "http://localhost:3002",
-    "http://localhost:3004",
-    "http://localhost:3010",
-    "http://localhost:8000",
     "http://127.0.0.1:3000",
-    "http://127.0.0.1:8000",
 ]
 
 if settings.ALLOWED_ORIGINS:
@@ -54,13 +48,20 @@ def get_cors_headers(request: Request):
     origin = request.headers.get("origin")
     
     # If origin is allowed, echo it back. Otherwise use the primary production origin.
-    allowed_origin = origin if origin in origins else "https://orvymlabs.brandlessdigital.com"
+    # We check for exact match or domain match
+    is_allowed = False
+    if origin in origins:
+        is_allowed = True
+    elif origin and ("orvym.com" in origin or "onrender.com" in origin):
+        is_allowed = True
+        
+    allowed_origin = origin if is_allowed else "https://orvym.com"
     
     return {
         "Access-Control-Allow-Origin": allowed_origin,
         "Access-Control-Allow-Credentials": "true",
         "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With, Accept"
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With, Accept, Origin"
     }
 
 @app.exception_handler(HTTPException)
@@ -93,11 +94,17 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=r"https?://.*orvym\.com.*", # Extra safety for subdomains
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["*"], # CORSMiddleware handles "*" by echoing back when credentials=True
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
     expose_headers=["*"],
 )
+
+# Manual OPTIONS handler for any path (CORS Preflight fallback)
+@app.options("/{rest_of_path:path}")
+async def options_handler(request: Request, rest_of_path: str):
+    return JSONResponse(content={"status": "ok"}, headers=get_cors_headers(request))
 
 # Include routers
 app.include_router(auth.router)
