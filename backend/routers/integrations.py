@@ -5,7 +5,7 @@ from models import Integration, Bot
 from schemas.integration import IntegrationUpdate, IntegrationResponse, WooCommerceFetchStatus
 from services import decode_token
 from services.encryption import encrypt_value, decrypt_value
-from services.website_fetcher import fetch_website_content
+from services.website_fetcher import fetch_website_content as fetch_website_service
 from services.universal_website_fetcher import UniversalWebsiteFetcher
 import logging
 import json
@@ -212,7 +212,7 @@ def fetch_website_content(site_type: str, user_id: int = Depends(get_current_use
     if not website_url:
         raise HTTPException(400, f"Please provide your {'store' if site_type == 'product' else 'website'} URL first.")
 
-    result = fetch_website_content(website_url, site_type)
+    result = fetch_website_service(website_url, site_type)
     if "error" in result:
         return {"success": False, "message": f"Failed to fetch content: {result['error']}", "data": {}}
 

@@ -10,6 +10,7 @@ class MessageOut(BaseModel):
     phone_number: str
     message: Optional[str]
     timestamp: Optional[datetime]
+    seen: bool = False
 
     class Config:
         from_attributes = True

@@ -22,6 +22,20 @@ class Settings(BaseSettings):
     """
 
     # ===========================================
+    # Environment
+    # ===========================================
+    ENVIRONMENT: str = "development"
+    DEBUG: bool = False
+    HOST: str = "0.0.0.0"
+    PORT: int = 8000
+    APP_NAME: str = "WhatsApp Bot SaaS Platform"
+
+    # ===========================================
+    # Allowed Origins for CORS
+    # ===========================================
+    ALLOWED_ORIGINS: str = ""
+
+    # ===========================================
     # Database (PostgreSQL for Production)
     # ===========================================
     DATABASE_URL: str = ""
@@ -52,45 +66,9 @@ class Settings(BaseSettings):
     DEFAULT_WC_URL: str = "https://hiveworks-me.com"
 
     # ===========================================
-    # Server Configuration
+    # Meta WhatsApp
     # ===========================================
-    HOST: str = "0.0.0.0"
-    PORT: int = 3000
-
-    # ===========================================
-    # Application
-    # ===========================================
-    APP_NAME: str = "WhatsApp Bot SaaS"
-    DEBUG: bool = False
-    ENVIRONMENT: str = "production"
-
-    # ===========================================
-    # CORS
-    # ===========================================
-    ALLOWED_ORIGINS: str = "https://orvynlabs.brandlessdigital.com,https://orvyn-saas-platform.onrender.com,http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3004"
-
-    # ===========================================
-    # Rate Limiting
-    # ===========================================
-    RATE_LIMIT_PER_MINUTE: int = 60
-    RATE_LIMIT_PER_DAY: int = 1000
-
-    # ===========================================
-    # Logging
-    # ===========================================
-    LOG_LEVEL: str = "INFO"
-
-    # ===========================================
-    # WhatsApp API
-    # ===========================================
-    WHATSAPP_API_VERSION: str = "v18.0"
-    WHATSAPP_API_URL: str = "https://graph.facebook.com/v18.0"
-
-    # ===========================================
-    # Cache Settings
-    # ===========================================
-    CACHE_TTL_SECONDS: int = 1800
-    CACHE_REFRESH_INTERVAL_SECONDS: int = 1800
+    META_APP_SECRET: str = "" # REQUIRED: Your Meta App Secret for webhook signature verification
 
     @field_validator("DATABASE_URL", mode="before")
     @classmethod

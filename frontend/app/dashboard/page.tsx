@@ -82,7 +82,7 @@ export default function DashboardPage() {
               )}
             </div>
           </div>
-          <p className="text-[#64748B] text-xs font-semibold uppercase tracking-wide mb-1 relative z-10">Bot Mode</p>
+          <p className="text-slate-900 text-xs font-semibold uppercase tracking-wide mb-1 relative z-10">Bot Mode</p>
           <h3 className="text-2xl font-bold text-[#0F172A] capitalize tracking-tight relative z-10">{bot?.mode || 'Default'}</h3>
         </div>
 
@@ -94,8 +94,8 @@ export default function DashboardPage() {
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
             </div>
           </div>
-          <p className="text-[#64748B] text-xs font-semibold uppercase tracking-wide mb-1 relative z-10">WhatsApp Messages</p>
-          <h3 className="text-2xl font-bold text-[#0F172A] tracking-tight relative z-10">{usage?.whatsapp_messages_sent || 0} <span className="text-sm text-[#94A3B8] font-medium">/ {usage?.whatsapp_limit || 0}</span></h3>
+          <p className="text-slate-900 text-xs font-semibold uppercase tracking-wide mb-1 relative z-10">WhatsApp Messages</p>
+          <h3 className="text-2xl font-bold text-[#0F172A] tracking-tight relative z-10">{usage?.whatsapp_messages_sent || 0} <span className="text-sm text-slate-500 font-medium">/ {usage?.whatsapp_limit || 0}</span></h3>
         </div>
 
         {/* Card: Contacts */}
@@ -106,7 +106,7 @@ export default function DashboardPage() {
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
             </div>
           </div>
-          <p className="text-[#64748B] text-xs font-semibold uppercase tracking-wide mb-1 relative z-10">Total Contacts</p>
+          <p className="text-slate-900 text-xs font-semibold uppercase tracking-wide mb-1 relative z-10">Total Contacts</p>
           <h3 className="text-2xl font-bold text-[#0F172A] tracking-tight relative z-10">{totalContacts}</h3>
         </div>
 
@@ -118,8 +118,8 @@ export default function DashboardPage() {
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
             </div>
           </div>
-          <p className="text-[#64748B] text-xs font-semibold uppercase tracking-wide mb-1 relative z-10">AI Requests</p>
-          <h3 className="text-2xl font-bold text-[#0F172A] tracking-tight relative z-10">{usage?.ai_requests_made || 0} <span className="text-sm text-[#94A3B8] font-medium">/ {usage?.ai_limit || 0}</span></h3>
+          <p className="text-slate-900 text-xs font-semibold uppercase tracking-wide mb-1 relative z-10">AI Requests</p>
+          <h3 className="text-2xl font-bold text-[#0F172A] tracking-tight relative z-10">{usage?.ai_requests_made || 0} <span className="text-sm text-slate-500 font-medium">/ {usage?.ai_limit || 0}</span></h3>
         </div>
       </div>
 
@@ -129,16 +129,16 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-12">
             <div>
               <h3 className="text-2xl font-bold text-[#0F172A] tracking-tight">Conversation Analytics</h3>
-              <p className="text-[#64748B] text-sm font-medium mt-1">Message activity over time</p>
+              <p className="text-slate-900 text-sm font-medium mt-1">Message activity over time</p>
             </div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 bg-blue-500 rounded-full"></div>
-                <span className="text-xs font-medium text-[#64748B]">Messages</span>
+                <span className="text-xs font-medium text-slate-900">Messages</span>
               </div>
               <div className="flex items-center gap-2 ml-4">
                 <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full"></div>
-                <span className="text-xs font-medium text-[#64748B]">Contacts</span>
+                <span className="text-xs font-medium text-slate-900">Contacts</span>
               </div>
             </div>
           </div>
@@ -190,7 +190,7 @@ export default function DashboardPage() {
             </svg>
             <div className="flex justify-between mt-6 px-2">
               {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
-                <span key={day} className="text-xs font-medium text-[#94A3B8]">{day}</span>
+                <span key={day} className="text-xs font-medium text-slate-500">{day}</span>
               ))}
             </div>
           </div>
@@ -198,10 +198,10 @@ export default function DashboardPage() {
 
         {/* System Quotas */}
         <div className="space-y-10">
-          <div className="premium-card rounded-[2.5rem] p-10 bg-[#0F172A] text-white shadow-2xl shadow-blue-100 relative overflow-hidden group">
-            <div className="absolute top-0 right-0 w-40 h-40 bg-blue-500/10 rounded-full blur-[80px] -mr-20 -mt-20 group-hover:bg-blue-500/20 transition-all duration-700"></div>
+          <div className="premium-card rounded-[2.5rem] p-10 bg-white text-slate-900 border border-slate-200 shadow-2xl shadow-blue-50 relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-40 h-40 bg-blue-500/5 rounded-full blur-[80px] -mr-20 -mt-20 group-hover:bg-blue-500/10 transition-all duration-700"></div>
 
-            <h3 className="text-xl font-bold tracking-tight mb-10 flex items-center gap-4">
+            <h3 className="text-xl font-bold tracking-tight mb-10 flex items-center gap-4 text-slate-900">
               <span className="w-8 h-px bg-blue-500"></span> Usage Overview
             </h3>
 
@@ -209,12 +209,12 @@ export default function DashboardPage() {
               {/* WhatsApp Metric */}
               <div>
                 <div className="flex justify-between items-end mb-4">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-[#94A3B8]">WhatsApp Messages</span>
-                  <span className="text-sm font-bold">{usage?.whatsapp_messages_sent} / {usage?.whatsapp_limit}</span>
+                  <span className="text-xs font-black uppercase tracking-widest text-slate-500">WhatsApp Messages</span>
+                  <span className="text-sm font-black text-slate-900">{usage?.whatsapp_messages_sent} / {usage?.whatsapp_limit}</span>
                 </div>
-                <div className="h-2.5 bg-white/5 rounded-full overflow-hidden p-0.5 border border-white/10">
+                <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-200">
                   <div
-                    className="h-full bg-blue-500 rounded-full transition-all duration-1000 shadow-[0_0_15px_rgba(59,130,246,0.6)]"
+                    className="h-full bg-blue-600 rounded-full transition-all duration-1000 shadow-[0_0_10px_rgba(37,99,235,0.2)]"
                     style={{ width: `${Math.min(waProgress, 100)}%` }}
                   ></div>
                 </div>
@@ -223,12 +223,12 @@ export default function DashboardPage() {
               {/* AI Metric */}
               <div>
                 <div className="flex justify-between items-end mb-4">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-[#94A3B8]">AI Requests</span>
-                  <span className="text-sm font-bold">{usage?.ai_requests_made} / {usage?.ai_limit}</span>
+                  <span className="text-xs font-black uppercase tracking-widest text-slate-500">AI Requests</span>
+                  <span className="text-sm font-black text-slate-900">{usage?.ai_requests_made} / {usage?.ai_limit}</span>
                 </div>
-                <div className="h-2.5 bg-white/5 rounded-full overflow-hidden p-0.5 border border-white/10">
+                <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden p-0.5 border border-slate-200">
                   <div
-                    className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-1000 shadow-[0_0_15px_rgba(99,102,241,0.6)]"
+                    className="h-full bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full transition-all duration-1000"
                     style={{ width: `${Math.min(aiProgress, 100)}%` }}
                   ></div>
                 </div>
@@ -236,25 +236,25 @@ export default function DashboardPage() {
 
               {/* Plan Upgrade CTA for Starter Users */}
               {usage?.plan === 'starter' && (
-                <div className="mt-8 p-5 bg-amber-500/10 border border-amber-500/30 rounded-2xl">
-                  <p className="text-amber-400 text-xs font-semibold mb-3">⚠️ Starter Plan Limits</p>
-                  <ul className="text-amber-200/80 text-xs space-y-2 mb-4">
+                <div className="mt-8 p-5 bg-amber-50 border border-amber-200 rounded-2xl">
+                  <p className="text-amber-700 text-xs font-black uppercase tracking-widest mb-3">⚠️ Starter Plan Limits</p>
+                  <ul className="text-slate-700 text-xs space-y-2 mb-4 font-bold">
                     <li>• Max 200 conversations/month</li>
                     <li>• Service-based flows only</li>
                     <li>• No WooCommerce integration</li>
                     <li>• Max 10 predefined rules</li>
                   </ul>
-                  <button className="w-full bg-amber-500 hover:bg-amber-600 text-white py-2.5 rounded-xl font-semibold text-sm transition-all">
+                  <button className="w-full bg-amber-500 hover:bg-amber-600 text-white py-2.5 rounded-xl font-black text-sm transition-all shadow-md">
                     Upgrade to Growth ($3/mo)
                   </button>
                 </div>
               )}
 
               <div className="flex gap-3 mt-6">
-                <Link href="/dashboard/settings" className="flex-1 text-center bg-white/10 hover:bg-white/20 text-white py-3.5 rounded-xl font-semibold text-sm transition-all">
+                <Link href="/dashboard/settings" className="flex-1 text-center bg-slate-100 hover:bg-slate-200 text-slate-900 py-3.5 rounded-xl font-black text-sm transition-all border border-slate-200">
                   Settings
                 </Link>
-                <Link href="/dashboard/integrations" className="flex-1 text-center bg-white text-[#0F172A] py-3.5 rounded-xl font-semibold text-sm hover:bg-blue-50 transition-all shadow-xl">
+                <Link href="/dashboard/integrations" className="flex-1 text-center bg-blue-600 text-white py-3.5 rounded-xl font-black text-sm hover:bg-blue-700 transition-all shadow-lg shadow-blue-200">
                   Integrations
                 </Link>
               </div>
@@ -277,13 +277,16 @@ export default function DashboardPage() {
                 { label: 'Sandbox', icon: (
                   <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.673.337a4 4 0 01-2.586.346l-1.541-.308A1 1 0 017 13.82V18a2 2 0 002 2h3.014a3 3 0 012.121.879l1.07 1.07A1 1 0 0016.914 22h3.014a2 2 0 002-2v-4.572zM6 7a2 2 0 100-4 2 2 0 000 4z"/></svg>
                 ), href: '/dashboard/test-chat' },
+                { label: 'Leads', icon: (
+                  <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                ), href: '/dashboard/leads' },
                 { label: 'Documentation', icon: (
                   <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
                 ), href: '/dashboard/docs' }
               ].map((item) => (
                 <Link key={item.label} href={item.href} className="flex flex-col items-center justify-center p-6 rounded-[2rem] bg-[#F8FAFC] border border-[#F1F5F9] hover:bg-white hover:border-blue-200 hover:shadow-xl hover:shadow-blue-50 transition-all duration-300 group">
                   <span className="mb-3 text-slate-400 group-hover:text-blue-600 group-hover:scale-110 transition-all duration-300">{item.icon}</span>
-                  <span className="text-xs font-semibold text-[#94A3B8] group-hover:text-[#2563EB] transition-colors">{item.label}</span>
+                  <span className="text-xs font-semibold text-slate-500 group-hover:text-[#2563EB] transition-colors">{item.label}</span>
                 </Link>
               ))}
             </div>

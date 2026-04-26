@@ -69,7 +69,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           <div className="p-6 pb-4 flex items-center justify-between border-b border-gray-800">
             <Link href="/dashboard/admin" className="flex items-center gap-3 group">
               <div className="bg-gradient-to-br from-violet-600 to-fuchsia-600 p-2.5 rounded-xl shadow-xl shadow-violet-900/30 group-hover:shadow-violet-900/50 transition-all">
-                <img src="/logo.png" alt="ORVYN" className="w-9 h-9 object-contain brightness-0 invert" />
+                <img src="/logo.png" alt="ORVYN" className="w-9 h-9 object-contain" />
               </div>
               <div>
                 <span className="text-xl font-black tracking-tight text-white">ORVYN</span>
@@ -146,7 +146,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           <div className="flex items-center gap-4">
             <div className="hidden sm:flex items-center gap-3 pl-4 border-l border-gray-800">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-600 shadow-lg shadow-violet-900/30 overflow-hidden flex items-center justify-center">
-                <img src="/logo.png" alt="Profile" className="w-4 h-4 object-contain brightness-0 invert" />
+                <img src="/logo.png" alt="Profile" className="w-4 h-4 object-contain" />
               </div>
               <div>
                 <p className="text-xs font-bold text-white">Super Admin</p>

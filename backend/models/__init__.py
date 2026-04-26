@@ -47,6 +47,9 @@ class BotSettings(Base):
     language = Column(String(20), default="english")
     custom_responses = Column(JSON, nullable=True)
     custom_products = Column(JSON, nullable=True)
+    templates = Column(JSON, nullable=True)
+    template_enabled = Column(Boolean, default=True)
+    template_statuses = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -59,7 +62,7 @@ class Integration(Base):
     id = Column(Integer, primary_key=True, index=True)
     bot_id = Column(Integer, ForeignKey("bots.id", ondelete="CASCADE"), unique=True, nullable=False)
     whatsapp_token = Column(Text, nullable=True)  # Encrypted
-    phone_number_id = Column(String(100), nullable=True)
+    phone_number_id = Column(String(100), unique=True, index=True, nullable=True)
     whatsapp_number = Column(String(30), nullable=True)  # For wa.me link generation
     verify_token = Column(String(100), nullable=True)  # Encrypted
     woocommerce_url = Column(String(255), nullable=True)  # WooCommerce store URL
@@ -84,7 +87,9 @@ class Message(Base):
     sender = Column(String(20), nullable=False)  # "user" or "bot"
     phone_number = Column(String(30), nullable=False, index=True)
     message = Column(Text, nullable=True)
+    whatsapp_message_id = Column(String(100), nullable=True, index=True)  # WhatsApp API message ID
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    seen = Column(Boolean, default=False)  # Whether the message has been seen/read
 
     bot = relationship("Bot", back_populates="messages")
 

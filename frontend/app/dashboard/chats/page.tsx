@@ -9,6 +9,7 @@ export default function ConversationsPage() {
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Fetch all conversations
   useEffect(() => {
     api("/api/chats?limit=200").then((data: any) => {
       setMessages(data);
@@ -19,6 +20,7 @@ export default function ConversationsPage() {
     }).catch(() => setLoading(false));
   }, []);
 
+  // Fetch messages for selected phone
   useEffect(() => {
     if (selectedPhone) {
       api(`/api/chats?phone_number=${encodeURIComponent(selectedPhone)}&limit=100`).then((data: any) => {
@@ -26,6 +28,40 @@ export default function ConversationsPage() {
       }).catch(() => {});
     }
   }, [selectedPhone]);
+
+  // Poll for new messages and seen status updates
+  useEffect(() => {
+    if (!selectedPhone) return;
+
+    const pollInterval = setInterval(() => {
+      api(`/api/chats?phone_number=${encodeURIComponent(selectedPhone)}&limit=100`)
+        .then((data: any) => {
+          // Check if there are new messages
+          const lastMsg = chatMessages[chatMessages.length - 1];
+          const newLastMsg = data[data.length - 1];
+
+          if (data.length !== chatMessages.length ||
+              (lastMsg && newLastMsg && lastMsg.id !== newLastMsg.id)) {
+            setChatMessages(data.reverse());
+          } else {
+            // Update seen status for existing messages
+            setChatMessages(prev => {
+              const updated = [...prev];
+              data.forEach((newMsg: any) => {
+                const idx = updated.findIndex(m => m.id === newMsg.id);
+                if (idx !== -1 && updated[idx].seen !== newMsg.seen) {
+                  updated[idx] = { ...updated[idx], seen: newMsg.seen };
+                }
+              });
+              return updated;
+            });
+          }
+        })
+        .catch(() => {});
+    }, 3000); // Poll every 3 seconds for seen status updates
+
+    return () => clearInterval(pollInterval);
+  }, [selectedPhone, chatMessages]);
 
   if (loading) return <div className="text-slate-500 animate-pulse">Loading conversations...</div>;
 
@@ -100,8 +136,8 @@ export default function ConversationsPage() {
                 {chatMessages.map((m: any) => (
                   <div key={m.id} className={`flex flex-col ${m.sender === "user" ? "items-start" : "items-end"} group animate-in fade-in slide-in-from-top-2 duration-300`}>
                     <div className={`max-w-[80%] rounded-3xl px-6 py-4 shadow-sm text-sm font-medium ${
-                      m.sender === "user" 
-                      ? "bg-white text-slate-700 border border-slate-100 rounded-bl-none" 
+                      m.sender === "user"
+                      ? "bg-white text-slate-700 border border-slate-100 rounded-bl-none"
                       : "bg-blue-600 text-white rounded-br-none shadow-blue-100"
                     }`}>
                       <p className="leading-relaxed">{m.message}</p>
@@ -111,11 +147,22 @@ export default function ConversationsPage() {
                         {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </p>
                       {m.sender === "bot" && (
-                        <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Sent by ORVYN</span>
+                        <div className="flex items-center gap-1">
+                          {m.seen ? (
+                            <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest flex items-center gap-0.5">
+                              ✓✓
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-0.5">
+                              ✓
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
                 ))}
+
                 {chatMessages.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-20 opacity-30">
                     <span className="text-4xl mb-4">🔇</span>

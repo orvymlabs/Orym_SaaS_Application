@@ -172,7 +172,7 @@ export default function SubscriptionPage() {
               }`}>
                 {currentPlan}
               </span>
-              <span className="text-slate-400">•</span>
+              <span className="text-slate-600">•</span>
               <span className="text-slate-500">Resets: {resetDate}</span>
             </div>
           )}
@@ -187,7 +187,7 @@ export default function SubscriptionPage() {
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="bg-slate-50 rounded-2xl p-5">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">WhatsApp Messages</p>
+                <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest mb-2">WhatsApp Messages</p>
                 <p className="text-2xl font-black text-slate-900">{usage.whatsapp_messages_sent} / {usage.whatsapp_limit}</p>
                 <div className="mt-3 h-2 bg-slate-200 rounded-full overflow-hidden">
                   <div
@@ -197,7 +197,7 @@ export default function SubscriptionPage() {
                 </div>
               </div>
               <div className="bg-slate-50 rounded-2xl p-5">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">AI Requests</p>
+                <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest mb-2">AI Requests</p>
                 <p className="text-2xl font-black text-slate-900">{usage.ai_requests_made} / {usage.ai_limit}</p>
                 <div className="mt-3 h-2 bg-slate-200 rounded-full overflow-hidden">
                   <div
@@ -207,7 +207,7 @@ export default function SubscriptionPage() {
                 </div>
               </div>
               <div className="bg-slate-50 rounded-2xl p-5">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Conversations</p>
+                <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest mb-2">Conversations</p>
                 <p className="text-2xl font-black text-slate-900">{usage.conversations_count || 0}</p>
                 <p className="text-xs text-slate-500 font-medium mt-3">This billing cycle</p>
               </div>
@@ -237,7 +237,7 @@ export default function SubscriptionPage() {
               {PLANS.starter.features.map((feature, idx) => (
                 <li key={idx} className="flex items-start gap-3">
                   <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
-                    feature.included ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'
+                    feature.included ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-600'
                   }`}>
                     {feature.included ? (
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -249,7 +249,7 @@ export default function SubscriptionPage() {
                       </svg>
                     )}
                   </div>
-                  <span className={`text-sm font-medium ${feature.included ? 'text-slate-700' : 'text-slate-400 line-through'}`}>
+                  <span className={`text-sm font-medium ${feature.included ? 'text-slate-700' : 'text-slate-600 line-through'}`}>
                     {feature.text}
                   </span>
                 </li>
@@ -257,7 +257,7 @@ export default function SubscriptionPage() {
             </ul>
 
             {currentPlan === 'starter' ? (
-              <button disabled className="w-full py-4 bg-slate-100 text-slate-400 font-black rounded-2xl cursor-not-allowed">
+              <button disabled className="w-full py-4 bg-slate-100 text-slate-600 font-black rounded-2xl cursor-not-allowed">
                 CURRENT PLAN
               </button>
             ) : (
@@ -306,7 +306,7 @@ export default function SubscriptionPage() {
             </ul>
 
             {currentPlan === 'growth' ? (
-              <button disabled className="w-full py-4 bg-slate-100 text-slate-400 font-black rounded-2xl cursor-not-allowed">
+              <button disabled className="w-full py-4 bg-slate-100 text-slate-600 font-black rounded-2xl cursor-not-allowed">
                 CURRENT PLAN
               </button>
             ) : (

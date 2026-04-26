@@ -10,6 +10,9 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
+  const [showPassword, setShowPassword] = useState(false);
+
+  const togglePassword = () => setShowPassword(!showPassword);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,18 +99,25 @@ export default function LoginPage() {
                 />
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-2 relative">
                 <div className="flex justify-between items-center ml-1">
                   <label className="text-sm font-semibold text-slate-700">Password</label>
                 </div>
                 <input
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   placeholder="Enter your password"
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-5 py-3.5 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
                 />
+                <button
+                  type="button"
+                  onClick={togglePassword}
+                  className="absolute inset-y-0 right-0 pr-5 flex items-center text-slate-400 cursor-pointer"
+                >
+                  {showPassword ? "👁️‍🗨️" : "👁️"}
+                </button>
               </div>
             </div>
 
@@ -121,38 +131,12 @@ export default function LoginPage() {
           </form>
 
           <div className="mt-8 sm:mt-10 relative z-10">
-            <div className="relative mb-6">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-100"></div>
-              </div>
-              <div className="relative flex justify-center text-xs">
-                <span className="bg-white px-4 text-slate-400 font-medium">Or continue with</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={() => handleSocialLogin("Google")}
-                className="flex items-center justify-center gap-2 p-3 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all group"
-              >
-                <img src="https://www.svgrepo.com/show/475656/google-color.svg" className="w-5 h-5" alt="Google" />
-                <span className="text-sm font-semibold text-slate-600">Google</span>
-              </button>
-              <button
-                onClick={() => handleSocialLogin("Facebook")}
-                className="flex items-center justify-center gap-2 p-3 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all group"
-              >
-                <img src="https://www.svgrepo.com/show/475647/facebook-color.svg" className="w-5 h-5" alt="Facebook" />
-                <span className="text-sm font-semibold text-slate-600">Facebook</span>
-              </button>
-            </div>
+            <p className="text-center text-sm font-medium text-slate-500">
+              Don't have an account?{" "}
+              <Link href="/signup" className="text-blue-600 hover:text-blue-700 font-bold">Create Account</Link>
+            </p>
           </div>
         </div>
-
-        <p className="text-center text-sm font-medium text-slate-500">
-          Don't have an account?{" "}
-          <Link href="/signup" className="text-blue-600 hover:text-blue-700 font-bold">Create Account</Link>
-        </p>
       </div>
     </div>
   );

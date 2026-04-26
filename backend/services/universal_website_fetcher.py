@@ -44,41 +44,71 @@ class UniversalWebsiteFetcher:
             "detected_endpoints": []
         }
 
+        base_url = base_url.rstrip("/")
         try:
             logger.info(f"Platform detection: Fetching {base_url}")
-            resp = requests.get(base_url, timeout=10, verify=False, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            })
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+            resp = requests.get(base_url, timeout=10, verify=False, headers=headers)
             logger.info(f"Platform detection: {base_url} status code: {resp.status_code}")
+            
             if resp.status_code == 200:
                 html = resp.text.lower()
                 
-                if "shopify" in html or ".myshopify.com" in html:
+                # Check headers
+                server = resp.headers.get("Server", "").lower()
+                if "shopify" in server:
+                    result["is_shopify"] = True
+                    result["platform"] = "shopify"
+
+                if "shopify" in html or ".myshopify.com" in html or "cdn.shopify.com" in html:
                     result["is_shopify"] = True
                     result["platform"] = "shopify"
                 
-                if "/wp-content/" in html or "/wp-includes/" in html or "wp-json" in html:
+                if "/wp-content/" in html or "/wp-includes/" in html or "wp-json" in html or "wordpress" in html:
                     result["is_wordpress"] = True
                     result["platform"] = "wordpress"
                 
                 # Check for WooCommerce specifically
-                if "woocommerce" in html or "wc-api" in html:
+                if "woocommerce" in html or "wc-api" in html or "wc-settings" in html:
                     result["is_woocommerce"] = True
-                    if result["platform"] == "wordpress":
-                        result["platform"] = "woocommerce"
+                    result["platform"] = "woocommerce"
 
-                # Proactive endpoint check
-                try:
-                    logger.info(f"Platform detection: Checking wp-json for {base_url}")
-                    wp_resp = requests.get(f"{base_url.rstrip('/')}/wp-json/", timeout=5, verify=False)
-                    logger.info(f"Platform detection: wp-json status code: {wp_resp.status_code}")
-                    if wp_resp.status_code == 200:
-                        result["detected_endpoints"].append("wp-json")
-                        result["is_wordpress"] = True
-                except Exception as e:
-                    logger.warning(f"Platform detection: wp-json check failed: {e}")
+                # Proactive endpoint check for WordPress/WooCommerce
+                endpoints_to_check = [
+                    "/wp-json/",
+                    "/wp-json/wc/v3/",
+                    "/wp-json/wp/v2/pages",
+                    "/shop/",
+                    "/products/"
+                ]
+
+                for endpoint in endpoints_to_check:
+                    try:
+                        check_url = f"{base_url}{endpoint}"
+                        logger.debug(f"Platform detection: Checking {check_url}")
+                        wp_resp = requests.get(check_url, timeout=5, verify=False, headers=headers)
+                        if wp_resp.status_code in [200, 401]: # 401 means it exists but needs auth
+                            result["detected_endpoints"].append(endpoint)
+                            if "wp-json" in endpoint:
+                                result["is_wordpress"] = True
+                                if "wc/v3" in endpoint:
+                                    result["is_woocommerce"] = True
+                                    result["platform"] = "woocommerce"
+                                elif result["platform"] == "unknown":
+                                    result["platform"] = "wordpress"
+                    except Exception:
+                        pass
         except Exception as e:
             logger.warning(f"Platform detection for {base_url} failed: {e}")
+        
+        # Final adjustment
+        if result["is_woocommerce"]:
+            result["platform"] = "woocommerce"
+        elif result["is_wordpress"] and result["platform"] == "unknown":
+            result["platform"] = "wordpress"
+            
         return result
 
     @staticmethod
@@ -292,91 +322,102 @@ class UniversalWebsiteFetcher:
         return final_services
 
     @staticmethod
-    def scrape_products_from_website(base_url: str) -> dict:
+    def scrape_products_from_website(base_url: str, limit: int = 50) -> dict:
         result = {"success": False, "products": [], "categories": [], "total_products": 0}
         try:
-            logger.info(f"🔍 Scraping products from: {base_url}")
+            logger.info(f"🔍 Scraping products from: {base_url} (limit: {limit})")
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-            resp = requests.get(base_url, timeout=12, verify=False, headers=headers)
-            logger.info(f"Scraping {base_url}: Status code {resp.status_code}")
+            
+            # Try home page first
+            urls_to_try = [base_url.rstrip("/")]
+            # Also try /shop and /products if they exist
+            for path in ["/shop", "/products", "/collections/all"]:
+                urls_to_try.append(base_url.rstrip("/") + path)
 
-            if resp.status_code == 200:
-                html = resp.text
-                soup = BeautifulSoup(html, 'html.parser')
-                
-                # Broadly look for product-like containers using common class name patterns
-                # Improved patterns to catch more variations
-                patterns = [
-                    re.compile(r'product', re.I), re.compile(r'item', re.I), 
-                    re.compile(r'card', re.I), re.compile(r'entry', re.I),
-                    re.compile(r'shop', re.I), re.compile(r'grid', re.I),
-                    re.compile(r'listing', re.I), re.compile(r'detail', re.I)
-                ]
-                
-                found_items = []
-                # Try finding elements by common product-related class names
-                for pattern in patterns:
-                    elements = soup.find_all(class_=pattern)
-                    logger.debug(f"Scraping {base_url}: Found {len(elements)} elements matching pattern '{pattern.pattern}'")
-                    found_items.extend(elements)
-                
-                # Deduplicate based on extracted name to avoid listing same product multiple times
-                seen_names = set()
-                extracted_products = []
+            extracted_products = []
+            seen_names = set()
 
-                for item in found_items:
-                    # Try to find the product name tag (common tags like h2, h3, a, strong)
-                    name_tag = item.find(['h2', 'h3', 'h4', 'a', 'strong', 'span'], class_=re.compile(r'(name|title|heading)', re.I))
-                    if not name_tag:
-                        # Fallback: search for any prominent text within the item if no specific name tag found
-                        name_tag = item.find(string=re.compile(r'\w{5,}', re.I)) # Look for text with at least 5 chars
-
-                    if name_tag:
-                        name = name_tag.get_text(strip=True)
-                        # Basic validation for name (length, not just numbers/symbols)
-                        if name and len(name) > 3 and not name.isnumeric() and len(re.findall(r'[a-zA-Z]', name)) > 0:
-                            if name not in seen_names:
-                                # Try to find price
-                                price = "Contact us" # Default price
-                                # Search for price patterns within the item's text
-                                price_text_elements = item.find_all(string=re.compile(r'(\d+|Rs|PKR|\$|€|£)', re.I))
-                                for pt_element in price_text_elements:
-                                    price_text = pt_element.parent.get_text(strip=True) if pt_element.parent else pt_element.get_text(strip=True)
-                                    price_match = re.search(r'([R|r][s|S]?\.?\s?\d+[\d,.]*|[P|p][K|K][R|R]\s?\d+[\d,.]*|\$\s?\d+[\d,.]*|€\s?\d+[\d,.]*|£\s?\d+[\d,.]*)', price_text)
-                                    if price_match:
-                                        price = price_match.group()
-                                        break # Found a price, stop searching
-
+            for url in urls_to_try:
+                if len(extracted_products) >= limit: break
+                try:
+                    logger.debug(f"Scraping URL: {url}")
+                    resp = requests.get(url, timeout=12, verify=False, headers=headers)
+                    if resp.status_code != 200:
+                        continue
+                    
+                    html = resp.text
+                    soup = BeautifulSoup(html, 'html.parser')
+                    
+                    # 1. Try Schema.org Product markup
+                    schema_products = soup.find_all(itemtype=re.compile(r'Product', re.I))
+                    for item in schema_products:
+                        if len(extracted_products) >= limit: break
+                        name_elem = item.find(itemprop="name")
+                        price_elem = item.find(itemprop="price") or item.find(class_=re.compile(r'price', re.I))
+                        
+                        if name_elem:
+                            name = name_elem.get_text(strip=True)
+                            if name and name not in seen_names:
+                                price = price_elem.get_text(strip=True) if price_elem else "Contact us"
                                 extracted_products.append({"name": name, "price": price})
                                 seen_names.add(name)
-                                logger.debug(f"Scraped product: Name='{name}', Price='{price}'")
-                
-                # If no products found with common patterns, try a broader approach
-                if not extracted_products:
-                    logger.warning(f"No products found using common patterns on {base_url}. Trying broader heading search.")
-                    # Fallback: look for headings (h2, h3) that might be product names
-                    for h in soup.find_all(['h2', 'h3', 'h4']):
-                        name = h.get_text(strip=True)
-                        # Basic validation for name
-                        if name and len(name) > 5 and not name.isnumeric() and len(re.findall(r'[a-zA-Z]', name)) > 0:
-                            if name not in seen_names:
-                                extracted_products.append({"name": name, "price": "Contact us"})
-                                seen_names.add(name)
-                                logger.debug(f"Scraped product (fallback heading): Name='{name}', Price='Contact us'")
 
-                if extracted_products:
-                    result["success"] = True
-                    result["products"] = extracted_products
-                    result["total_products"] = len(extracted_products)
-                    logger.info(f"✅ Successfully scraped {result['total_products']} items from {base_url}")
-                else:
-                    logger.warning(f"Could not scrape any products from {base_url} even with fallback.")
+                    # 2. Broadly look for product-like containers
+                    patterns = [
+                        re.compile(r'product', re.I), re.compile(r'item', re.I), 
+                        re.compile(r'card', re.I), re.compile(r'entry', re.I),
+                        re.compile(r'shop', re.I), re.compile(r'grid', re.I),
+                        re.compile(r'listing', re.I), re.compile(r'detail', re.I)
+                    ]
+                    
+                    found_items = []
+                    for pattern in patterns:
+                        found_items.extend(soup.find_all(class_=pattern))
+                        found_items.extend(soup.find_all(id=pattern))
+                    
+                    for item in found_items:
+                        if len(extracted_products) >= limit: break
+                        if len(item.get_text()) < 10 or item.name in ['body', 'html']:
+                            continue
+
+                        name_tag = item.find(['h1', 'h2', 'h3', 'h4', 'a', 'strong', 'span'], class_=re.compile(r'(name|title|heading|caption)', re.I))
+                        if not name_tag and item.name in ['h2', 'h3', 'h4']:
+                            name_tag = item
+                        
+                        if name_tag:
+                            name = name_tag.get_text(strip=True)
+                            if name and 3 < len(name) < 150 and not name.isnumeric() and len(re.findall(r'[a-zA-Z]', name)) > 1:
+                                if name not in seen_names:
+                                    price = "Contact us"
+                                    price_patterns = [r'price', r'amount', r'cost', r'value', r'sale']
+                                    price_tag = item.find(['span', 'div', 'p', 'b'], class_=re.compile('|'.join(price_patterns), re.I))
+                                    
+                                    if price_tag:
+                                        price_text = price_tag.get_text(strip=True)
+                                        price_match = re.search(r'([R|r][s|S]?\.?\s?\d+[\d,.]*|[P|p][K|K][R|R]\s?\d+[\d,.]*|\$\s?\d+[\d,.]*|€\s?\d+[\d,.]*|£\s?\d+[\d,.]*)', price_text)
+                                        if price_match:
+                                            price = price_match.group()
+                                    
+                                    if price == "Contact us":
+                                        all_text = item.get_text(separator=' ', strip=True)
+                                        price_match = re.search(r'([R|r][s|S]?\.?\s?\d+[\d,.]*|[P|p][K|K][R|R]\s?\d+[\d,.]*|\$\s?\d+[\d,.]*|€\s?\d+[\d,.]*|£\s?\d+[\d,.]*)', all_text)
+                                        if price_match:
+                                            price = price_match.group()
+
+                                    extracted_products.append({"name": name, "price": price})
+                                    seen_names.add(name)
+                except Exception as e:
+                    logger.debug(f"Error scraping {url}: {e}")
+
+            if extracted_products:
+                result["success"] = True
+                result["products"] = extracted_products
+                result["total_products"] = len(extracted_products)
+                logger.info(f"✅ Successfully scraped {result['total_products']} items from website")
             else:
-                logger.warning(f"Scraping {base_url} failed with status code: {resp.status_code}")
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Scraping {base_url} failed due to network error: {e}")
+                logger.warning(f"Could not scrape any products from {base_url}")
         except Exception as e:
-            logger.error(f"Scraping {base_url} failed due to parsing or other error: {e}")
+            logger.error(f"Scraping {base_url} failed: {e}")
         return result
 
     @staticmethod
@@ -446,3 +487,82 @@ class UniversalWebsiteFetcher:
         except Exception as e:
             logger.error(f"An unexpected error occurred during WordPress API fetch for {base_url}: {e}")
         return res
+
+    @staticmethod
+    def auto_discover_and_fetch(website_url: str, integration_id: Optional[int] = None) -> dict:
+        """
+        Automatically detect platform and fetch all available data (info, products, pages).
+        Consolidates results for easier integration setup.
+        If integration_id is provided, saves results to the database.
+        """
+        website_url = UniversalWebsiteFetcher.normalize_url(website_url)
+        logger.info(f"🚀 Starting auto-discovery for: {website_url}")
+        
+        result = {
+            "success": False,
+            "platform": "unknown",
+            "site_info": {},
+            "products": [],
+            "pages": {},
+            "total_products": 0,
+            "message": ""
+        }
+        
+        try:
+            # 1. Detect platform
+            plat_info = UniversalWebsiteFetcher.detect_platform(website_url)
+            result["platform"] = plat_info["platform"]
+            
+            # 2. Fetch basic site info
+            result["site_info"] = UniversalWebsiteFetcher.fetch_site_info(website_url)
+            
+            # 3. Fetch products (scrape by default for discovery)
+            prod_res = UniversalWebsiteFetcher.scrape_products_from_website(website_url)
+            if prod_res["success"]:
+                result["products"] = prod_res["products"]
+                result["total_products"] = prod_res["total_products"]
+            
+            # 4. If WordPress/WooCommerce, fetch pages
+            if plat_info["is_wordpress"] or plat_info["is_woocommerce"]:
+                pages_res = UniversalWebsiteFetcher.fetch_wordpress_pages(website_url)
+                if pages_res["success"]:
+                    result["pages"] = pages_res["pages"]
+            
+            result["success"] = True
+            result["message"] = f"Successfully discovered {result['platform']} site with {result['total_products']} products."
+            logger.info(f"✅ Auto-discovery completed for {website_url}. Platform: {result['platform']}, Products: {result['total_products']}")
+
+            # 5. Save to database if integration_id is provided
+            if integration_id:
+                try:
+                    from database import SessionLocal
+                    from models import Integration
+                    import json
+                    
+                    db = SessionLocal()
+                    try:
+                        integ = db.query(Integration).filter(Integration.id == integration_id).first()
+                        if integ:
+                            integ.woo_products_cached = True
+                            integ.woo_products_count = result["total_products"]
+                            # If no categories found during scraping, just store empty list
+                            integ.woo_categories_cached = json.dumps([])
+                            
+                            # Update URLs if they were missing
+                            if result["platform"] == "woocommerce" and not integ.woocommerce_url:
+                                integ.woocommerce_url = website_url
+                            if (result["platform"] == "wordpress" or result["platform"] == "woocommerce") and not integ.wp_base_url:
+                                integ.wp_base_url = website_url
+                                
+                            db.commit()
+                            logger.info(f"💾 Saved discovery results to integration ID: {integration_id}")
+                    finally:
+                        db.close()
+                except Exception as db_err:
+                    logger.error(f"Failed to save discovery results to DB: {db_err}")
+            
+        except Exception as e:
+            logger.error(f"❌ Auto-discovery failed for {website_url}: {e}")
+            result["message"] = f"Discovery failed: {str(e)}"
+            
+        return result

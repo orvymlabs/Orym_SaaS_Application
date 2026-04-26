@@ -2,7 +2,7 @@
 <FileZilla3 version="3.66.5" platform="windows">
     <Servers>
         <Server>
-            <Host>orvynlabs.brandlessdigital.com</Host>
+            <Host>orvymlabs.brandlessdigital.com</Host>
             <Port>21</Port>
             <Protocol>0</Protocol>
             <Type>0</Type>

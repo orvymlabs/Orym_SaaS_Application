@@ -11,6 +11,7 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,16 +83,23 @@ export default function SignupPage() {
                 />
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-2 relative">
                 <label className="text-sm font-semibold text-slate-700 ml-1">Create Password</label>
                 <input
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   placeholder="Enter a secure password"
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-5 py-3.5 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-5 flex items-center text-slate-400 cursor-pointer"
+                >
+                  {showPassword ? "👁️‍🗨️" : "👁️"}
+                </button>
               </div>
             </div>
 
@@ -114,29 +122,12 @@ export default function SignupPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={() => handleSocialSignup("Google")}
-                className="flex items-center justify-center gap-2 p-3 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all group"
-              >
-                <img src="https://www.svgrepo.com/show/475656/google-color.svg" className="w-5 h-5" alt="Google" />
-                <span className="text-sm font-semibold text-slate-600">Google</span>
-              </button>
-              <button
-                onClick={() => handleSocialSignup("Facebook")}
-                className="flex items-center justify-center gap-2 p-3 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all group"
-              >
-                <img src="https://www.svgrepo.com/show/475647/facebook-color.svg" className="w-5 h-5" alt="Facebook" />
-                <span className="text-sm font-semibold text-slate-600">Facebook</span>
-              </button>
-            </div>
+            <p className="text-center text-sm font-medium text-slate-500">
+              Already have an account?{" "}
+              <Link href="/login" className="text-blue-600 hover:text-blue-700 font-bold">Sign In</Link>
+            </p>
           </div>
         </div>
-
-        <p className="text-center text-sm font-medium text-slate-500">
-          Already have an account?{" "}
-          <Link href="/login" className="text-blue-600 hover:text-blue-700 font-bold">Sign In</Link>
-        </p>
       </div>
     </div>
   );

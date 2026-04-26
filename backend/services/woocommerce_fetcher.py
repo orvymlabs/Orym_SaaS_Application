@@ -70,12 +70,12 @@ class WooCommerceFetcher:
         return list(set(services))[:15]
 
     @staticmethod
-    def fetch_products_with_auth(base_url: str, key: str, secret: str) -> dict:
+    def fetch_products_with_auth(base_url: str, key: str, secret: str, limit: int = 50) -> dict:
         # Fetching products
         result = {"success": False, "products": [], "categories": []}
         try:
             url = f"{base_url.rstrip('/')}/wc/v3/products"
-            r = requests.get(url, params={"consumer_key": key, "consumer_secret": secret, "per_page": 50}, timeout=20, verify=False)
+            r = requests.get(url, params={"consumer_key": key, "consumer_secret": secret, "per_page": limit}, timeout=20, verify=False)
             if r.status_code == 200:
                 result.update({"success": True, "products": r.json()})
         except: pass

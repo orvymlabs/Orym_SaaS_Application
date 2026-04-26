@@ -1,17 +1,33 @@
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
-from datetime import datetime
 
 
-class TestChatRequest(BaseModel):
-    message: str
-
-
-class TestChatResponse(BaseModel):
-    reply: str
+class Bot(BaseModel):
+    id: int
+    user_id: int
     mode: str
-    bot_id: int
+    status: bool
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
+class BotResponse(Bot): # Inherit from Bot or define fields explicitly
+    pass
+
+class BotModeUpdate(BaseModel): # Added BotModeUpdate class
+    mode: str
+
+class BotStatusUpdate(BaseModel): # Added BotStatusUpdate class
+    status: bool
+
+class BotCreate(BaseModel):
+    mode: str
+    status: bool = True
+
+class BotSettings(BaseModel):
+    bot_id: int
+    greeting_message: Optional[str] = None
+    custom_responses: Optional[dict] = None
+    custom_products: Optional[Any] = None
 
 class BotSettingsUpdate(BaseModel):
     prompt: Optional[str] = None
@@ -20,40 +36,30 @@ class BotSettingsUpdate(BaseModel):
     api_key: Optional[str] = None
     temperature: Optional[int] = None  # 0-100 stored as int, converted to float for AI
     language: Optional[str] = None
-    custom_responses: Optional[Dict[str, str]] = None
+    templates: Optional[Dict[str, str]] = None
+    template_enabled: Optional[bool] = None
+    template_statuses: Optional[Dict[str, bool]] = None # Added for individual template statuses
+    custom_responses: Optional[Dict[str, str]] = None # Added custom_responses field
     custom_products: Optional[Any] = None
 
-
-class BotModeUpdate(BaseModel):
-    mode: str  # default, predefined, ai
-
-
-class BotStatusUpdate(BaseModel):
-    status: bool
-
-
-class BotResponse(BaseModel):
-    id: int
-    user_id: int
-    mode: str
-    status: bool
-    created_at: Optional[datetime]
-
-    class Config:
-        from_attributes = True
-
-
-class SettingsResponse(BaseModel):
+class SettingsResponse(BaseModel): # Added SettingsResponse class
     id: int
     bot_id: int
-    prompt: Optional[str]
-    model_name: str  # Provider: openai, gemini, openrouter, qwen
-    specific_model_name: Optional[str]  # Specific model: gpt-4o, gemini-2.0-flash, etc.
-    temperature: int
-    language: str
-    custom_responses: Optional[Dict[str, str]]
-    custom_products: Optional[Any]
-    has_api_key: bool
+    prompt: Optional[str] = None
+    model_name: Optional[str] = None
+    specific_model_name: Optional[str] = None
+    temperature: Optional[int] = None
+    language: Optional[str] = None
+    templates: Optional[Dict[str, str]] = None
+    template_enabled: Optional[bool] = None
+    custom_products: Optional[Any] = None
+    has_api_key: bool # Added has_api_key field
 
-    class Config:
-        from_attributes = True
+class TestChatRequest(BaseModel): # Added TestChatRequest class
+    message: str
+
+class TestChatResponse(BaseModel): # Added TestChatResponse class
+    reply: str
+    mode: str
+    bot_id: int
+

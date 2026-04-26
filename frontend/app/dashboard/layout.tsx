@@ -60,7 +60,7 @@ const navItems = [
   { href: "/dashboard/test-chat", label: "Sandbox", icon: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.673.337a4 4 0 01-2.586.346l-1.541-.308A1 1 0 017 13.82V18a2 2 0 002 2h3.014a3 3 0 012.121.879l1.07 1.07A1 1 0 0016.914 22h3.014a2 2 0 002-2v-4.572zM6 7a2 2 0 100-4 2 2 0 000 4z"/></svg>
   )},
-  { href: "/dashboard/leads", label: "Contacts", icon: (
+  { href: "/dashboard/leads", label: "Leads", icon: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
   )},
   { href: "/dashboard/settings", label: "Automation Settings", icon: (
@@ -117,7 +117,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           <div className="p-8 pb-6 flex items-center justify-between">
             <Link href="/dashboard" className="flex items-center gap-4 group">
               <div className="bg-[#2563EB] p-3 rounded-2xl shadow-xl shadow-blue-100 group-hover:scale-105 transition-all">
-                <img src="/logo.png" alt="ORVYN" className="w-12 h-12 object-contain brightness-0 invert" />
+                <img src="/logo.png" alt="ORVYN" className="w-12 h-12 object-contain" />
               </div>
               <div>
                 <span className="text-2xl font-black tracking-tight text-[#0F172A] platform-name">ORVYN</span>
@@ -205,7 +205,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             
             <div className="flex items-center gap-4 border-l border-slate-100 pl-6">
               <div className="w-10 h-10 rounded-2xl bg-blue-600 shadow-lg shadow-blue-100 overflow-hidden flex items-center justify-center border-2 border-white">
-                <img src="/logo.png" alt="Profile" className="w-6 h-6 object-contain brightness-0 invert" />
+                <img src="/logo.png" alt="Profile" className="w-6 h-6 object-contain" />
               </div>
             </div>
           </div>

@@ -34,7 +34,7 @@ export default function IntegrationsPage() {
   // Generate unique verify token for each user
   const generateVerifyToken = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let token = 'orvyn_';
+    let token = 'orvym_';
     for (let i = 0; i < 32; i++) {
       token += chars.charAt(Math.floor(Math.random() * chars.length));
     }
@@ -69,7 +69,7 @@ export default function IntegrationsPage() {
   const [activeTab, setActiveTab] = useState<"whatsapp" | "website" | "button">("whatsapp");
   const { showToast, ToastContainer } = useToast();
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? 'https://orvyn-saas-platform.onrender.com' : '');
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? 'https://orvym-saas-platform.onrender.com' : '');
   const webhookUrl = `${apiUrl}/webhook`;
 
   useEffect(() => {
@@ -152,7 +152,7 @@ export default function IntegrationsPage() {
           setFetchingProducts(false);
           return;
       }
-      await apiPost("/api/integrations/fetch-woocommerce", {
+      await apiPost("/api/integrations/me/fetch-woocommerce", {
         woocommerce_url: ecommerceForm.website_url,
         woo_consumer_key: ecommerceForm.consumer_key,
         woo_consumer_secret: ecommerceForm.consumer_secret
@@ -510,42 +510,25 @@ export default function IntegrationsPage() {
               </div>
             )}
 
-            {integ.woo_products_cached && integ.business_type === "product" && (
-              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center">
-                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"/>
-                    </svg>
-                  </div>
-                  <div>
-                    <p className="font-medium text-emerald-900">Products Synchronized</p>
-                    <p className="text-sm text-emerald-700">{integ.woo_products_count} products and {integ.woo_categories_cached.length} categories cached</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="flex gap-4 pt-4 border-t border-slate-100">
-              <button
-                onClick={handleConfigureBase}
-                className="flex-1 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-              >
-                {savingEcommerce ? "Configuring..." : "Configure Integration"}
-              </button>
-              {integrationType === "product" && ecommerceForm.website_url && (
+              <div className="flex gap-4 pt-4 border-t border-slate-100">
                 <button
-                  onClick={handleFetchProducts}
-                  className="flex-1 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                  onClick={handleConfigureBase}
+                  className="flex-1 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                 >
-                  {fetchingProducts ? "Synchronizing..." : "Synchronize Products"}
+                  {savingEcommerce ? "Configuring..." : "Configure Integration"}
                 </button>
-              )}
+                {integrationType === "product" && ecommerceForm.website_url && (
+                  <button
+                    onClick={handleFetchProducts}
+                    className="flex-1 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                  >
+                    {fetchingProducts ? "Synchronizing..." : "Synchronize & Train Bot"}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
-
+        )}
       {/* Chat Button Tab */}
       {activeTab === "button" && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
