@@ -7,7 +7,7 @@ Multi-tenant WhatsApp bot platform with AI assistant, WooCommerce integration, a
 ```
 project/
 ├── backend/                 # FastAPI backend
-│   ├── data/               # Database files (SQLite)
+│   ├── data/               # Database files
 │   ├── logs/               # Application logs
 │   ├── migrations/         # Database migration scripts
 │   ├── models/             # SQLAlchemy models
