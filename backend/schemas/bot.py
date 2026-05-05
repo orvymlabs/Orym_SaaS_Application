@@ -1,5 +1,6 @@
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
+from datetime import datetime
 
 
 class Bot(BaseModel):
@@ -7,11 +8,12 @@ class Bot(BaseModel):
     user_id: int
     mode: str
     status: bool
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 class BotResponse(Bot): # Inherit from Bot or define fields explicitly
-    pass
+    class Config:
+        from_attributes = True
 
 class BotModeUpdate(BaseModel): # Added BotModeUpdate class
     mode: str
@@ -52,6 +54,8 @@ class SettingsResponse(BaseModel): # Added SettingsResponse class
     language: Optional[str] = None
     templates: Optional[Dict[str, str]] = None
     template_enabled: Optional[bool] = None
+    template_statuses: Optional[Dict[str, bool]] = None # Added template_statuses field
+    custom_responses: Optional[Dict[str, str]] = None # Added custom_responses field
     custom_products: Optional[Any] = None
     has_api_key: bool # Added has_api_key field
 

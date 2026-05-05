@@ -145,7 +145,15 @@ def update_integrations(
         integ.whatsapp_number = data.whatsapp_number.strip()
 
     if data.verify_token is not None:
-        integ.verify_token = data.verify_token.strip()
+        # Meta requires alphanumeric only - strip any invalid characters
+        clean_token = data.verify_token.strip()
+        # Remove any non-alphanumeric characters (Meta's requirement)
+        clean_token = ''.join(c for c in clean_token if c.isalnum())
+        if not clean_token:
+            raise HTTPException(400, "Verify token must contain only alphanumeric characters (letters and numbers)")
+        if len(clean_token) < 5:
+            raise HTTPException(400, "Verify token must be at least 5 characters long")
+        integ.verify_token = clean_token
 
     # Update WooCommerce fields
     if data.woo_consumer_key is not None:

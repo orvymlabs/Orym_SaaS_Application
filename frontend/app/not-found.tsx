@@ -38,7 +38,7 @@ export default function NotFound() {
         {/* Logo */}
         <div className="flex justify-center">
           <div className="bg-white p-6 rounded-3xl shadow-xl shadow-blue-100 border border-slate-100">
-            <img src="/logo.png" alt="ORVYN" className="w-20 h-20 object-contain" />
+            <img src="/logo.png" alt="ORVYM" className="w-20 h-20 object-contain" />
           </div>
         </div>
 

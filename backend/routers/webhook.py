@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 
 from database import get_db
-from models import Integration, Bot, User, Message
+from models import Integration, Bot, User, Message, SiteInfoCache
 from services.encryption import decrypt_value
 from services.whatsapp import send_whatsapp_text, mark_message_as_read
 from services.bot_engine import handle_message
@@ -53,35 +53,72 @@ def process_whatsapp_message_background(
 
         wa_token = decrypt_value(integ.whatsapp_token) if integ.whatsapp_token else None
 
-        # Fetch products and site info from website
+        # Fetch products and site info from website (with caching)
         products, categories = [], []
         contact_info_data = {}
-        try:
-            website_url = integ.woocommerce_url or integ.wp_base_url
-            if website_url:
-                # 1. Fetch products
-                fetcher_data = UniversalWebsiteFetcher.scrape_products_from_website(website_url)
-                products = fetcher_data.get("products", [])
-                categories = fetcher_data.get("categories", [])
-                logger.info(f"[{webhook_id}] Fetched {len(products)} products from {website_url}")
+        
+        website_url = integ.woocommerce_url or integ.wp_base_url
+        if website_url:
+            try:
+                # Check cache first
+                cache = db.query(SiteInfoCache).filter(SiteInfoCache.bot_id == bot.id).first()
                 
-                # 2. Fetch site info (contact, about, services)
-                site_info = UniversalWebsiteFetcher.fetch_site_info(website_url)
+                # Determine if we need to refresh (if no cache OR older than 24 hours)
+                needs_refresh = True
+                if cache and cache.last_updated:
+                    age = datetime.now() - cache.last_updated.replace(tzinfo=None)
+                    if age.total_seconds() < 86400: # 24 hours
+                        needs_refresh = False
+                
+                if needs_refresh:
+                    logger.info(f"[{webhook_id}] Cache miss or stale for {website_url}. Fetching fresh data...")
+                    # 1. Fetch products
+                    fetcher_data = UniversalWebsiteFetcher.scrape_products_from_website(website_url)
+                    products = fetcher_data.get("products", [])
+                    categories = fetcher_data.get("categories", [])
+                    
+                    # 2. Fetch site info
+                    site_info = UniversalWebsiteFetcher.fetch_site_info(website_url)
+                    
+                    # 3. Update cache
+                    if not cache:
+                        cache = SiteInfoCache(bot_id=bot.id, website_url=website_url)
+                        db.add(cache)
+                    
+                    cache.site_name = site_info.get("site_name") or website_url
+                    cache.site_description = site_info.get("site_description", "")
+                    cache.about = site_info.get("about", "")
+                    cache.services = site_info.get("services", [])
+                    cache.phone = site_info.get("contact", {}).get("phone", "")
+                    cache.email = site_info.get("contact", {}).get("email", "")
+                    cache.address = site_info.get("contact", {}).get("address", "")
+                    cache.hours = site_info.get("contact", {}).get("hours", "")
+                    cache.products = products
+                    cache.last_updated = func.now()
+                    db.commit()
+                    logger.info(f"[{webhook_id}] Cache updated for {website_url}")
+                else:
+                    logger.info(f"[{webhook_id}] Using cached data for {website_url}")
+                    products = cache.products or []
+                    # Categories aren't explicitly in SiteInfoCache yet, but we have products
+                
+                # Populate contact_info_data from cache
                 contact_info_data = {
-                    "site_name": site_info.get("site_name") or website_url,
-                    "site_description": site_info.get("site_description", ""),
-                    "about": site_info.get("about", ""),
-                    "services": site_info.get("services", []),
-                    "phone": site_info.get("contact", {}).get("phone", ""),
-                    "email": site_info.get("contact", {}).get("email", ""),
-                    "address": site_info.get("contact", {}).get("address", ""),
-                    "hours": site_info.get("contact", {}).get("hours", "")
+                    "site_name": cache.site_name,
+                    "site_description": cache.site_description,
+                    "about": cache.about,
+                    "services": cache.services or [],
+                    "phone": cache.phone,
+                    "email": cache.email,
+                    "address": cache.address,
+                    "hours": cache.hours
                 }
-                logger.info(f"[{webhook_id}] Fetched site info for {website_url}")
-        except Exception as e:
-            logger.error(f"[{webhook_id}] Website data fetch error: {e}")
+            except Exception as e:
+                logger.error(f"[{webhook_id}] Website data cache/fetch error: {e}")
+                # Fallback to empty info if everything fails
+                contact_info_data = {"site_name": website_url or "our business"}
 
-        # Bot settings
+        # Bot settings (includes bot_id for lead capture)
         bot_settings = {
             "prompt": bot.settings.prompt if bot.settings else "",
             "model_name": bot.settings.model_name if bot.settings else "openrouter",
@@ -92,14 +129,16 @@ def process_whatsapp_message_background(
             "templates": bot.settings.templates if bot.settings else {},
             "custom_responses": bot.settings.custom_responses if bot.settings else {},
             "template_enabled": getattr(bot.settings, 'template_enabled', True) if bot.settings else True,
-            "custom_products": bot.settings.custom_products if bot.settings else []
+            "custom_products": bot.settings.custom_products if bot.settings else [],
+            "_bot_id": bot.id  # Pass bot ID for lead capture in helper functions
         }
 
-        # User plan
+        # User plan and ID
         user = db.query(User).filter(User.id == bot.user_id).first()
         user_plan = user.plan if user else "starter"
+        user_id = user.id if user else None
 
-        # Call bot engine - FIXING KEYWORD ARGUMENTS
+        # Call bot engine with user_id for AI limit checking
         reply = handle_message(
             bot_mode=bot.mode,
             bot_id=bot.id,
@@ -112,7 +151,8 @@ def process_whatsapp_message_background(
             products=products,
             categories=categories,
             business_type=integ.business_type or "product",
-            user_plan=user_plan
+            user_plan=user_plan,
+            user_id=user_id
         )
 
         # Send reply and save to database with WhatsApp message ID
@@ -172,30 +212,53 @@ async def webhook_verify(request: Request, db: Session = Depends(get_db)):
     Verify webhook for Meta/Facebook App setup.
     Meta sends a GET request with hub.mode=subscribe and a verify_token.
     We must return the hub.challenge string if verification succeeds.
+
+    Note: Meta requires verify_token to contain only alphanumeric characters (no underscores).
     """
+    # Log all query params for debugging
+    all_params = dict(request.query_params)
+    logger.info(f"=== WEBHOOK VERIFICATION REQUEST ===")
+    logger.info(f"Full query params: {all_params}")
+    logger.info(f"Request URL: {request.url}")
+    logger.info(f"Client host: {request.client.host if request.client else 'unknown'}")
+
     mode = request.query_params.get("hub.mode")
     verify_token = request.query_params.get("hub.verify_token")
     challenge = request.query_params.get("hub.challenge")
 
-    logger.info(f"Webhook verification request: mode={mode}, verify_token={verify_token}")
+    logger.info(f"Webhook verification request: mode={mode}, verify_token={verify_token}, challenge={challenge}")
 
     # Log default verify token for debugging
     logger.debug(f"Default verify token from settings: {settings.DEFAULT_VERIFY_TOKEN}")
 
     if mode == "subscribe" and verify_token:
+        # Strip whitespace from incoming token (Meta may add spaces)
+        verify_token = verify_token.strip()
+        logger.info(f"Verify token after strip: '{verify_token}'")
+
         # Check against default verify token
         if verify_token == settings.DEFAULT_VERIFY_TOKEN:
             logger.info("Webhook verification successful with default token")
             return PlainTextResponse(content=challenge)
 
         # Check against user's verify token in database
+        # Query all integrations and compare in Python to handle any whitespace issues
         try:
-            integ = db.query(Integration).filter(Integration.verify_token == verify_token).first()
-            if integ:
-                logger.info(f"Webhook verification successful for integration ID: {integ.id}")
-                return PlainTextResponse(content=challenge)
+            all_integrations = db.query(Integration).filter(Integration.verify_token.isnot(None)).all()
+            logger.info(f"Found {len(all_integrations)} integration(s) with verify_token")
+
+            for integ in all_integrations:
+                stored_token = integ.verify_token.strip() if integ.verify_token else ""
+                logger.info(f"Comparing - Stored: '{stored_token}' vs Incoming: '{verify_token}'")
+                logger.info(f"Match result: {stored_token == verify_token}")
+
+                if stored_token and stored_token == verify_token:
+                    logger.info(f"✓ Webhook verification successful for integration ID: {integ.id}")
+                    return PlainTextResponse(content=challenge)
+
+            logger.warning("No matching verify token found in database")
         except Exception as e:
-            logger.error(f"Webhook verification DB lookup failed: {e}")
+            logger.error(f"Webhook verification DB lookup failed: {e}", exc_info=True)
 
     logger.warning(f"Webhook verification failed: mode={mode}, token={verify_token}")
     return PlainTextResponse(status_code=403, content="Verification failed")

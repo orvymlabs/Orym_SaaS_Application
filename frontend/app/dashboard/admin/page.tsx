@@ -72,70 +72,71 @@ export default function AdminDashboardPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-gray-400 animate-pulse text-center">
-          <div className="w-12 h-12 border-4 border-violet-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-sm font-medium">Loading Admin Dashboard...</p>
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-white/20 border-t-white rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-zinc-500 font-black uppercase tracking-[0.2em] text-[10px]">Authorizing Admin Access...</p>
         </div>
       </div>
     );
   }
 
-  // Calculate plan distribution
   const starterCount = users.filter(u => u.plan === "starter").length;
   const growthCount = users.filter(u => u.plan === "growth").length;
   const totalUsers = users.length;
 
-  // Calculate role distribution
   const userCount = users.filter(u => u.role === "user").length;
   const adminCount = users.filter(u => u.role === "admin").length;
   const superAdminCount = users.filter(u => u.role === "super_admin").length;
 
-  // Mock data for user growth (last 6 months)
   const userGrowthData = [
-    { label: "May", value: Math.max(0, totalUsers - 5), color: "bg-gray-600" },
-    { label: "Jun", value: Math.max(0, totalUsers - 4), color: "bg-gray-600" },
-    { label: "Jul", value: Math.max(0, totalUsers - 3), color: "bg-gray-600" },
-    { label: "Aug", value: Math.max(0, totalUsers - 2), color: "bg-violet-600" },
-    { label: "Sep", value: Math.max(0, totalUsers - 1), color: "bg-violet-500" },
-    { label: "Oct", value: totalUsers, color: "bg-gradient-to-t from-violet-600 to-fuchsia-600" },
+    { label: "May", value: Math.max(0, totalUsers - 5), color: "bg-zinc-800" },
+    { label: "Jun", value: Math.max(0, totalUsers - 4), color: "bg-zinc-800" },
+    { label: "Jul", value: Math.max(0, totalUsers - 3), color: "bg-zinc-800" },
+    { label: "Aug", value: Math.max(0, totalUsers - 2), color: "bg-[#6c4ef2]" },
+    { label: "Sep", value: Math.max(0, totalUsers - 1), color: "bg-[#8b6ff5]" },
+    { label: "Oct", value: totalUsers, color: "bg-gradient-to-t from-[#6c4ef2] to-[#a78bfa]" },
   ];
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
       <ToastContainer />
 
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-black text-white tracking-tight">Admin Dashboard</h1>
-          <p className="text-gray-400 font-medium mt-1 text-sm">Platform-wide insights and management</p>
+          <h1 className="text-4xl font-black text-white tracking-tighter">Admin Dashboard</h1>
+          <p className="text-zinc-500 font-medium mt-1">Platform-wide insights and neural management</p>
         </div>
         <button
           onClick={fetchData}
-          className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold transition-all shadow-lg shadow-violet-900/30"
+          className="btn-primary"
         >
-          Refresh Data
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          Refresh Nexus
         </button>
       </div>
 
       {/* Stats Cards */}
       {stats && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {[
             { label: "Total Users", value: stats.total_users, icon: "👥", color: "violet", change: "+12%" },
             { label: "Messages Sent", value: stats.total_messages, icon: "💬", color: "emerald", change: "+24%" },
             { label: "Total Contacts", value: stats.total_contacts, icon: "👤", color: "fuchsia", change: "+8%" },
             { label: "Active Bots", value: users.filter(u => u.bot?.status !== false).length, icon: "🤖", color: "amber", change: "+3" },
           ].map(s => (
-            <div key={s.label} className="bg-gray-900/50 backdrop-blur-sm p-4 rounded-xl border border-gray-800 shadow-xl">
+            <div key={s.label} className="bg-[#090909] p-6 rounded-[2rem] border border-zinc-800 shadow-2xl shadow-black">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest">{s.label}</p>
-                  <p className="text-2xl font-black text-white mt-1.5">{s.value}</p>
-                  <p className="text-[9px] font-bold text-emerald-400 mt-1">{s.change} this month</p>
+                  <p className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">{s.label}</p>
+                  <p className="text-3xl font-black text-white mt-2">{s.value}</p>
+                  <p className="text-[10px] font-bold text-emerald-400 mt-2 flex items-center gap-1">
+                    <span className="w-1 h-1 rounded-full bg-emerald-500"></span>
+                    {s.change} growth
+                  </p>
                 </div>
-                <div className={`w-10 h-10 rounded-lg bg-${s.color}-500/20 border border-${s.color}-500/30 flex items-center justify-center text-xl`}>
+                <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-2xl">
                   {s.icon}
                 </div>
               </div>
@@ -145,36 +146,36 @@ export default function AdminDashboardPage() {
       )}
 
       {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* User Growth Chart */}
-        <div className="bg-gray-900/50 backdrop-blur-sm p-5 rounded-xl border border-gray-800 shadow-xl">
-          <h3 className="text-base font-bold text-white mb-4">User Growth (Last 6 Months)</h3>
+        <div className="bg-[#090909] p-8 rounded-[2.5rem] border border-zinc-800 shadow-2xl">
+          <h3 className="text-sm font-black uppercase tracking-widest text-zinc-500 mb-8">User Acquisition Flow</h3>
           <SimpleBarChart data={userGrowthData} />
         </div>
 
         {/* Plan Distribution */}
-        <div className="bg-gray-900/50 backdrop-blur-sm p-5 rounded-xl border border-gray-800 shadow-xl">
-          <h3 className="text-base font-bold text-white mb-4">Plan Distribution</h3>
+        <div className="bg-[#090909] p-8 rounded-[2.5rem] border border-zinc-800 shadow-2xl">
+          <h3 className="text-sm font-black uppercase tracking-widest text-zinc-500 mb-8">Plan Market Share</h3>
           <div className="flex items-center justify-around">
             <SimpleDonutChart
               value={growthCount}
               total={totalUsers}
               label="Growth"
-              color="#8b5cf6"
+              color="#6c4ef2"
             />
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-violet-500"></div>
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-3 h-3 rounded-full bg-[#6c4ef2] shadow-[0_0_10px_#6c4ef2]"></div>
                 <div>
-                  <p className="text-xs font-bold text-white">{growthCount}</p>
-                  <p className="text-[9px] text-gray-500 uppercase">Growth Plans</p>
+                  <p className="text-sm font-black text-white">{growthCount}</p>
+                  <p className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">Growth Plans</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-gray-600"></div>
+              <div className="flex items-center gap-3">
+                <div className="w-3 h-3 rounded-full bg-zinc-800"></div>
                 <div>
-                  <p className="text-xs font-bold text-white">{starterCount}</p>
-                  <p className="text-[9px] text-gray-500 uppercase">Starter Plans</p>
+                  <p className="text-sm font-black text-white">{starterCount}</p>
+                  <p className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">Starter Plans</p>
                 </div>
               </div>
             </div>
@@ -183,66 +184,64 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* Role Distribution */}
-      <div className="bg-gray-900/50 backdrop-blur-sm p-5 rounded-xl border border-gray-800 shadow-xl">
-        <h3 className="text-base font-bold text-white mb-4">User Roles</h3>
-        <div className="grid grid-cols-3 gap-4">
+      <div className="bg-[#090909] p-10 rounded-[3rem] border border-zinc-800 shadow-2xl">
+        <h3 className="text-sm font-black uppercase tracking-widest text-zinc-500 mb-10">Administrative Hierarchy</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {[
-            { role: "Users", count: userCount, color: "from-violet-500 to-fuchsia-600", bg: "bg-violet-500/10" },
-            { role: "Admins", count: adminCount, color: "from-emerald-500 to-teal-600", bg: "bg-emerald-500/10" },
-            { role: "Super Admins", count: superAdminCount, color: "from-amber-500 to-orange-600", bg: "bg-amber-500/10" },
+            { role: "Standard Users", count: userCount, color: "from-[#6c4ef2] to-[#a78bfa]", bg: "bg-[#6c4ef2]/10" },
+            { role: "Nexus Admins", count: adminCount, color: "from-emerald-500 to-teal-400", bg: "bg-emerald-500/10" },
+            { role: "Core Founders", count: superAdminCount, color: "from-amber-500 to-orange-400", bg: "bg-amber-500/10" },
           ].map(r => (
-            <div key={r.role} className={`${r.bg} rounded-xl p-4 border border-white/5`}>
-              <p className="text-[8px] font-black text-gray-500 uppercase tracking-widest">{r.role}</p>
-              <p className="text-3xl font-black text-white mt-1.5">{r.count}</p>
-              <div className={`h-1.5 rounded-full bg-gradient-to-r ${r.color} mt-3`}></div>
+            <div key={r.role} className={`${r.bg} rounded-[2rem] p-8 border border-white/5`}>
+              <p className="text-[9px] font-black text-zinc-600 uppercase tracking-[0.2em]">{r.role}</p>
+              <p className="text-5xl font-black text-white mt-3 tracking-tighter">{r.count}</p>
+              <div className={`h-1.5 rounded-full bg-gradient-to-r ${r.color} mt-6 shadow-sm`}></div>
             </div>
           ))}
         </div>
       </div>
 
       {/* Recent Users Table */}
-      <div className="bg-gray-900/50 backdrop-blur-sm p-5 rounded-xl border border-gray-800 shadow-xl">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-bold text-white">Recent Users</h3>
-          <a href="/dashboard/admin/users" className="text-xs font-semibold text-violet-400 hover:text-violet-300 transition-colors">
-            View All →
+      <div className="bg-[#090909] rounded-[3rem] border border-zinc-800 shadow-2xl overflow-hidden">
+        <div className="px-10 py-8 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50">
+          <h3 className="text-lg font-black text-white tracking-tight">Recent Onboarding</h3>
+          <a href="/dashboard/admin/users" className="btn-pill btn-pill-inactive !py-2 !px-4 border-zinc-700 hover:border-white">
+            View All Records
           </a>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="border-b border-gray-800">
-                <th className="pb-3 text-[9px] font-black text-gray-500 uppercase tracking-widest">Email</th>
-                <th className="pb-3 text-[9px] font-black text-gray-500 uppercase tracking-widest">Plan</th>
-                <th className="pb-3 text-[9px] font-black text-gray-500 uppercase tracking-widest">Role</th>
-                <th className="pb-3 text-[9px] font-black text-gray-500 uppercase tracking-widest">Joined</th>
+              <tr className="bg-black/20">
+                <th className="px-10 py-6 text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em]">Credential</th>
+                <th className="px-10 py-6 text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em]">Service Tier</th>
+                <th className="px-10 py-6 text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em]">Auth Level</th>
+                <th className="px-10 py-6 text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em]">Join Date</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-800/50">
+            <tbody className="divide-y divide-zinc-800/50">
               {users.slice(0, 5).map(user => (
-                <tr key={user.id} className="group">
-                  <td className="py-3">
-                    <p className="font-semibold text-white text-sm">{user.email}</p>
+                <tr key={user.id} className="transition-all hover:bg-white/5">
+                  <td className="px-10 py-6">
+                    <p className="font-bold text-white text-sm tracking-tight">{user.email}</p>
                   </td>
-                  <td className="py-3">
-                    <span className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase tracking-widest ${
-                      user.plan === 'growth'
-                        ? 'bg-violet-500/20 text-violet-400 border border-violet-500/30'
-                        : 'bg-gray-700/20 text-gray-400 border border-gray-700/30'
+                  <td className="px-10 py-6">
+                    <span className={`btn-pill py-1 !text-[9px] ${
+                      user.plan === 'growth' ? 'btn-pill-active shadow-lg shadow-[#6c4ef2]/20' : 'btn-pill-inactive !border-zinc-800'
                     }`}>
                       {user.plan}
                     </span>
                   </td>
-                  <td className="py-3">
-                    <span className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase tracking-widest ${
-                      user.role === 'super_admin' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
-                      user.role === 'admin' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
-                      'bg-gray-700/20 text-gray-400 border border-gray-700/30'
+                  <td className="px-10 py-6">
+                    <span className={`btn-pill py-1 !text-[9px] ${
+                      user.role === 'super_admin' ? 'bg-amber-500 text-white border-none' :
+                      user.role === 'admin' ? 'bg-emerald-500 text-white border-none' :
+                      'btn-pill-inactive !border-zinc-800'
                     }`}>
                       {user.role}
                     </span>
                   </td>
-                  <td className="py-3 text-xs text-gray-500">
+                  <td className="px-10 py-6 text-[11px] font-black uppercase tracking-widest text-zinc-600">
                     {new Date(user.created_at).toLocaleDateString()}
                   </td>
                 </tr>

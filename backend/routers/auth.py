@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from database import get_db
-from models import User, Bot, BotSettings, Integration, Usage
+from models import User, Bot, BotSettings, Integration, Usage, Announcement
 from schemas.auth import UserCreate, UserLogin, TokenResponse, UserOut
 from services import hash_password, verify_password, create_access_token, create_refresh_token, decode_token
-from typing import Optional
+from typing import Optional, List
+from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -201,7 +202,7 @@ async def refresh(data: RefreshRequest, request: Request, db: Session = Depends(
 
 
 @router.get("/me", response_model=UserOut)
-async def get_me(user: User = Depends(get_current_user)): # Added async
+async def get_me(user: User = Depends(get_current_user)):
     return user
 
 
@@ -543,3 +544,194 @@ async def get_all_subscriptions(
         })
 
     return {"subscriptions": subscriptions}
+
+
+# --- ANNOUNCEMENTS ENDPOINTS ---
+
+class AnnouncementCreate(BaseModel):
+    title: str
+    message: str
+    priority: str = "normal"  # low, normal, high, urgent
+    expires_at: str = None  # ISO format datetime string
+
+
+class AnnouncementUpdate(BaseModel):
+    title: str = None
+    message: str = None
+    priority: str = None
+    is_active: bool = None
+    expires_at: str = None
+
+
+class AnnouncementOut(BaseModel):
+    id: int
+    title: str
+    message: str
+    priority: str
+    is_active: bool
+    created_at: datetime
+    expires_at: datetime = None
+    created_by_email: str = None
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/announcements")
+async def get_announcements(db: Session = Depends(get_db)):
+    """Get all active announcements for users."""
+    announcements = db.query(Announcement).filter(
+        Announcement.is_active == True,
+        (Announcement.expires_at == None) | (Announcement.expires_at > datetime.now(timezone.utc))
+    ).order_by(
+        Announcement.priority.desc(),  # urgent > high > normal > low
+        Announcement.created_at.desc()
+    ).all()
+
+    result = []
+    for ann in announcements:
+        creator = db.query(User).filter(User.id == ann.created_by).first()
+        result.append({
+            "id": ann.id,
+            "title": ann.title,
+            "message": ann.message,
+            "priority": ann.priority,
+            "is_active": ann.is_active,
+            "created_at": ann.created_at,
+            "expires_at": ann.expires_at,
+            "created_by_email": creator.email if creator else "Unknown"
+        })
+
+    return {"announcements": result}
+
+
+@router.get("/admin/announcements", response_model=list[AnnouncementOut])
+async def get_all_announcements(
+    admin: User = Depends(admin_required),
+    db: Session = Depends(get_db)
+):
+    """Admin only: get all announcements (active and inactive)."""
+    announcements = db.query(Announcement).order_by(
+        Announcement.created_at.desc()
+    ).all()
+
+    result = []
+    for ann in announcements:
+        creator = db.query(User).filter(User.id == ann.created_by).first()
+        result.append({
+            "id": ann.id,
+            "title": ann.title,
+            "message": ann.message,
+            "priority": ann.priority,
+            "is_active": ann.is_active,
+            "created_at": ann.created_at,
+            "expires_at": ann.expires_at,
+            "created_by_email": creator.email if creator else "Unknown"
+        })
+
+    return result
+
+
+@router.post("/admin/announcements", response_model=AnnouncementOut)
+async def create_announcement(
+    data: AnnouncementCreate,
+    admin: User = Depends(admin_required),
+    db: Session = Depends(get_db)
+):
+    """Admin only: create a new announcement."""
+    expires_at = None
+    if data.expires_at:
+        try:
+            expires_at = datetime.fromisoformat(data.expires_at.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(400, "Invalid expires_at format. Use ISO format (e.g., 2026-05-01T00:00:00Z)")
+
+    announcement = Announcement(
+        title=data.title,
+        message=data.message,
+        priority=data.priority,
+        created_by=admin.id,
+        expires_at=expires_at
+    )
+
+    db.add(announcement)
+    db.commit()
+    db.refresh(announcement)
+
+    creator = db.query(User).filter(User.id == announcement.created_by).first()
+
+    logger.info(f"Admin {admin.id} created announcement: {announcement.id}")
+
+    return {
+        "id": announcement.id,
+        "title": announcement.title,
+        "message": announcement.message,
+        "priority": announcement.priority,
+        "is_active": announcement.is_active,
+        "created_at": announcement.created_at,
+        "expires_at": announcement.expires_at,
+        "created_by_email": creator.email if creator else "Unknown"
+    }
+
+
+@router.put("/admin/announcements/{announcement_id}", response_model=AnnouncementOut)
+async def update_announcement(
+    announcement_id: int,
+    data: AnnouncementUpdate,
+    admin: User = Depends(admin_required),
+    db: Session = Depends(get_db)
+):
+    """Admin only: update an announcement."""
+    announcement = db.query(Announcement).filter(Announcement.id == announcement_id).first()
+    if not announcement:
+        raise HTTPException(404, "Announcement not found")
+
+    if data.title is not None:
+        announcement.title = data.title
+    if data.message is not None:
+        announcement.message = data.message
+    if data.priority is not None:
+        announcement.priority = data.priority
+    if data.is_active is not None:
+        announcement.is_active = data.is_active
+    if data.expires_at is not None:
+        try:
+            announcement.expires_at = datetime.fromisoformat(data.expires_at.replace('Z', '+00:00'))
+        except ValueError:
+            raise HTTPException(400, "Invalid expires_at format")
+
+    db.commit()
+    db.refresh(announcement)
+
+    creator = db.query(User).filter(User.id == announcement.created_by).first()
+
+    logger.info(f"Admin {admin.id} updated announcement: {announcement_id}")
+
+    return {
+        "id": announcement.id,
+        "title": announcement.title,
+        "message": announcement.message,
+        "priority": announcement.priority,
+        "is_active": announcement.is_active,
+        "created_at": announcement.created_at,
+        "expires_at": announcement.expires_at,
+        "created_by_email": creator.email if creator else "Unknown"
+    }
+
+
+@router.delete("/admin/announcements/{announcement_id}")
+async def delete_announcement(
+    announcement_id: int,
+    admin: User = Depends(admin_required),
+    db: Session = Depends(get_db)
+):
+    """Admin only: delete an announcement."""
+    announcement = db.query(Announcement).filter(Announcement.id == announcement_id).first()
+    if not announcement:
+        raise HTTPException(404, "Announcement not found")
+
+    db.delete(announcement)
+    db.commit()
+
+    logger.info(f"Admin {admin.id} deleted announcement: {announcement_id}")
+    return {"status": "ok", "message": "Announcement deleted"}

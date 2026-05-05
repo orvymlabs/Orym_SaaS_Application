@@ -1,10 +1,10 @@
 # Predefined Mode JSON Import Guide
 
-This guide explains how to format your JSON files for importing predefined bot rules into ORVYN.
+This guide explains how to format your JSON files for importing predefined bot rules into your WhatsApp Bot Platform.
 
 ## Supported JSON Formats
 
-ORVYN supports multiple JSON formats to make importing your rules as easy as possible.
+The platform supports multiple JSON formats to make importing your rules as easy as possible.
 
 ### Format 1: Simple Key-Value Object (Recommended)
 
@@ -72,7 +72,7 @@ Make your responses dynamic with these placeholders:
 
 ```json
 {
-  "hello": "Hi {name}! Welcome to ORVYN. How can we assist you today?",
+  "hello": "Hi {name}! Welcome to our service. How can we assist you today?",
   "contact": "You can reach us at {phone} during business hours.",
   "thanks": "You're welcome, {name}! Is there anything else I can help with?"
 }
@@ -88,12 +88,12 @@ If your file has more than 50 rules, only the first 50 will be imported.
 
 ## How to Import
 
-1. Go to **Automation Settings** in your ORVYN dashboard
+1. Go to **Settings** in your dashboard
 2. Select **Predefined** mode
-3. Click **Import JSON** button
+3. Click **Upload JSON** button
 4. Select your `.json` file
 5. Review the imported rules
-6. Click **Save Settings** to apply
+6. Click **Save All Settings** to apply
 
 ## Sample File
 
@@ -103,7 +103,7 @@ You can download a sample rules file directly from the settings page by clicking
 
 1. **Use lowercase keywords** - The system matches case-insensitively, but lowercase is cleaner
 2. **Be specific** - Avoid overly generic keywords like "the" or "a"
-3. **Test your rules** - Use the Sandbox to verify rules work as expected
+3. **Test your rules** - Use the Test Chat to verify rules work as expected
 4. **Backup your rules** - Export your current rules before importing new ones
 5. **Use placeholders** - Personalize responses with `{name}` and `{phone}`
 

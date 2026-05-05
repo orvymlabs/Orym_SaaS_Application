@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = False
     HOST: str = "0.0.0.0"
-    PORT: int = 8000
+    PORT: int = 8001
     APP_NAME: str = "WhatsApp Bot SaaS Platform"
 
     # ===========================================

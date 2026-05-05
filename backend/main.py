@@ -4,11 +4,20 @@ Production-ready multi-tenant WhatsApp bot with pricing plans
 """
 import logging
 import traceback
+import sys
+from pathlib import Path
+from contextlib import asynccontextmanager
+
+# Add backend directory to Python path for stable imports
+BACKEND_DIR = Path(__file__).parent.resolve()
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from database import init_db
-from routers import auth, bots, integrations, webhook, chat, conversations
+from routers import auth, bots, integrations, webhook, chat, conversations, leads, orders
 from config import get_settings
 
 logging.basicConfig(
@@ -21,14 +30,22 @@ settings = get_settings()
 
 logger.info(f"Application settings loaded. Environment: {settings.ENVIRONMENT}")
 
-app = FastAPI(title=settings.APP_NAME, version="2.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize database on startup."""
+    logger.info("Initializing database...")
+    try:
+        init_db()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Database initialization failed: {e}")
+    yield
+
+app = FastAPI(title=settings.APP_NAME, version="2.0", lifespan=lifespan)
 
 # Configure CORS origins
 origins = [
-    "https://orvym.com",
-    "https://www.orvym.com",
-    "https://orym-saas-application.onrender.com",
-    "http://localhost:3000",
+    "http://apps.orvym.com",
     "http://127.0.0.1:3000",
 ]
 
@@ -52,10 +69,10 @@ def get_cors_headers(request: Request):
     is_allowed = False
     if origin in origins:
         is_allowed = True
-    elif origin and ("orvym.com" in origin or "onrender.com" in origin):
+    elif origin and ("localhost" in origin or "127.0.0.1" in origin):
         is_allowed = True
         
-    allowed_origin = origin if is_allowed else "https://orvym.com"
+    allowed_origin = origin if is_allowed else "http://apps.orvym.com"
     
     return {
         "Access-Control-Allow-Origin": allowed_origin,
@@ -94,17 +111,11 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r"https?://.*orvym\.com.*", # Extra safety for subdomains
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
     expose_headers=["*"],
 )
-
-# Manual OPTIONS handler for any path (CORS Preflight fallback)
-@app.options("/{rest_of_path:path}")
-async def options_handler(request: Request, rest_of_path: str):
-    return JSONResponse(content={"status": "ok"}, headers=get_cors_headers(request))
 
 # Include routers
 app.include_router(auth.router)
@@ -113,18 +124,13 @@ app.include_router(integrations.router)
 app.include_router(webhook.router)
 app.include_router(chat.router)
 app.include_router(conversations.router)
+app.include_router(leads.router)
+app.include_router(orders.router)
 
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database on startup."""
-    logger.info("Initializing database...")
-    try:
-        init_db()
-        logger.info("Database initialized successfully")
-    except Exception as e:
-        logger.error(f"Database initialization failed: {e}")
-
+# Manual OPTIONS handler for any path (CORS Preflight fallback)
+@app.options("/{rest_of_path:path}")
+async def options_handler(request: Request, rest_of_path: str):
+    return JSONResponse(content={"status": "ok"}, headers=get_cors_headers(request))
 
 @app.get("/")
 async def root():

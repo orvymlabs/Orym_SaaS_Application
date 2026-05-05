@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useToast } from "@/components/ui";
+import { api } from "@/lib/api"; // Added import for api
 
 export default function AdminSettingsPage() {
   const { showToast, ToastContainer } = useToast();
@@ -10,86 +11,105 @@ export default function AdminSettingsPage() {
     allowRegistrations: true,
     defaultPlan: "starter",
   });
+  const [saving, setSaving] = useState(false); // Added saving state
 
-  const handleSave = () => {
-    showToast("Settings saved successfully", "success");
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      // Assume the backend endpoint is /api/admin/settings for PATCH requests
+      await api("/api/admin/settings", {
+        method: "PATCH",
+        body: JSON.stringify(settings),
+      });
+      showToast("Settings saved successfully", "success");
+    } catch (err: any) {
+      showToast(err.message || "Failed to save settings", "error");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
       <ToastContainer />
 
       <div>
-        <h1 className="text-3xl font-black text-white tracking-tight">Admin Settings</h1>
-        <p className="text-slate-400 font-medium mt-1">Configure platform-wide settings</p>
+        <h1 className="text-4xl font-black text-white tracking-tighter">System Logic</h1>
+        <p className="text-zinc-500 font-medium mt-1">Configure global platform-wide behaviors and protocols</p>
       </div>
 
       {/* Platform Settings */}
-      <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700 shadow-xl p-6">
-        <h3 className="text-lg font-bold text-white mb-6">Platform Configuration</h3>
-        <div className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-slate-400 mb-2">Platform Name</label>
+      <div className="bg-[#090909] rounded-[3rem] border border-zinc-800 shadow-2xl p-10 space-y-10">
+        <h3 className="text-xl font-black text-white tracking-tight uppercase tracking-widest text-xs opacity-50">Global Configuration</h3>
+        
+        <div className="space-y-8">
+          <div className="space-y-3">
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-600 ml-1">Platform Identity</label>
             <input
               type="text"
               value={settings.platformName}
               onChange={(e) => setSettings({ ...settings, platformName: e.target.value })}
-              className="w-full px-4 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="input-field"
+              placeholder="Enter platform display name..."
             />
           </div>
-          <div className="flex items-center justify-between p-4 bg-slate-900 rounded-xl border border-slate-700">
+
+          <div className="flex items-center justify-between p-8 bg-black rounded-[2rem] border border-zinc-800">
             <div>
-              <p className="text-white font-semibold">Maintenance Mode</p>
-              <p className="text-sm text-slate-400">Disable access to the platform for maintenance</p>
+              <p className="text-white font-black uppercase tracking-tight text-sm">Maintenance Protocol</p>
+              <p className="text-xs text-zinc-500 mt-1 font-medium">Disable platform access for scheduled maintenance cycles</p>
             </div>
             <button
               onClick={() => setSettings({ ...settings, maintenanceMode: !settings.maintenanceMode })}
-              className={`w-12 h-6 rounded-full transition-colors ${
-                settings.maintenanceMode ? 'bg-indigo-600' : 'bg-slate-700'
-              } relative`}
+              className={`w-14 h-7 rounded-full transition-all duration-300 relative ${
+                settings.maintenanceMode ? 'bg-rose-600' : 'bg-zinc-800'
+              }`}
             >
-              <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${
-                settings.maintenanceMode ? 'right-1' : 'left-1'
+              <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all duration-300 shadow-lg ${
+                settings.maintenanceMode ? 'left-8' : 'left-1'
               }`} />
             </button>
           </div>
-          <div className="flex items-center justify-between p-4 bg-slate-900 rounded-xl border border-slate-700">
+
+          <div className="flex items-center justify-between p-8 bg-black rounded-[2rem] border border-zinc-800">
             <div>
-              <p className="text-white font-semibold">Allow New Registrations</p>
-              <p className="text-sm text-slate-400">Enable or disable new user signups</p>
+              <p className="text-white font-black uppercase tracking-tight text-sm">Registry Access</p>
+              <p className="text-xs text-zinc-500 mt-1 font-medium">Toggle availability of new account onboardings</p>
             </div>
             <button
               onClick={() => setSettings({ ...settings, allowRegistrations: !settings.allowRegistrations })}
-              className={`w-12 h-6 rounded-full transition-colors ${
-                settings.allowRegistrations ? 'bg-indigo-600' : 'bg-slate-700'
-              } relative`}
+              className={`w-14 h-7 rounded-full transition-all duration-300 relative ${
+                settings.allowRegistrations ? 'bg-emerald-500' : 'bg-zinc-800'
+              }`}
             >
-              <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${
-                settings.allowRegistrations ? 'right-1' : 'left-1'
+              <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all duration-300 shadow-lg ${
+                settings.allowRegistrations ? 'left-8' : 'left-1'
               }`} />
             </button>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-400 mb-2">Default Plan for New Users</label>
+
+          <div className="space-y-3">
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-600 ml-1">Default Provisioning Tier</label>
             <select
               value={settings.defaultPlan}
               onChange={(e) => setSettings({ ...settings, defaultPlan: e.target.value })}
-              className="w-full px-4 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="select-field"
             >
-              <option value="starter">Starter ($1/mo)</option>
-              <option value="growth">Growth ($3/mo)</option>
+              <option value="starter">Starter Service ($1/mo)</option>
+              <option value="growth">Growth Service ($3/mo)</option>
             </select>
           </div>
         </div>
       </div>
 
       {/* Save Button */}
-      <div className="flex justify-end">
+      <div className="flex justify-end pt-4">
         <button
           onClick={handleSave}
-          className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white rounded-xl text-sm font-semibold transition-all shadow-lg shadow-indigo-900/30"
+          disabled={saving} // Disable button while saving
+          className={`btn-primary min-w-[240px] !py-4 ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
-          Save Settings
+          {saving ? 'Saving...' : 'Commit Configuration'}
         </button>
       </div>
     </div>

@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { apiGet, apiPost } from "@/lib/api";
 import { useToast } from "@/components/ui";
+import { useTheme } from "@/lib/useTheme";
 
 interface Usage {
   plan: string;
@@ -18,12 +19,7 @@ const PLANS = {
     name: "Free",
     price: "$0",
     period: "/month",
-    color: "slate",
-    gradient: "from-slate-500 to-gray-500",
-    bg: "bg-slate-50",
-    border: "border-slate-200",
-    text: "text-slate-700",
-    button: "bg-slate-500 hover:bg-slate-600",
+    popular: false,
     features: [
       { text: "WhatsApp Bot Access", included: true },
       { text: "Service-based Flows Only", included: true },
@@ -36,71 +32,35 @@ const PLANS = {
       { text: "Basic Dashboard", included: true },
       { text: "Email Support", included: true },
       { text: "Product-based Flows", included: false },
-      { text: "WooCommerce Integration", included: false },
-      { text: "Product Listing / Search", included: false },
-      { text: "Live Chat Takeover", included: false },
-      { text: "Multi-language Support", included: false },
-      { text: "Advanced Analytics", included: false },
-      { text: "Unlimited Templates", included: false },
-      { text: "User Tagging", included: false },
-      { text: "Broadcast Campaigns", included: false },
     ],
   },
   starter: {
     name: "Starter",
     price: "$1",
     period: "/month",
-    color: "amber",
-    gradient: "from-amber-500 to-orange-500",
-    bg: "bg-amber-50",
-    border: "border-amber-200",
-    text: "text-amber-700",
-    button: "bg-amber-500 hover:bg-amber-600",
+    popular: false,
     features: [
       { text: "Everything in Free Plan", included: true },
       { text: "Product + Service Flows (Both)", included: true },
       { text: "WooCommerce Integration (10 Products)", included: true },
       { text: "Product Listing + Search", included: true },
-      { text: "Advanced Website Learning", included: true },
       { text: "Unlimited Templates", included: true },
       { text: "Smart AI Responses", included: true },
       { text: "Up to 500 Conversations/Month", included: true },
-      { text: "Basic Automation Funnel", included: true },
-      { text: "User Tagging", included: true },
-      { text: "Basic Broadcast Campaigns", included: true },
-      { text: "Multi-language Support", included: false },
-      { text: "Live Chat Takeover", included: false },
-      { text: "Advanced Dashboard", included: false },
-      { text: "Priority Support", included: false },
     ],
   },
   growth: {
     name: "Growth",
     price: "$3",
     period: "/month",
-    color: "emerald",
-    gradient: "from-emerald-500 to-teal-500",
-    bg: "bg-emerald-50",
-    border: "border-emerald-200",
-    text: "text-emerald-700",
-    button: "bg-emerald-500 hover:bg-emerald-600",
     popular: true,
     features: [
       { text: "Everything in Starter", included: true },
-      { text: "Product + Service Flows (Full Access)", included: true },
       { text: "WooCommerce Integration (Unlimited)", included: true },
       { text: "Product Listing + Search (Unlimited)", included: true },
-      { text: "Advanced Website Learning", included: true },
       { text: "Unlimited Templates", included: true },
       { text: "Smart AI Responses", included: true },
       { text: "Up to 1500 Conversations/Month", included: true },
-      { text: "Full Automation Funnel", included: true },
-      { text: "User Tagging", included: true },
-      { text: "Broadcast Campaigns", included: true },
-      { text: "Advanced Dashboard", included: true },
-      { text: "Multi-language Support", included: true },
-      { text: "Live Chat Takeover", included: true },
-      { text: "Priority Support", included: true },
     ],
   },
 };
@@ -110,388 +70,179 @@ export default function SubscriptionPage() {
   const [loading, setLoading] = useState(true);
   const [upgrading, setUpgrading] = useState(false);
   const [downgrading, setDowngrading] = useState(false);
+
   const { showToast, ToastContainer } = useToast();
+  const { isDark } = useTheme();
 
   useEffect(() => {
     apiGet<Usage>("/api/auth/usage")
-      .then((data) => {
-        console.log("Usage data loaded:", data);
-        setUsage(data);
-      })
-      .catch((err) => {
-        console.error("Failed to fetch usage:", err);
-        showToast("Failed to load subscription data. Please refresh.", "error");
-      })
+      .then(setUsage)
+      .catch(() => showToast("Failed to load subscription data.", "error"))
       .finally(() => setLoading(false));
   }, []);
 
   const handleUpgrade = async (targetPlan: "starter" | "growth") => {
     setUpgrading(true);
     try {
-      const response = await apiPost("/api/auth/upgrade-plan", { plan: targetPlan });
-      showToast(`Successfully upgraded to ${targetPlan === 'starter' ? 'Starter' : 'Growth'} plan! Refreshing...`, "success");
-      // Refresh usage data
-      const newData = await apiGet<Usage>("/api/auth/usage");
-      setUsage(newData);
-    } catch (err: any) {
-      const errorMsg = err.message || "Failed to upgrade plan. Please try again.";
-      showToast(errorMsg, "error");
+      await apiPost("/api/auth/upgrade-plan", { plan: targetPlan });
+      showToast(`Upgraded to ${targetPlan}`, "success");
+      const data = await apiGet<Usage>("/api/auth/usage");
+      setUsage(data);
+    } catch {
+      showToast("Upgrade failed", "error");
     } finally {
       setUpgrading(false);
     }
   };
 
   const handleDowngradeTo = async (targetPlan: "free" | "starter") => {
-    if (!confirm(`Are you sure you want to downgrade to ${targetPlan === 'free' ? 'Free' : 'Starter'}? You will lose access to paid features.`)) return;
+    if (!confirm("Are you sure? Paid features will be disabled.")) return;
+
     setDowngrading(true);
     try {
       await apiPost("/api/auth/downgrade-plan", { plan: targetPlan });
-      showToast(`Downgraded to ${targetPlan === 'free' ? 'Free' : 'Starter'} plan. Refreshing...`, "success");
-      // Refresh usage data
-      const newData = await apiGet<Usage>("/api/auth/usage");
-      setUsage(newData);
-    } catch (err: any) {
-      const errorMsg = err.message || "Failed to downgrade. Please try again.";
-      showToast(errorMsg, "error");
+      showToast(`Switched to ${targetPlan}`, "success");
+      const data = await apiGet<Usage>("/api/auth/usage");
+      setUsage(data);
+    } catch {
+      showToast("Downgrade failed", "error");
     } finally {
       setDowngrading(false);
     }
   };
 
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-slate-500 font-medium">Loading subscription...</p>
+          <div className={`w-16 h-16 border-4 rounded-full animate-spin mx-auto mb-4 ${isDark ? "border-zinc-800" : "border-slate-100"}`} style={{ borderTopColor: isDark ? 'white' : 'black' }}></div>
+          <p className={`${isDark ? "text-zinc-500" : "text-slate-400"} font-black uppercase tracking-[0.2em] text-[10px]`}>Loading Subscription Data...</p>
         </div>
       </div>
     );
   }
 
   const currentPlan = usage?.plan || "free";
-  const resetDate = usage?.reset_date
-    ? new Date(usage.reset_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-    : 'End of billing cycle';
 
   return (
-    <div className="space-y-10 max-w-7xl mx-auto pb-12">
+    <div className="max-w-7xl mx-auto space-y-12 pb-24 animate-in fade-in duration-500">
       <ToastContainer />
 
       {/* Header */}
       <div className="text-center max-w-2xl mx-auto">
-        <h1 className="text-4xl font-black text-slate-900 tracking-tight">Choose Your Plan</h1>
-        <p className="text-slate-500 font-medium mt-3">Select the perfect plan for your business needs</p>
-        {currentPlan && (
-          <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-slate-100 rounded-full text-sm font-semibold">
-            <span className="text-slate-500">Current Plan:</span>
-            <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest ${
-              currentPlan === 'free'
-                ? 'bg-slate-100 text-slate-700'
-                : currentPlan === 'starter'
-                ? 'bg-amber-100 text-amber-700'
-                : 'bg-emerald-100 text-emerald-700'
-            }`}>
-              {currentPlan}
-            </span>
-            <span className="text-slate-600">•</span>
-            <span className="text-slate-500">Resets: {resetDate}</span>
-          </div>
-        )}
+        <h1 className={`text-5xl font-black tracking-tighter ${isDark ? "text-white" : "text-slate-900"}`}>Subscription Plans</h1>
+        <p className={`${isDark ? "text-zinc-500" : "text-slate-500"} font-medium mt-4`}>Choose a plan that fits your business needs with simple, transparent pricing.</p>
       </div>
 
       {/* Current Usage */}
       {usage && (
-        <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-xl p-8 max-w-3xl mx-auto">
-          <h3 className="text-lg font-black text-slate-900 mb-6 flex items-center gap-2">
-            <span className="w-2 h-2 bg-blue-600 rounded-full animate-pulse"></span>
-            Current Usage
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-slate-50 rounded-2xl p-5">
-              <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest mb-2">WhatsApp Messages</p>
-              <p className="text-2xl font-black text-slate-900">{usage.whatsapp_messages_sent} / {usage.whatsapp_limit}</p>
-              <div className="mt-3 h-2 bg-slate-200 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-blue-500 rounded-full"
-                  style={{ width: `${Math.min((usage.whatsapp_messages_sent / usage.whatsapp_limit) * 100, 100)}%` }}
-                ></div>
+        <div className={`rounded-[3rem] border shadow-2xl p-10 max-w-4xl mx-auto ${isDark ? "bg-[#090909] border-zinc-800 shadow-black" : "bg-white border-slate-200 shadow-slate-100"}`}>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
+            <div className="space-y-4">
+              <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${isDark ? "text-zinc-600" : "text-slate-400"}`}>WhatsApp Messaging</p>
+              <p className={`text-3xl font-black ${isDark ? "text-white" : "text-slate-900"}`}>{usage.whatsapp_messages_sent} <span className="text-zinc-700 text-xl">/</span> {usage.whatsapp_limit}</p>
+              <div className={`h-1.5 rounded-full overflow-hidden ${isDark ? "bg-white/5" : "bg-slate-100"}`}>
+                <div className={`h-full transition-all duration-1000 ${isDark ? "bg-white" : "bg-[#6c4ef2]"}`} style={{ width: `${Math.min((usage.whatsapp_messages_sent / usage.whatsapp_limit) * 100, 100)}%` }}></div>
               </div>
             </div>
-            <div className="bg-slate-50 rounded-2xl p-5">
-              <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest mb-2">AI Requests</p>
-              <p className="text-2xl font-black text-slate-900">{usage.ai_requests_made} / {usage.ai_limit}</p>
-              <div className="mt-3 h-2 bg-slate-200 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-purple-500 rounded-full"
-                  style={{ width: `${Math.min((usage.ai_requests_made / usage.ai_limit) * 100, 100)}%` }}
-                ></div>
+            <div className="space-y-4">
+              <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${isDark ? "text-zinc-600" : "text-slate-400"}`}>AI Processing</p>
+              <p className={`text-3xl font-black ${isDark ? "text-white" : "text-slate-900"}`}>{usage.ai_requests_made} <span className="text-zinc-700 text-xl">/</span> {usage.ai_limit}</p>
+              <div className={`h-1.5 rounded-full overflow-hidden ${isDark ? "bg-white/5" : "bg-slate-100"}`}>
+                <div className={`h-full transition-all duration-1000 ${isDark ? "bg-zinc-400" : "bg-emerald-500"}`} style={{ width: `${Math.min((usage.ai_requests_made / usage.ai_limit) * 100, 100)}%` }}></div>
               </div>
             </div>
-            <div className="bg-slate-50 rounded-2xl p-5">
-              <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest mb-2">Conversations</p>
-              <p className="text-2xl font-black text-slate-900">{usage.conversations_count || 0}</p>
-              <p className="text-xs text-slate-500 font-medium mt-3">This billing cycle</p>
+            <div className="space-y-4 text-center md:text-left">
+              <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Total Conversations</p>
+              <p className={`text-3xl font-black ${isDark ? "text-white" : "text-slate-900"}`}>{usage.conversations_count || 0}</p>
+              <p className={`text-[9px] font-black uppercase tracking-widest ${isDark ? "text-zinc-700" : "text-slate-500"}`}>Total messages this cycle</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Plan Cards */}
+      {/* Plans */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
-        {/* Free Plan */}
-        <div className={`premium-card rounded-[2.5rem] p-10 bg-white border-2 ${currentPlan === 'free' ? 'border-slate-400 shadow-2xl shadow-slate-100' : 'border-slate-100'} relative overflow-hidden`}>
-          {currentPlan === 'free' && (
-            <div className="absolute top-6 right-6 px-4 py-2 bg-slate-500 text-white text-xs font-black uppercase tracking-widest rounded-full">
-              Current Plan
-            </div>
-          )}
-          <div className="mb-8">
-            <div className="flex items-baseline gap-1 mb-2">
-              <span className="text-5xl font-black text-slate-900">{PLANS.free.price}</span>
-              <span className="text-slate-500 font-medium">{PLANS.free.period}</span>
-            </div>
-            <h3 className="text-2xl font-black text-slate-900">{PLANS.free.name}</h3>
-            <p className="text-slate-500 text-sm font-medium mt-1">Perfect for testing and beginners</p>
-          </div>
+        {Object.entries(PLANS).map(([key, plan]) => {
+          const isCurrent = key === currentPlan;
 
-          <ul className="space-y-4 mb-10">
-            {PLANS.free.features.map((feature, idx) => (
-              <li key={idx} className="flex items-start gap-3">
-                <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
-                  feature.included ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-600'
-                }`}>
-                  {feature.included ? (
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                    </svg>
-                  ) : (
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  )}
+          return (
+            <div key={key} className={`rounded-[3rem] p-10 border-2 transition-all duration-500 relative flex flex-col ${
+              isDark 
+                ? (isCurrent ? 'bg-[#0F0F0F] border-white/20 shadow-2xl shadow-black' : 'bg-[#090909] border-zinc-800 hover:border-zinc-700') 
+                : (isCurrent ? 'bg-white border-slate-500 shadow-2xl shadow-slate-50' : 'bg-white border-slate-100 hover:border-slate-200')
+            }`}>
+              {plan.popular && !isCurrent && (
+                <div className="absolute top-0 right-10 bg-white text-black px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-b-xl shadow-xl">
+                  Most Popular
                 </div>
-                <span className={`text-sm font-medium ${feature.included ? 'text-slate-700' : 'text-slate-600 line-through'}`}>
-                  {feature.text}
-                </span>
-              </li>
-            ))}
-          </ul>
-
-          {currentPlan === 'free' ? (
-            <button disabled className="w-full py-4 bg-slate-100 text-slate-600 font-black rounded-2xl cursor-not-allowed">
-              CURRENT PLAN
-            </button>
-          ) : (
-            <button
-              onClick={() => handleDowngradeTo("free")}
-              disabled={downgrading}
-              className="w-full py-4 bg-slate-100 text-slate-700 font-black rounded-2xl hover:bg-slate-200 transition-colors disabled:opacity-50"
-            >
-              {downgrading ? 'Processing...' : 'Downgrade to Free'}
-            </button>
-          )}
-        </div>
-
-        {/* Starter Plan */}
-        <div className={`premium-card rounded-[2.5rem] p-10 bg-white border-2 ${currentPlan === 'starter' ? 'border-amber-500 shadow-2xl shadow-amber-100' : 'border-amber-200'} relative overflow-hidden`}>
-          {currentPlan === 'starter' && (
-            <div className="absolute top-6 right-6 px-4 py-2 bg-amber-500 text-white text-xs font-black uppercase tracking-widest rounded-full">
-              Current Plan
-            </div>
-          )}
-          <div className="mb-8">
-            <div className="flex items-baseline gap-1 mb-2">
-              <span className="text-5xl font-black text-slate-900">{PLANS.starter.price}</span>
-              <span className="text-slate-500 font-medium">{PLANS.starter.period}</span>
-            </div>
-            <h3 className="text-2xl font-black text-slate-900">{PLANS.starter.name}</h3>
-            <p className="text-slate-500 text-sm font-medium mt-1">For small businesses getting started</p>
-          </div>
-
-          <ul className="space-y-4 mb-10">
-            {PLANS.starter.features.map((feature, idx) => (
-              <li key={idx} className="flex items-start gap-3">
-                <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
-                  feature.included ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-600'
-                }`}>
-                  {feature.included ? (
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                    </svg>
-                  ) : (
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  )}
+              )}
+              {isCurrent && (
+                <div className={`absolute top-6 right-8 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${isDark ? "bg-white text-black" : "bg-[#6c4ef2] text-white"}`}>
+                  Current
                 </div>
-                <span className={`text-sm font-medium ${feature.included ? 'text-slate-700' : 'text-slate-600 line-through'}`}>
-                  {feature.text}
-                </span>
-              </li>
-            ))}
-          </ul>
+              )}
 
-          {currentPlan === 'starter' ? (
-            <button disabled className="w-full py-4 bg-slate-100 text-slate-600 font-black rounded-2xl cursor-not-allowed">
-              CURRENT PLAN
-            </button>
-          ) : currentPlan === 'free' ? (
-            <button
-              onClick={() => handleUpgrade("starter")}
-              disabled={upgrading}
-              className="w-full py-4 bg-amber-500 text-white font-black rounded-2xl hover:bg-amber-600 transition-all disabled:opacity-50 shadow-lg shadow-amber-200"
-            >
-              {upgrading ? 'Upgrading...' : 'Upgrade to Starter'}
-            </button>
-          ) : (
-            <button
-              onClick={() => handleDowngradeTo("starter")}
-              disabled={downgrading}
-              className="w-full py-4 bg-slate-100 text-slate-700 font-black rounded-2xl hover:bg-slate-200 transition-colors disabled:opacity-50"
-            >
-              {downgrading ? 'Processing...' : 'Downgrade to Starter'}
-            </button>
-          )}
-        </div>
-
-        {/* Growth Plan */}
-        <div className={`premium-card rounded-[2.5rem] p-10 bg-white border-2 ${currentPlan === 'growth' ? 'border-emerald-500 shadow-2xl shadow-emerald-100' : 'border-emerald-200'} relative overflow-hidden`}>
-          {PLANS.growth.popular && currentPlan !== 'growth' && (
-            <div className="absolute top-0 right-0 bg-emerald-500 text-white px-6 py-2 text-xs font-black uppercase tracking-widest rounded-bl-2xl">
-              Most Popular
-            </div>
-          )}
-          {currentPlan === 'growth' && (
-            <div className="absolute top-6 right-6 px-4 py-2 bg-emerald-500 text-white text-xs font-black uppercase tracking-widest rounded-full">
-              Current Plan
-            </div>
-          )}
-          <div className="mb-8">
-            <div className="flex items-baseline gap-1 mb-2">
-              <span className="text-5xl font-black text-slate-900">{PLANS.growth.price}</span>
-              <span className="text-slate-500 font-medium">{PLANS.growth.period}</span>
-            </div>
-            <h3 className="text-2xl font-black text-emerald-600">{PLANS.growth.name}</h3>
-            <p className="text-slate-500 text-sm font-medium mt-1">For scaling businesses</p>
-          </div>
-
-          <ul className="space-y-4 mb-10">
-            {PLANS.growth.features.map((feature, idx) => (
-              <li key={idx} className="flex items-start gap-3">
-                <div className="mt-0.5 w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0">
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                  </svg>
+              <div className="mb-10">
+                <div className="flex items-baseline gap-1 mb-2">
+                  <span className={`text-5xl font-black tracking-tighter ${isDark ? "text-white" : "text-slate-900"}`}>{plan.price}</span>
+                  <span className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"}`}>{plan.period}</span>
                 </div>
-                <span className="text-sm font-semibold text-slate-700">{feature.text}</span>
-              </li>
-            ))}
-          </ul>
+                <h2 className={`text-xl font-black uppercase tracking-tight ${isDark ? "text-zinc-100" : "text-slate-900"}`}>{plan.name}</h2>
+              </div>
 
-          {currentPlan === 'growth' ? (
-            <button disabled className="w-full py-4 bg-slate-100 text-slate-600 font-black rounded-2xl cursor-not-allowed">
-              CURRENT PLAN
-            </button>
-          ) : (
-            <button
-              onClick={() => handleUpgrade("growth")}
-              disabled={upgrading}
-              className={`w-full py-4 ${PLANS.growth.button} text-white font-black rounded-2xl transition-all disabled:opacity-50 shadow-lg shadow-emerald-200`}
-            >
-              {upgrading ? 'Upgrading...' : 'Upgrade to Growth'}
-            </button>
-          )}
-        </div>
-      </div>
+              <ul className="space-y-4 mb-12 flex-1">
+                {plan.features.map((f, i) => (
+                  <li key={i} className="flex items-start gap-4">
+                    <div className={`mt-1 w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 ${
+                      f.included 
+                        ? (isDark ? 'bg-white/10 text-white' : 'bg-slate-50 text-slate-600') 
+                        : (isDark ? 'bg-zinc-900 text-zinc-800' : 'bg-slate-50 text-slate-300')
+                    }`}>
+                      {f.included ? (
+                        <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" /></svg>
+                      ) : (
+                        <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M6 18L18 6M6 6l12 12" /></svg>
+                      )}
+                    </div>
+                    <span className={`text-xs font-bold tracking-tight ${
+                      f.included 
+                        ? (isDark ? 'text-zinc-300' : 'text-slate-700') 
+                        : (isDark ? 'text-zinc-800 line-through' : 'text-slate-300 line-through')
+                    }`}>
+                      {f.text}
+                    </span>
+                  </li>
+                ))}
+              </ul>
 
-      {/* Feature Comparison Table */}
-      <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-xl overflow-hidden max-w-6xl mx-auto mt-12">
-        <div className="p-8 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-blue-50">
-          <h2 className="text-2xl font-black text-slate-900 tracking-tight">Feature Comparison</h2>
-          <p className="text-slate-500 text-sm font-medium mt-1">Detailed breakdown of what's included in each plan</p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-slate-50">
-                <th className="px-6 py-5 text-left text-[10px] font-black text-slate-600 uppercase tracking-widest">Feature</th>
-                <th className="px-6 py-5 text-center text-[10px] font-black text-slate-600 uppercase tracking-widest">Free</th>
-                <th className="px-6 py-5 text-center text-[10px] font-black text-amber-700 uppercase tracking-widest">Starter</th>
-                <th className="px-6 py-5 text-center text-[10px] font-black text-emerald-600 uppercase tracking-widest">Growth</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {[
-                { feature: "Price", free: "$0/mo", starter: "$1/mo", growth: "$3/mo" },
-                { feature: "WhatsApp Messages/Month", free: "200", starter: "500", growth: "1500" },
-                { feature: "AI Requests/Month", free: "200", starter: "500", growth: "1500" },
-                { feature: "Product-based Flows", free: false, starter: true, growth: true },
-                { feature: "Service-based Flows", free: true, starter: true, growth: true },
-                { feature: "WooCommerce Integration", free: false, starter: "10 products", growth: "Unlimited" },
-                { feature: "Product Listing & Search", free: false, starter: true, growth: true },
-                { feature: "Predefined Rules", free: "Limited (10)", starter: "Unlimited", growth: "Unlimited" },
-                { feature: "Templates", free: "Limited", starter: "Unlimited", growth: "Unlimited" },
-                { feature: "Multi-language Support", free: false, starter: false, growth: true },
-                { feature: "Live Chat Takeover", free: false, starter: false, growth: true },
-                { feature: "Broadcast Campaigns", free: false, starter: "Basic", growth: "Advanced" },
-                { feature: "User Tagging", free: false, starter: true, growth: true },
-                { feature: "Advanced Analytics", free: false, starter: false, growth: true },
-                { feature: "Support", free: "Email", starter: "Email", growth: "Priority" },
-              ].map((row, idx) => (
-                <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-5 text-sm font-semibold text-slate-700">{row.feature}</td>
-                  <td className="px-6 py-5 text-center">
-                    {typeof row.free === 'boolean' ? (
-                      row.free ? (
-                        <svg className="w-5 h-5 mx-auto text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                        </svg>
-                      ) : (
-                        <svg className="w-5 h-5 mx-auto text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      )
-                    ) : (
-                      <span className="text-sm font-medium text-slate-600">{row.free}</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-5 text-center">
-                    {typeof row.starter === 'boolean' ? (
-                      row.starter ? (
-                        <svg className="w-5 h-5 mx-auto text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                        </svg>
-                      ) : (
-                        <svg className="w-5 h-5 mx-auto text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      )
-                    ) : (
-                      <span className="text-sm font-medium text-amber-600">{row.starter}</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-5 text-center">
-                    {typeof row.growth === 'boolean' ? (
-                      row.growth ? (
-                        <svg className="w-5 h-5 mx-auto text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                        </svg>
-                      ) : (
-                        <svg className="w-5 h-5 mx-auto text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      )
-                    ) : (
-                      <span className="text-sm font-medium text-emerald-600">{row.growth}</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              <div className="mt-auto pt-6">
+                {isCurrent ? (
+                  <div className={`w-full py-4 text-center text-[10px] font-black uppercase tracking-[0.2em] rounded-2xl ${isDark ? "bg-zinc-900 text-zinc-700" : "bg-slate-50 text-slate-400"}`}>
+                    Active Plan
+                  </div>
+                ) : key === "growth" ||
+                  (key === "starter" && currentPlan === "free") ? (
+                  <button
+                    onClick={() => handleUpgrade(key as any)}
+                    disabled={upgrading}
+                    className="btn-primary w-full py-4 uppercase tracking-[0.2em] text-[10px]"
+                  >
+                    {upgrading ? "Processing..." : `Upgrade to ${plan.name}`}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleDowngradeTo(key as any)}
+                    disabled={downgrading}
+                    className="btn-secondary w-full py-4 uppercase tracking-[0.2em] text-[10px]"
+                  >
+                    {downgrading ? "Processing..." : `Switch to ${plan.name}`}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

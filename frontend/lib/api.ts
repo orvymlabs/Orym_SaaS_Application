@@ -1,11 +1,11 @@
 /**API client for the FastAPI backend. */
 
-// Use environment variable for API base URL, default to localhost:8000 for local development
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://orym-saas-application.onrender.com';
-// Use environment variable for WebSocket base URL, default to wss://orym-saas-application.onrender.com
-const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || 'wss://orym-saas-application.onrender.com';
-// Use environment variable for webhook URL, ngrok is used for this purpose during local dev
-const WEBHOOK_BASE = process.env.NEXT_PUBLIC_WEBHOOK_URL || 'https://expulsive-unoperating-cordie.ngrok-free.dev';
+// Use environment variable for API base URL, default to production for deployment
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://orvym-saas-application.onrender.com';
+// Use environment variable for WebSocket base URL
+const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || 'wss://orvym-saas-application.onrender.com';
+// Use environment variable for webhook URL
+const WEBHOOK_BASE = process.env.NEXT_PUBLIC_WEBHOOK_URL || 'https://orvym-saas-application.onrender.com/webhook';
 
 export interface ApiResponse<T> {
   data?: T;
@@ -18,6 +18,10 @@ export async function api<T = any>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
+  const timeoutDuration = 15000; // 15 seconds timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
+
   // Construct the full URL using the API_BASE
   const url = `${API_BASE}${path}`;
   
@@ -38,7 +42,10 @@ export async function api<T = any>(
     const response = await fetch(url, {
       ...options,
       headers,
+      signal: controller.signal, // Pass the abort signal to fetch
     });
+
+    clearTimeout(timeoutId); // Clear the timeout if the fetch completes in time
 
     // Handle 401 Unauthorized: attempt to refresh token
     if (response.status === 401) {
@@ -47,7 +54,7 @@ export async function api<T = any>(
         if (refreshToken) {
           try {
             // Attempt to refresh token using the refresh endpoint
-            const refreshResp = await fetch(`${API_BASE}/auth/refresh`, { // Use API_BASE for refresh endpoint
+            const refreshResp = await fetch(`${API_BASE}/api/auth/refresh`, { // Use API_BASE for refresh endpoint
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ refresh_token: refreshToken }),
@@ -62,7 +69,7 @@ export async function api<T = any>(
               }
               // Retry the original request with the new token
               headers["Authorization"] = `Bearer ${data.access_token}`;
-              const retryResp = await fetch(url, { ...options, headers }); // Retry original fetch
+              const retryResp = await fetch(url, { ...options, headers, signal: controller.signal }); // Retry original fetch with signal
               if (!retryResp.ok) {
                 // If retry also fails, throw an error
                 throw new Error(`HTTP ${retryResp.status} after token refresh`);
@@ -114,7 +121,10 @@ export async function api<T = any>(
     // Parse and return JSON response for successful requests
     return await response.json();
   } catch (error) {
-    // Handle network errors or errors thrown above
+    // Handle network errors or errors thrown above, including aborts from timeout
+    if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error("Request timed out. The server did not respond in time.");
+    }
     if (error instanceof Error) {
       throw error; // Re-throw standard errors
     }

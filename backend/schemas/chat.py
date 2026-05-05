@@ -28,3 +28,19 @@ class LeadOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class OrderOut(BaseModel):
+    id: int
+    bot_id: int
+    user_id: int
+    name: str
+    phone: str
+    address: str
+    product_name: str
+    quantity: int
+    source: str
+    created_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True

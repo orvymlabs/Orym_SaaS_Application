@@ -124,3 +124,70 @@ class Usage(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     user = relationship("User")
+
+
+class SiteInfoCache(Base):
+    __tablename__ = "site_info_cache"
+
+    id = Column(Integer, primary_key=True, index=True)
+    bot_id = Column(Integer, ForeignKey("bots.id", ondelete="CASCADE"), unique=True, nullable=False)
+    website_url = Column(String(255), nullable=False)
+    site_name = Column(String(255), nullable=True)
+    site_description = Column(Text, nullable=True)
+    about = Column(Text, nullable=True)
+    services = Column(JSON, nullable=True)
+    phone = Column(String(50), nullable=True)
+    email = Column(String(100), nullable=True)
+    address = Column(Text, nullable=True)
+    hours = Column(String(255), nullable=True)
+    products = Column(JSON, nullable=True)
+    last_updated = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    bot = relationship("Bot")
+
+
+class Announcement(Base):
+    __tablename__ = "announcements"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    is_active = Column(Boolean, default=True)
+    priority = Column(String(20), default="normal")  # low, normal, high, urgent
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+
+    creator = relationship("User")
+
+
+class Order(Base):
+    __tablename__ = "orders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    bot_id = Column(Integer, ForeignKey("bots.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+
+    # Customer details
+    name = Column(String(100), nullable=False)
+    phone = Column(String(30), nullable=False)
+    address = Column(Text, nullable=False)
+
+    # Order details
+    product_name = Column(String(255), nullable=False)
+    quantity = Column(Integer, default=1)
+
+    # Order status
+    status = Column(String(20), default="Pending")  # Pending, Completed, Cancelled
+
+    # Metadata
+    source = Column(String(50), default="default_mode")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    bot = relationship("Bot", back_populates="orders")
+    user = relationship("User")
+
+
+# Add back-populates to Bot model
+Bot.orders = relationship("Order", back_populates="bot", cascade="all, delete-orphan")
+

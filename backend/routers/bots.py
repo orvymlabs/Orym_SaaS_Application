@@ -52,41 +52,55 @@ def get_my_bot(user_id: int = Depends(get_current_user_id), db: Session = Depend
 def get_ai_models():
     return AVAILABLE_MODELS
 
-# Optimized System Templates (Removed unusual product templates)
+# Default Mode Templates
 DEFAULT_TEMPLATES = {
     "greeting": {
         "id": "greeting",
         "name": "Welcome Greeting",
         "logic": "The first message a user sees.",
-        "placeholder": "👋 Hi {user_name}! Welcome to {site_name}. How can I assist you today?",
+        "placeholder": "Hi {user_name}! Welcome to {site_name}. Type *menu* to see how I can help you today!",
         "enabled": True
     },
     "menu": {
         "id": "menu",
         "name": "Main Menu",
         "logic": "The navigation hub.",
-        "placeholder": "📋 *Main Menu*\n\n1. Services\n2. Delivery Info\n3. Contact Us\n\n💬 Reply with a number to continue!",
+        "placeholder": "*Main Menu*\n\n1. Services\n2. Delivery Info\n3. Contact Us\n4. Products\n\nReply with a number to continue!",
+        "enabled": True
+    },
+    "services": {
+        "id": "services",
+        "name": "Services Information",
+        "logic": "Explains services offered.",
+        "placeholder": "*Our Services*\n\nOur services include:\n• Web Development\n• Mobile Apps\n• UI/UX Design",
         "enabled": True
     },
     "delivery": {
         "id": "delivery",
         "name": "Delivery Information",
         "logic": "Explains shipping times.",
-        "placeholder": "🚚 *Shipping Information*\n\nWe offer fast nationwide delivery within 3-5 business days.",
+        "placeholder": "*Delivery Information*\n\nWe offer fast nationwide delivery within 3-5 business days.",
         "enabled": True
     },
     "contact": {
         "id": "contact",
         "name": "Contact Details",
         "logic": "Shows business info.",
-        "placeholder": "📞 *Contact Us*\n\n🏢 {site_name}\n📱 {phone}\n📧 {email}\n📍 {address}",
+        "placeholder": "*Contact Us*\n\n{site_name}\nPhone: {phone}\nEmail: {email}\nAddress: {address}",
         "enabled": True
     },
-    "service": {
-        "id": "service",
-        "name": "Service Information",
-        "logic": "Explains services offered.",
-        "placeholder": "ℹ️ *Our Services*\n\nPlease visit our website or contact us to learn more about our services.",
+    "product": {
+        "id": "product",
+        "name": "Product Text",
+        "logic": "Description of products for sale.",
+        "placeholder": "*Our Products*\n\nWe sell high-quality shirts and apparel. Browse our collection and place your order!",
+        "enabled": True
+    },
+    "order_confirmation": {
+        "id": "order_confirmation",
+        "name": "Order Confirmation",
+        "logic": "Confirmation message after order is placed.",
+        "placeholder": "*Order Confirmed!*\n\nThank you for your order! We'll contact you soon to confirm delivery details.",
         "enabled": True
     }
 }
@@ -144,7 +158,7 @@ def get_settings(user_id: int = Depends(get_current_user_id), db: Session = Depe
     if not bot or not bot.settings:
         raise HTTPException(404, "Settings not found")
     s = bot.settings
-    display_templates = s.templates if s.templates else s.custom_responses
+    # Return templates, custom_responses, and template_statuses
     return {
         "id": s.id,
         "bot_id": s.bot_id,
@@ -153,8 +167,10 @@ def get_settings(user_id: int = Depends(get_current_user_id), db: Session = Depe
         "specific_model_name": s.specific_model_name,
         "temperature": s.temperature,
         "language": s.language,
-        "templates": display_templates or {},
+        "templates": s.templates or {},
         "template_enabled": getattr(s, 'template_enabled', False),
+        "template_statuses": s.template_statuses or {},
+        "custom_responses": s.custom_responses or {},
         "custom_products": s.custom_products,
         "has_api_key": bool(s.api_key),
     }
@@ -173,45 +189,97 @@ def update_settings(data: BotSettingsUpdate, user_id: int = Depends(get_current_
     if data.language is not None: s.language = data.language
     if data.templates is not None:
         s.templates = data.templates
-        s.custom_responses = data.templates
+        # Log size of templates if available
+        if data.templates and isinstance(data.templates, dict):
+            # Estimate size by converting to JSON string and getting bytes
+            templates_size = len(json.dumps(data.templates, ensure_ascii=False).encode('utf-8'))
+            logger.debug(f"Received templates payload size: {templates_size} bytes")
+        elif data.templates:
+            logger.debug(f"Received templates payload (non-dict): {data.templates}")
+
+    # Update custom_responses if provided (can be empty dict to clear rules)
+    if data.custom_responses is not None:
+        s.custom_responses = data.custom_responses
+        # Log size of custom_responses if available
+        if data.custom_responses and isinstance(data.custom_responses, dict):
+            custom_responses_size = len(json.dumps(data.custom_responses, ensure_ascii=False).encode('utf-8'))
+            logger.debug(f"Received custom_responses payload size: {custom_responses_size} bytes")
+        elif data.custom_responses:
+            logger.debug(f"Received custom_responses payload (non-dict): {data.custom_responses}")
+        logger.info(f"Updated custom_responses: {data.custom_responses}")
     if data.template_enabled is not None: s.template_enabled = data.template_enabled
+
+    # Save template_statuses (Issue 7 - CLAUDE.md)
+    if data.template_statuses is not None:
+        s.template_statuses = data.template_statuses
+        logger.info(f"Updated template_statuses: {data.template_statuses}")
+
+    # Measure commit time
+    import time
+    commit_start_time = time.time()
     db.commit()
+    commit_end_time = time.time()
+    commit_duration = commit_end_time - commit_start_time
+    logger.info(f"Settings saved for bot {bot.id} after commit took {commit_duration:.4f} seconds.")
+
     clear_cache_for_bot(bot.id)
+
     return {"status": "ok"}
 
-@router.post("/settings/import")
-async def import_settings(request: Request, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
+@router.post("/settings/uploadjson")
+async def upload_json_settings(request: Request, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
     bot = db.query(Bot).filter(Bot.user_id == user_id).first()
     if not bot or not bot.settings:
         raise HTTPException(404, "Bot not found")
     try:
         data = await request.json()
-        imported_items = {}
+        
+        new_custom_responses = bot.settings.custom_responses or {}
+        new_templates = bot.settings.templates or {}
+        
+        # Populate from explicit custom_responses in data
         if isinstance(data.get("custom_responses"), dict):
-            imported_items.update(data["custom_responses"])
+            new_custom_responses.update(data["custom_responses"])
         elif isinstance(data.get("custom_responses"), list):
             for item in data["custom_responses"]:
                 if isinstance(item, dict) and "keyword" in item and "response" in item:
-                    imported_items[item["keyword"].lower()] = item["response"]
+                    new_custom_responses[item["keyword"].lower()] = item["response"]
         
+        # Populate from explicit templates in data
         if isinstance(data.get("templates"), dict):
-            imported_items.update(data["templates"])
+            new_templates.update(data["templates"])
             
-        if not imported_items and data and isinstance(data, dict):
-            # If root is dict and no explicit keys, use root keys as keywords
+        # Fallback logic: If root is dict and no explicit keys, use root keys as keywords for custom responses
+        if not (data.get("custom_responses") or data.get("templates")) and isinstance(data, dict):
             for k, v in data.items():
-                if isinstance(v, str): imported_items[k.lower()] = v
+                if isinstance(v, str): # Assuming values are strings for custom responses
+                    new_custom_responses[k.lower()] = v
 
-        current_res = bot.settings.custom_responses or {}
-        current_res.update(imported_items)
-        bot.settings.custom_responses = current_res
-        bot.settings.templates = current_res
+        bot.settings.custom_responses = new_custom_responses
+        bot.settings.templates = new_templates
+
         db.commit()
         clear_cache_for_bot(bot.id)
-        return {"status": "ok", "count": len(imported_items)}
+        # Count the number of items added to both
+        count = len(new_custom_responses) + len(new_templates)
+        return {"status": "ok", "count": count}
     except Exception as e:
-        logger.error(f"Import failed: {e}")
-        raise HTTPException(400, f"Import failed: {e}")
+        logger.error(f"Upload failed: {e}")
+        raise HTTPException(400, f"Upload failed: {e}")
+
+@router.get("/settings/downloadjson")
+def download_json_settings(user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    bot = db.query(Bot).filter(Bot.user_id == user_id).first()
+    if not bot or not bot.settings:
+        raise HTTPException(404, "Settings not found")
+    s = bot.settings
+    return {
+        "templates": s.templates or {},
+        "custom_responses": s.custom_responses or {},
+        "language": s.language,
+        "model_name": s.model_name,
+        "temperature": s.temperature
+    }
 
 class TemplateUpdate(BaseModel):
     content: str
@@ -238,39 +306,56 @@ def test_chat(data: TestChatRequest, user_id: int = Depends(get_current_user_id)
     if not bot: raise HTTPException(404, "Bot not found")
     integ = db.query(Integration).filter(Integration.bot_id == bot.id).first()
     if not integ: raise HTTPException(404, "Integrations not found")
-    
+
     products, categories, contact_info_data = [], [], {}
     website_url = integ.woocommerce_url or integ.wp_base_url
     if website_url:
-        prod_res = UniversalWebsiteFetcher.scrape_products_from_website(website_url)
-        if prod_res["success"]:
-            products = prod_res.get("products", [])
-            categories = prod_res.get("categories", [])
-        site_info = UniversalWebsiteFetcher.fetch_site_info(website_url)
-        contact_info_data = {
-            "site_name": site_info.get("site_name") or website_url,
-            "phone": site_info.get("contact", {}).get("phone", ""),
-            "email": site_info.get("contact", {}).get("email", ""),
-            "address": site_info.get("contact", {}).get("address", ""),
-            "services": site_info.get("services", []),
-            "about": site_info.get("about", ""),
-        }
+        try:
+            prod_res = UniversalWebsiteFetcher.scrape_products_from_website(website_url)
+            if prod_res.get("success"):
+                products = prod_res.get("products", [])
+                categories = prod_res.get("categories", [])
+            site_info = UniversalWebsiteFetcher.fetch_site_info(website_url)
+            contact_info_data = {
+                "site_name": site_info.get("site_name") or website_url,
+                "phone": site_info.get("contact", {}).get("phone", ""),
+                "email": site_info.get("contact", {}).get("email", ""),
+                "address": site_info.get("contact", {}).get("address", ""),
+                "services": site_info.get("services", []),
+                "about": site_info.get("about", ""),
+            }
+        except Exception as e:
+            logger.warning(f"Failed to fetch website data for test chat: {e}")
+            contact_info_data = {"site_name": "Test Store"}
 
+    # Ensure all bot settings are included
     bot_settings = {
-        "prompt": bot.settings.prompt,
-        "model_name": bot.settings.model_name,
-        "specific_model_name": bot.settings.specific_model_name,
-        "api_key": decrypt_value(bot.settings.api_key) if bot.settings.api_key else "",
-        "temperature": bot.settings.temperature,
-        "language": bot.settings.language,
-        "templates": bot.settings.templates or {},
-        "custom_responses": bot.settings.custom_responses or {},
+        "prompt": bot.settings.prompt if bot.settings else "",
+        "model_name": bot.settings.model_name if bot.settings else "openrouter",
+        "specific_model_name": bot.settings.specific_model_name if bot.settings else None,
+        "api_key": decrypt_value(bot.settings.api_key) if bot.settings and bot.settings.api_key else "",
+        "temperature": bot.settings.temperature if bot.settings else 70,
+        "language": bot.settings.language if bot.settings else "english",
+        "templates": bot.settings.templates if bot.settings else {},
+        "custom_responses": bot.settings.custom_responses if bot.settings else {},
+        "template_enabled": getattr(bot.settings, 'template_enabled', True) if bot.settings else True,
+        "template_statuses": bot.settings.template_statuses if bot.settings else {},
+        "_bot_id": bot.id  # Pass bot ID for lead capture
     }
 
     reply = handle_message(
-        bot_mode=bot.mode, bot_id=bot.id, text=data.message, phone="test_phone", name="Test User",
-        bot_settings=bot_settings, integrations={}, contact_info=contact_info_data,
-        products=products, categories=categories, business_type=integ.business_type or "service",
-        user_plan=get_user_plan(user_id, db)
+        bot_mode=bot.mode,
+        bot_id=bot.id,
+        text=data.message,
+        phone="sandbox_test_user",
+        name="Test User",
+        bot_settings=bot_settings,
+        integrations={},
+        contact_info=contact_info_data,
+        products=products,
+        categories=categories,
+        business_type=integ.business_type or "product",
+        user_plan=get_user_plan(user_id, db),
+        user_id=user_id
     )
     return {"reply": reply}

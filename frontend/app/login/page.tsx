@@ -1,7 +1,8 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { Logo } from "@/components/Logo";
 import { apiPost, apiGet } from "@/lib/api";
 
 export default function LoginPage() {
@@ -12,111 +13,91 @@ export default function LoginPage() {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
 
-  const togglePassword = () => setShowPassword(!showPassword);
+  useEffect(() => {
+    // Force dark mode for auth pages
+    document.documentElement.classList.add("dark");
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
     try {
-      // Use fetch directly to avoid apiPost token issue on first request
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://orym-saas-application.onrender.com'}/api/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || errorData.message || "Login failed");
-      }
-
-      const res = await response.json();
+      const res = await apiPost("/api/auth/login", { email, password });
+      
       localStorage.setItem("token", res.access_token);
       localStorage.setItem("refreshToken", res.refresh_token);
 
-      // Now fetch user info with the token
-      const userResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'https://orym-saas-application.onrender.com'}/api/auth/me`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${res.access_token}`,
-        },
-      });
-
-      if (!userResponse.ok) {
-        throw new Error("Failed to fetch user info");
-      }
-
-      const user = await userResponse.json();
-      if (user.role === "super_admin") {
+      const user = await apiGet("/api/auth/me");
+      
+      if (user.role === "admin" || user.role === "super_admin") {
         router.push("/dashboard/admin");
       } else {
         router.push("/dashboard");
       }
     } catch (err: any) {
-      setError(err.message || "Please check your email and password and try again.");
+      setError(err.message || "Login failed. Please check your credentials.");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSocialLogin = (provider: string) => {
-    console.log(`${provider} login clicked`);
-  };
-
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-4 sm:p-6 font-sans overflow-y-auto">
-      <div className="w-full max-w-[450px] space-y-6 sm:space-y-8 py-8">
-        <div className="text-center space-y-4">
-          <div className="inline-flex bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-sm mb-2">
-            <img src="/logo.png" alt="ORVYN" className="w-10 h-10 sm:w-12 sm:h-12 object-contain" />
+    <div className="min-h-screen flex items-center justify-center p-4 sm:p-6 font-sans bg-[#050505] text-white selection:bg-blue-500/30">
+      <div className="w-full max-w-[450px] space-y-10 py-8">
+        <div className="text-center space-y-6">
+          <div className="inline-flex flex-col items-center gap-4">
+            <div className="inline-flex p-5 rounded-[2rem] transform hover:scale-[1.03] transition-transform duration-300 border bg-zinc-900/50 border-zinc-800 shadow-2xl shadow-black">
+              <Logo variant="text" theme="dark" className="h-9 sm:h-10 w-auto object-contain" fallbackText="ORVYM NEXUS" />
+            </div>
+            <div className="space-y-1">
+              <h1 className="text-3xl sm:text-4xl font-black tracking-tighter platform-name text-white">ORVYM NEXUS</h1>
+              <p className="text-[10px] font-bold uppercase tracking-[0.3em] ml-1 text-zinc-500">Live Conversation AI</p>
+            </div>
           </div>
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 platform-name">Welcome Back</h1>
-            <p className="text-slate-500 text-sm mt-1">Sign in to manage your WhatsApp bot</p>
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white/90">Welcome back</h2>
+            <p className="text-zinc-500 text-sm mt-2 font-medium">Access your professional bot dashboard</p>
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-[2rem] p-6 sm:p-10 shadow-xl shadow-slate-200/50 relative overflow-hidden group">
-          <form onSubmit={handleLogin} className="space-y-4 sm:space-y-6 relative z-10">
+        <div className="border rounded-[2.5rem] p-8 sm:p-12 shadow-2xl relative overflow-hidden bg-zinc-900/40 border-zinc-800 shadow-black">
+          <form onSubmit={handleLogin} className="space-y-8 relative z-10">
             {error && (
-              <div className="bg-red-50 border border-red-100 text-red-600 text-sm font-medium p-3 sm:p-4 rounded-xl text-center">
+              <div className="border text-xs font-bold p-4 rounded-2xl text-center bg-rose-500/10 border-rose-500/20 text-rose-300">
                 {error}
               </div>
             )}
 
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700 ml-1">Email Address</label>
+            <div className="space-y-6">
+              <div className="space-y-3">
+                <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-zinc-500">Email Address</label>
                 <input
                   type="email"
-                  placeholder="e.g. name@company.com"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-5 py-3.5 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
+                  placeholder="Enter your work email..."
+                  className="input-field"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
                 />
               </div>
 
-              <div className="space-y-2 relative">
-                <div className="flex justify-between items-center ml-1">
-                  <label className="text-sm font-semibold text-slate-700">Password</label>
-                </div>
+              <div className="space-y-3 relative">
+                <label className="text-[10px] font-black uppercase tracking-widest ml-1 text-zinc-500">Secure Password</label>
                 <input
                   type={showPassword ? "text" : "password"}
-                  placeholder="Enter your password"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-5 py-3.5 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm"
+                  placeholder="Enter your password..."
+                  className="input-field"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
                 />
                 <button
                   type="button"
-                  onClick={togglePassword}
-                  className="absolute inset-y-0 right-0 pr-5 flex items-center text-slate-400 cursor-pointer"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute bottom-4 right-6 text-zinc-600 hover:text-white transition-colors"
                 >
-                  {showPassword ? "👁️‍🗨️" : "👁️"}
+                  {showPassword ? "👁️‍G" : "👁️"}
                 </button>
               </div>
             </div>
@@ -124,18 +105,27 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold text-sm hover:bg-blue-700 transition-all duration-300 shadow-lg shadow-blue-200 disabled:opacity-50 active:scale-[0.98]"
+              className="btn-primary w-full !py-4 shadow-xl"
             >
-              {loading ? "Signing in..." : "Sign In"}
+              {loading ? "Authorizing..." : "Log In to Nexus"}
             </button>
           </form>
 
-          <div className="mt-8 sm:mt-10 relative z-10">
-            <p className="text-center text-sm font-medium text-slate-500">
-              Don't have an account?{" "}
-              <Link href="/signup" className="text-blue-600 hover:text-blue-700 font-bold">Create Account</Link>
+          <div className="mt-10 relative z-10 text-center border-t border-white/5 pt-8">
+            <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+              New to Orvym?{" "}
+              <Link href="/signup" className="text-white hover:underline ml-1">Create Account</Link>
             </p>
           </div>
+        </div>
+
+        <div className="text-center pt-4">
+          <p className="text-[10px] font-black uppercase tracking-widest text-zinc-800">
+            Powered by{" "}
+            <a href="https://orvym.com" target="_blank" rel="noopener noreferrer" className="text-blue-500/80 hover:text-blue-400 transition-colors">
+              ORVYM LABS
+            </a>
+          </p>
         </div>
       </div>
     </div>

@@ -9,7 +9,7 @@
             <User>REPLACE_WITH_USER</User>
             <Pass encoding="base64"></Pass>
             <Logontype>1</Logontype>
-            <Name>ORVYN Production (Brandless Digital)</Name>
+            <Name>ORVYM Production (Brandless Digital)</Name>
             <RemoteDir>/</RemoteDir>
             <SyncBrowsing>0</SyncBrowsing>
         </Server>

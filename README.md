@@ -1,4 +1,4 @@
-# WhatsApp Bot SaaS Platform (ORVYN)
+# WhatsApp Bot SaaS Platform (ORVYM)
 
 Multi-tenant WhatsApp bot platform with AI assistant, WooCommerce integration, and dashboard.
 

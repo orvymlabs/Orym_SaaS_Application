@@ -108,10 +108,31 @@ def ai_reply(text: str, lang: str, api_key: str, provider: str,
         _last_req = time.time()
 
     lang_map = {
-        'english': "Respond in English",
-        'roman_urdu': "Respond in Roman Urdu (Urdu written in English script, like 'Aap kaise hain?')",
-        'urdu': "Respond in Urdu script (اردو)"
+        'english': "ALWAYS respond in English. Do NOT use Hindi, Urdu, or other languages.",
+        'roman_urdu': "Respond in Roman Urdu (Urdu written in English script, like 'Aap kaise hain?'). Only use Roman Urdu if the user explicitly requests it.",
+        'urdu': "Respond in Urdu script (اردو). Only use Urdu if the user explicitly requests it."
     }
+
+    # Detect if user is requesting a specific language in their message
+    user_text_lower = text.lower()
+    language_requests = {
+        'urdu': any(phrase in user_text_lower for phrase in ['urdu', 'اردو', 'talk in urdu', 'speak urdu']),
+        'hindi': any(phrase in user_text_lower for phrase in ['hindi', 'हिंदी', 'talk in hindi', 'speak hindi']),
+        'roman_urdu': any(phrase in user_text_lower for phrase in ['roman urdu', 'urdu in english']),
+        'english': any(phrase in user_text_lower for phrase in ['english', 'talk in english', 'speak english']),
+    }
+
+    # Override language if user explicitly requests it
+    if language_requests['urdu']:
+        lang_instruction = "\n\n## LANGUAGE:\nRespond in Urdu script (اردو) as the user requested."
+    elif language_requests['hindi']:
+        lang_instruction = "\n\n## LANGUAGE:\nRespond in Hindi (हिंदी) as the user requested."
+    elif language_requests['roman_urdu']:
+        lang_instruction = "\n\n## LANGUAGE:\nRespond in Roman Urdu as the user requested."
+    elif lang and lang.lower() != 'auto':
+        lang_instruction = f"\n\n## LANGUAGE:\n{lang_map.get(lang, 'Respond in English')}"
+    else:
+        lang_instruction = ""
 
     # Build website info section
     site_name = contact.get('site_name', 'our business')
@@ -174,18 +195,16 @@ def ai_reply(text: str, lang: str, api_key: str, provider: str,
     if not user_prompt:
         if business_type == "service":
             services_text = ", ".join(services[:10]) if services else "various professional services"
-            user_prompt = (f"You are a professional service assistant for {site_name}. "
+            user_prompt = (f"You are a friendly, conversational sales assistant for {site_name}. "
                           f"We offer {services_text}. "
-                          f"Use the website data below to provide information about our services and contact details. "
-                          f"If specific contact details like email/phone are 'Refer to our website', politely ask them to check our site or offer to have a human reach out.")
+                          f"Engage customers naturally - ask questions, understand their needs, and help them. "
+                          f"Share contact details when asked or when they show interest. Be helpful, not pushy.")
         else:
             # Product-based business - all paid plans get product access
-            user_prompt = (f"You are a professional sales assistant for {site_name}. "
-                          f"Use the website data below to answer questions about our products, services, and how to reach us.")
-
-    lang_instruction = ""
-    if lang and lang.lower() != 'auto':
-        lang_instruction = f"\n\n## LANGUAGE:\n{lang_map.get(lang, 'Respond in English')}\n- Match the user's language naturally"
+            user_prompt = (f"You are a friendly, conversational sales assistant for {site_name}. "
+                          f"Help customers find products, answer questions, and guide them to purchase. "
+                          f"Be natural and engaging - ask about their needs, make recommendations. "
+                          f"Share contact info when they're interested or ask for it.")
 
     system = f"""{user_prompt}
 
@@ -197,14 +216,17 @@ def ai_reply(text: str, lang: str, api_key: str, provider: str,
 
 ## RULES:
 - Source of Truth: ONLY use the info provided above. NEVER make up products, prices, or details.
-- CONTACT INFO: When asked about phone, email, address, or hours - use the ## CONTACT INFO section above.
-- SERVICES: When asked about services - use the ## SERVICES section above. List them clearly.
-- PRODUCT SEARCH: If user asks for a specific product, SEARCH the ## PRODUCT CATALOG section. List matches with prices.
-- SERVICE BUSINESS: If business_type is SERVICE, focus ONLY on services, contact, address, hours - NO products.
-- Short & Sweet: Keep replies under 3 lines. This is WhatsApp.
-- Tone: Professional, helpful, and concise.
-- Missing Info: If contact details show "Available on website", politely offer to have a human contact them.
-- Order Flow: If they want to order/hire, ask: Item → Quantity → Name → Address.
+- Be Conversational: Talk naturally like a human salesperson. Ask questions. Show interest in helping.
+- CONTACT INFO: When asked about phone, email, address, or hours - share it directly from ## CONTACT INFO.
+- SERVICES: When asked about services - use the ## SERVICES section. List them clearly and helpfully.
+- PRODUCT SEARCH: If user asks for a specific product, SEARCH ## PRODUCT CATALOG. List matches with prices.
+- SERVICE BUSINESS: If business_type is SERVICE, focus on services, contact, address, hours - NO products.
+- Capture Interest: If they ask about pricing, availability, or show buying interest - ask for their name and contact.
+- Help Close Sales: If they're interested, offer: "Would you like me to have someone call you?" or "Can I get your contact to send details?"
+- Short & Sweet: Keep replies under 3-4 lines. This is WhatsApp - be friendly but concise.
+- Tone: Warm, helpful, professional, and conversational - like a friendly shop assistant.
+- Never Say "Go to Website": Share the info directly. If they need more, offer human follow-up.
+- Order Flow: If they want to order/hire, ask: Item → Quantity → Name → Phone → Address.
 - Plan Features: Free plan = service info only. Starter/Growth = full product catalog access.
 {lang_instruction}"""
 

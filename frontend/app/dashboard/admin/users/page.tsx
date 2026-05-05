@@ -132,32 +132,32 @@ export default function UserManagementPage() {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
       <ToastContainer />
 
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-black text-white tracking-tight">User Management</h1>
-          <p className="text-gray-400 font-medium mt-1 text-sm">Manage users, roles, and subscriptions</p>
+          <h1 className="text-4xl font-black text-white tracking-tighter">User Management</h1>
+          <p className="text-zinc-500 font-medium mt-1">Manage platform users, roles, and service tiers</p>
         </div>
         <button
           onClick={openCreateModal}
-          className="px-4 py-2 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-700 hover:to-fuchsia-700 text-white rounded-xl text-sm font-semibold transition-all shadow-lg shadow-violet-900/30 flex items-center gap-2"
+          className="btn-primary"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
           </svg>
-          Add User
+          Add New User
         </button>
       </div>
 
       {/* Filters */}
-      <div className="bg-gray-900/50 backdrop-blur-sm p-4 rounded-xl border border-gray-800 shadow-xl">
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+      <div className="bg-[#090909] p-6 rounded-[2.5rem] border border-zinc-800 shadow-2xl">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
           <div className="sm:col-span-2">
-            <div className="relative">
-              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="search-input-wrapper">
+              <svg className="search-input-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
               <input
@@ -165,14 +165,14 @@ export default function UserManagementPage() {
                 placeholder="Search by email or name..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                className="search-input-field !py-2.5 !text-xs"
               />
             </div>
           </div>
           <select
             value={filterRole}
             onChange={(e) => setFilterRole(e.target.value)}
-            className="px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
+            className="select-field !py-2.5 !text-xs"
           >
             <option value="all">All Roles</option>
             <option value="user">User</option>
@@ -182,7 +182,7 @@ export default function UserManagementPage() {
           <select
             value={filterPlan}
             onChange={(e) => setFilterPlan(e.target.value)}
-            className="px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
+            className="select-field !py-2.5 !text-xs"
           >
             <option value="all">All Plans</option>
             <option value="starter">Starter</option>
@@ -192,77 +192,75 @@ export default function UserManagementPage() {
       </div>
 
       {/* Users Table */}
-      <div className="bg-gray-900/50 backdrop-blur-sm rounded-xl border border-gray-800 shadow-xl overflow-hidden">
+      <div className="bg-[#090909] rounded-[3rem] border border-zinc-800 shadow-2xl overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center h-48">
-            <div className="text-gray-400 animate-pulse">Loading users...</div>
+          <div className="flex items-center justify-center h-96">
+            <div className="text-zinc-500 animate-pulse font-black uppercase tracking-widest text-[10px]">Loading User Registry...</div>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
-                <tr className="bg-gray-800/50 border-b border-gray-800">
-                  <th className="px-5 py-3 text-[9px] font-black text-gray-500 uppercase tracking-widest">User</th>
-                  <th className="px-5 py-3 text-[9px] font-black text-gray-500 uppercase tracking-widest">Plan</th>
-                  <th className="px-5 py-3 text-[9px] font-black text-gray-500 uppercase tracking-widest">Role</th>
-                  <th className="px-5 py-3 text-[9px] font-black text-gray-500 uppercase tracking-widest text-center">Bot Status</th>
-                  <th className="px-5 py-3 text-[9px] font-black text-gray-500 uppercase tracking-widest">Joined</th>
-                  <th className="px-5 py-3 text-[9px] font-black text-gray-500 uppercase tracking-widest text-right">Actions</th>
+                <tr className="bg-black/20 border-b border-zinc-800">
+                  <th className="px-8 py-6 text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em]">User Credential</th>
+                  <th className="px-8 py-6 text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em]">Service Tier</th>
+                  <th className="px-8 py-6 text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em]">Auth Level</th>
+                  <th className="px-8 py-6 text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em] text-center">Bot Sync</th>
+                  <th className="px-8 py-6 text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em]">Join Date</th>
+                  <th className="px-8 py-6 text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em] text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-800/50">
+              <tbody className="divide-y divide-zinc-800/50">
                 {filteredUsers.map(user => (
-                  <tr key={user.id} className="hover:bg-gray-800/30 transition-colors">
-                    <td className="px-5 py-3.5">
+                  <tr key={user.id} className="transition-all hover:bg-white/5 group">
+                    <td className="px-8 py-6">
                       <div>
-                        <p className="font-semibold text-white text-sm">{user.email}</p>
-                        {user.full_name && <p className="text-xs text-gray-500">{user.full_name}</p>}
+                        <p className="font-black text-white text-sm tracking-tight">{user.email}</p>
+                        {user.full_name && <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-600 mt-1">{user.full_name}</p>}
                       </div>
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-8 py-6">
                       <select
                         value={user.plan}
                         onChange={(e) => updatePlan(user.id, e.target.value as "starter" | "growth")}
-                        className={`px-2.5 py-1.5 rounded-md text-[9px] font-black uppercase tracking-widest border focus:outline-none focus:ring-2 focus:ring-violet-500 ${
-                          user.plan === 'growth'
-                            ? 'bg-violet-500/20 text-violet-400 border-violet-500/30'
-                            : 'bg-gray-700/20 text-gray-400 border-gray-700/30'
+                        className={`btn-pill py-1 !text-[9px] !bg-transparent focus:ring-0 cursor-pointer ${
+                          user.plan === 'growth' ? '!text-violet-400 !border-violet-500/30' : '!text-zinc-500 !border-zinc-800'
                         }`}
                       >
                         <option value="starter">Starter</option>
                         <option value="growth">Growth</option>
                       </select>
                     </td>
-                    <td className="px-5 py-3.5">
-                      <span className={`px-2.5 py-1.5 rounded-md text-[9px] font-black uppercase tracking-widest ${
-                        user.role === 'super_admin' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
-                        user.role === 'admin' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
-                        'bg-gray-700/20 text-gray-400 border border-gray-700/30'
+                    <td className="px-8 py-6">
+                      <span className={`btn-pill py-1 !text-[9px] border-none ${
+                        user.role === 'super_admin' ? 'bg-amber-500 text-white' :
+                        user.role === 'admin' ? 'bg-emerald-500 text-white' :
+                        'bg-zinc-800 text-zinc-400'
                       }`}>
                         {user.role}
                       </span>
                     </td>
-                    <td className="px-5 py-3.5 text-center">
+                    <td className="px-8 py-6 text-center">
                       <button
                         onClick={() => toggleBotStatus(user.id)}
-                        className={`px-3 py-1.5 rounded-md text-[9px] font-black uppercase tracking-widest transition-all ${
+                        className={`btn-pill py-1 !text-[9px] border-none shadow-lg ${
                           user.bot?.status !== false
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30'
-                            : 'bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30'
+                            ? 'bg-emerald-500 text-white shadow-emerald-500/20'
+                            : 'bg-rose-500 text-white shadow-rose-500/20'
                         }`}
                       >
-                        {user.bot?.status !== false ? 'Active' : 'Inactive'}
+                        {user.bot?.status !== false ? 'Live' : 'Offline'}
                       </button>
                     </td>
-                    <td className="px-5 py-3.5 text-xs text-gray-500">
+                    <td className="px-8 py-6 text-[11px] font-black uppercase tracking-widest text-zinc-600">
                       {new Date(user.created_at).toLocaleDateString()}
                     </td>
-                    <td className="px-5 py-3.5 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
+                    <td className="px-8 py-6 text-right">
+                      <div className="flex items-center justify-end gap-1">
                         <button
                           onClick={() => router.push(`/dashboard/admin/users/view?id=${user.id}`)}
-                          className="p-1.5 text-violet-400 hover:bg-violet-500/20 rounded-md transition-colors"
-                          title="View Details"
+                          className="btn-icon"
+                          title="Detailed View"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -271,8 +269,8 @@ export default function UserManagementPage() {
                         </button>
                         <button
                           onClick={() => openEditModal(user)}
-                          className="p-1.5 text-blue-400 hover:bg-blue-500/20 rounded-md transition-colors"
-                          title="Edit"
+                          className="btn-icon text-slate-400 hover:text-slate-500"
+                          title="Modify Record"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -280,8 +278,8 @@ export default function UserManagementPage() {
                         </button>
                         <button
                           onClick={() => deleteUser(user.id)}
-                          className="p-1.5 text-red-400 hover:bg-red-500/20 rounded-md transition-colors"
-                          title="Delete"
+                          className="btn-icon text-rose-500 hover:text-rose-600"
+                          title="Purge Data"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -296,76 +294,76 @@ export default function UserManagementPage() {
           </div>
         )}
         {!loading && filteredUsers.length === 0 && (
-          <div className="text-center py-12 text-gray-500">
-            <p>No users found matching your filters</p>
+          <div className="text-center py-32 opacity-30">
+            <p className="text-[10px] font-black uppercase tracking-[0.4em]">No Records Matching Parameters</p>
           </div>
         )}
       </div>
 
       {/* Create/Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-gray-900 rounded-xl border border-gray-700 shadow-2xl w-full max-w-md">
-            <div className="p-5 border-b border-gray-700 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-white">{editingUser ? "Edit User" : "Create New User"}</h3>
-              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-white">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-6">
+          <div className="bg-[#090909] rounded-[3rem] border border-zinc-800 shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-300">
+            <div className="px-10 py-8 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50">
+              <h3 className="text-xl font-black text-white tracking-tight">{editingUser ? "Modify User Record" : "Onboard New User"}</h3>
+              <button onClick={() => setShowModal(false)} className="btn-icon">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
-            <div className="p-5 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1.5">Email</label>
+            <div className="p-10 space-y-8">
+              <div className="space-y-3">
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-600 ml-1">Email Identifier</label>
                 <input
                   type="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
-                  placeholder="user@example.com"
+                  className="input-field"
+                  placeholder="user@enterprise.com"
                 />
               </div>
               {!editingUser && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1.5">Password</label>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-zinc-600 ml-1">Initial Auth Key</label>
                   <input
                     type="password"
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    className="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
-                    placeholder="••••••••"
+                    className="input-field"
+                    placeholder="Create secure access key..."
                   />
                 </div>
               )}
-              <div>
-                <label className="block text-sm font-medium text-gray-400 mb-1.5">Full Name</label>
+              <div className="space-y-3">
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-600 ml-1">Full Identity</label>
                 <input
                   type="text"
                   value={formData.full_name}
                   onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
-                  placeholder="John Doe"
+                  className="input-field"
+                  placeholder="Official Name..."
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1.5">Role</label>
+              <div className="grid grid-cols-2 gap-8">
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-zinc-600 ml-1">Nexus Role</label>
                   <select
                     value={formData.role}
                     onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                    className="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    className="select-field"
                   >
                     <option value="user">User</option>
                     <option value="admin">Admin</option>
                     <option value="super_admin">Super Admin</option>
                   </select>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-400 mb-1.5">Plan</label>
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-zinc-600 ml-1">Service Tier</label>
                   <select
                     value={formData.plan}
                     onChange={(e) => setFormData({ ...formData, plan: e.target.value })}
-                    className="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    className="select-field"
                   >
                     <option value="starter">Starter</option>
                     <option value="growth">Growth</option>
@@ -373,18 +371,18 @@ export default function UserManagementPage() {
                 </div>
               </div>
             </div>
-            <div className="p-5 border-t border-gray-700 flex gap-3">
+            <div className="px-10 py-8 border-t border-zinc-800 flex gap-4 bg-zinc-900/50">
               <button
                 onClick={() => setShowModal(false)}
-                className="flex-1 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-sm font-semibold transition-colors"
+                className="btn-secondary flex-1"
               >
-                Cancel
+                Abort
               </button>
               <button
                 onClick={handleSubmit}
-                className="flex-1 px-4 py-2.5 bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-700 hover:to-fuchsia-700 text-white rounded-lg text-sm font-semibold transition-all"
+                className="btn-primary flex-1"
               >
-                {editingUser ? "Update User" : "Create User"}
+                {editingUser ? "Sync Changes" : "Commit Onboarding"}
               </button>
             </div>
           </div>
