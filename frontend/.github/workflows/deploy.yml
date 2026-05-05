@@ -45,9 +45,9 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./frontend/out/
           server-dir: /public_html/apps/
-          port: 990
-          protocol: ftps
-          timeout: 120000
+          port: 21
+          protocol: ftp
+          timeout: 60000
           exclude: |
             **/.git*
             **/.git*/**
