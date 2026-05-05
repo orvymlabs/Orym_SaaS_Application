@@ -9,6 +9,6 @@
 
 [[redirects]]
   from = "/api/*"
-  to = "https://orvym-saas-application.onrender.com/api/:splat"
+  to = "https://orym-saas-application.onrender.com/api/:splat"
   status = 200
   force = true

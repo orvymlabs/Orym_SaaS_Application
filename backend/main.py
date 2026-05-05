@@ -45,8 +45,10 @@ app = FastAPI(title=settings.APP_NAME, version="2.0", lifespan=lifespan)
 
 # Configure CORS origins
 origins = [
-    "http://apps.orvym.com",
-    "http://127.0.0.1:3000",
+    "https://apps.orvym.com",  # Production frontend (HTTPS)
+    "http://apps.orvym.com",   # Production frontend (HTTP fallback)
+    "http://localhost:3000",   # Local development
+    "http://127.0.0.1:3000",   # Local development
 ]
 
 if settings.ALLOWED_ORIGINS:
@@ -72,7 +74,7 @@ def get_cors_headers(request: Request):
     elif origin and ("localhost" in origin or "127.0.0.1" in origin):
         is_allowed = True
         
-    allowed_origin = origin if is_allowed else "http://apps.orvym.com"
+    allowed_origin = origin if is_allowed else "https://apps.orvym.com"
     
     return {
         "Access-Control-Allow-Origin": allowed_origin,

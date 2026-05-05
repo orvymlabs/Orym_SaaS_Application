@@ -1,3 +1,34 @@
+# CORS Error - FIXED
+
+## Issue (Resolved)
+Access to fetch at 'https://orym-saas-application.onrender.com/api/auth/login' from origin 'https://apps.orvym.com' was blocked by CORS policy.
+
+## Root Causes Identified
+1. **URL Mismatch**: Frontend was configured with `orvym-saas-application` but actual backend is `orym-saas-application` (missing 'v')
+2. **CORS Configuration**: Backend was only allowing HTTP but frontend uses HTTPS
+
+## Fixes Applied
+1. ✅ Updated all frontend URLs from `orvym-saas-application.onrender.com` → `orym-saas-application.onrender.com`
+2. ✅ Updated backend CORS to allow `https://apps.orvym.com` (HTTPS)
+3. ✅ Added both HTTP and HTTPS variants to allowed origins
+4. ✅ Rebuilt frontend with correct configuration
+
+## Files Modified
+- `frontend/.env` - Updated API URLs
+- `frontend/.env.local` - Updated API URLs
+- `frontend/lib/api.ts` - Updated default URLs
+- `frontend/netlify.toml` - Updated proxy redirect
+- `frontend/app/dashboard/integrations/page.tsx` - Updated fallback URL
+- `frontend/public/test-connection.html` - Updated test URL
+- `backend/main.py` - Updated CORS origins to include HTTPS
+
+## Next Steps
+1. Redeploy backend to Render (if needed)
+2. Redeploy frontend to Netlify/apps.orvym.com
+3. Test login at https://apps.orvym.com
+
+---
+
 # Task: Refine Settings Page Logic — Templates, Menu, Order Form, Exit Option
 
 ## Context

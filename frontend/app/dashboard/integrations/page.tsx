@@ -90,7 +90,7 @@ export default function IntegrationsPage() {
   const { showToast, ToastContainer } = useToast();
   const { isDark } = useTheme();
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? 'https://orvym-saas-application.onrender.com' : '');
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? 'https://orym-saas-application.onrender.com' : '');
 
   useEffect(() => {
     apiGet<any>("/api/auth/usage").then((data) => {
