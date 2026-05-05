@@ -48,7 +48,6 @@ jobs:
           port: 21
           protocol: ftp
           timeout: 60000
-          dangerous-clean-slate: true
           exclude: |
             **/.git*
             **/.git*/**
