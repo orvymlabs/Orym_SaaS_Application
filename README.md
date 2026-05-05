@@ -161,3 +161,6 @@ Set these in your hosting platform:
 | `NEXT_PUBLIC_WS_URL` | WebSocket URL |
 
 See `frontend/DEPLOYMENT.md` for detailed deployment instructions.
+
+
+Enjoy Your Application With this Access!
