@@ -1,11 +1,14 @@
 /**API client for the FastAPI backend. */
 
-// Use environment variable for API base URL, default to production for deployment
+// Use environment variable for API base URL, default to production
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://orym-saas-application.onrender.com';
-// Use environment variable for WebSocket base URL
 const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || 'wss://orym-saas-application.onrender.com';
-// Use environment variable for webhook URL
 const WEBHOOK_BASE = process.env.NEXT_PUBLIC_WEBHOOK_URL || 'https://orym-saas-application.onrender.com/webhook';
+
+// Local development (use .env.local to override)
+// const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+// const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8001';
+// const WEBHOOK_BASE = process.env.NEXT_PUBLIC_WEBHOOK_URL || 'http://localhost:8001/webhook';
 
 export interface ApiResponse<T> {
   data?: T;
