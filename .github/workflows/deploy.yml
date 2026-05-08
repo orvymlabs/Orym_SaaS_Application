@@ -44,10 +44,11 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./frontend/out/
-          server-dir: /
+          server-dir: /public_html/
           port: 21
-          protocol: ftp
-          timeout: 60000
+          protocol: ftps
+          security: loose
+          timeout: 120000
           exclude: |
             **/.git*
             **/.git*/**

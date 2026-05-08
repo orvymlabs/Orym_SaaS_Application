@@ -13,7 +13,10 @@
       "Bash(curl -s http://127.0.0.1:8001/health)",
       "Bash(node -e \"try { require\\('./app/dashboard/integrations/page.tsx'\\); console.log\\('Syntax OK'\\); } catch\\(e\\) { console.log\\('Syntax Error:', e.message\\); }\")",
       "Bash(curl *)",
-      "Bash(python -c \"from config import get_settings; s = get_settings\\(\\); print\\(s.DATABASE_URL\\)\")"
+      "Bash(python -c \"from config import get_settings; s = get_settings\\(\\); print\\(s.DATABASE_URL\\)\")",
+      "Bash(cat)",
+      "Bash(chmod +x test_routes.sh)",
+      "Bash(bash test_routes.sh)"
     ]
   }
 }
