@@ -98,6 +98,12 @@ export default function SettingsPage() {
   const [mode, setMode] = useState("default");
   const [prompt, setPrompt] = useState("");
   const [provider, setProvider] = useState("openrouter");
+  const [customTemplates, setCustomTemplates] = useState<Array<{id?: number, template_name: string, content: string}>>([]);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [userPlan, setUserPlan] = useState("free");
+  const [orderFormTemplate, setOrderFormTemplate] = useState("");
+  const [orderConfirmationMessage, setOrderConfirmationMessage] = useState("");
+  const [orderFormEnabled, setOrderFormEnabled] = useState(true);
   const [modelName, setModelName] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [temperature, setTemperature] = useState(70);
@@ -107,6 +113,8 @@ export default function SettingsPage() {
   const [templateEnabled, setTemplateEnabled] = useState(true);
   const [templateStatuses, setTemplateStatuses] = useState<Record<string, boolean>>({});
   const [customResponses, setCustomResponses] = useState<Array<{keyword: string, response: string}>>([]);
+  const [welcomeMessage, setWelcomeMessage] = useState("");
+  const [responseDelay, setResponseDelay] = useState(0);
 
   const { showToast, ToastContainer } = useToast();
   const { isDark } = useTheme();
@@ -116,12 +124,26 @@ export default function SettingsPage() {
     Promise.all([
       api("/api/bots/me").catch(() => null),
       api("/api/bots/settings").catch(() => null),
-    ]).then(([botData, settingsData]) => {
+      api("/api/bots/custom-templates").catch(() => ({ templates: [] })),
+      api("/api/bots/order-form/settings").catch(() => null),
+    ]).then(([botData, settingsData, templatesData, orderFormData]) => {
       setBot(botData);
       if (botData) {
         setMode(botData.mode || "default");
       } else {
         setMode("default");
+      }
+
+      // Load custom templates
+      if (templatesData && templatesData.templates) {
+        setCustomTemplates(templatesData.templates);
+      }
+
+      // Load order form settings
+      if (orderFormData) {
+        setOrderFormTemplate(orderFormData.order_form_template || "");
+        setOrderConfirmationMessage(orderFormData.order_confirmation_message || "");
+        setOrderFormEnabled(orderFormData.order_form_enabled ?? true);
       }
 
       const defaultProvider = "openrouter";
@@ -185,6 +207,10 @@ export default function SettingsPage() {
         }
         setCustomResponses(loadedCustomResponses);
 
+        // Load WhatsApp engine settings
+        setWelcomeMessage(settingsData.welcome_message || "");
+        setResponseDelay(settingsData.response_delay || 0);
+
       } else {
         // Set sensible defaults if settingsData is null
         setPrompt("");
@@ -202,7 +228,100 @@ export default function SettingsPage() {
         setCustomResponses([]);
       }
     });
+
+    // Fetch user plan
+    api("/api/bots/me").then((botData) => {
+      if (botData && botData.owner) {
+        setUserPlan(botData.owner.plan || "free");
+      }
+    }).catch(() => {});
   }, []);
+
+  // Refetch data when mode changes to prevent stale cache
+  useEffect(() => {
+    if (!bot) return; // Don't run on initial mount
+
+    // Clear current data and refetch fresh data from database
+    api("/api/bots/settings").then((settingsData) => {
+      if (settingsData) {
+        setSettings(settingsData);
+        setPrompt(settingsData.prompt || "");
+        const currentProvider = settingsData.model_name || "openrouter";
+        setProvider(currentProvider);
+        const availableModels = MODELS[currentProvider] || MODELS["openrouter"] || [];
+        setModelName(settingsData.specific_model_name || (availableModels.length > 0 ? availableModels[0].value : ""));
+        setTemperature(settingsData.temperature === undefined ? 70 : settingsData.temperature);
+        setLanguage(settingsData.language || "english");
+
+        const defaultStatuses: Record<string, boolean> = {};
+        ALL_TEMPLATES.forEach(t => {
+          defaultStatuses[`template_${t.id}_enabled`] = t.defaultOn ?? true;
+        });
+        const loadedStatuses = settingsData.template_statuses || {};
+        setTemplateStatuses({ ...defaultStatuses, ...loadedStatuses });
+
+        const loadedTemplates: Record<string, string> = {};
+        try {
+          const rawTemplates = settingsData.templates || {};
+          if (rawTemplates && typeof rawTemplates === 'object') {
+            Object.entries(rawTemplates).forEach(([key, value]) => {
+              if (typeof value === 'string' && key.startsWith('template_') && !key.endsWith('_enabled')) {
+                loadedTemplates[key] = value;
+              }
+            });
+          }
+        } catch (err) {
+          console.error("Failed to parse templates:", err);
+        }
+        setTemplates(loadedTemplates);
+        setTemplateEnabled(settingsData.template_enabled ?? true);
+
+        let loadedCustomResponses: Array<{keyword: string, response: string}> = [];
+        if (settingsData.custom_responses) {
+          try {
+            if (Array.isArray(settingsData.custom_responses)) {
+              loadedCustomResponses = settingsData.custom_responses
+                .filter((cr: any) => cr && cr.keyword && cr.keyword.trim())
+                .map((cr: any) => ({
+                  keyword: cr.keyword,
+                  response: cr.response || cr.message || cr.reply || '',
+                }));
+            } else if (typeof settingsData.custom_responses === "object") {
+              loadedCustomResponses = Object.entries(settingsData.custom_responses)
+                .filter(([key, value]) => !key.startsWith('template_') && typeof value === 'string')
+                .map(([keyword, response]) => ({
+                  keyword: keyword,
+                  response: response as string,
+                }));
+            }
+          } catch (err) {
+            console.error("Failed to parse custom_responses:", err);
+          }
+        }
+        setCustomResponses(loadedCustomResponses);
+
+        // Load WhatsApp engine settings
+        setWelcomeMessage(settingsData.welcome_message || "");
+        setResponseDelay(settingsData.response_delay || 0);
+      }
+    }).catch(() => {});
+
+    // Refetch custom templates
+    api("/api/bots/custom-templates").then((templatesData) => {
+      if (templatesData && templatesData.templates) {
+        setCustomTemplates(templatesData.templates);
+      }
+    }).catch(() => {});
+
+    // Refetch order form settings
+    api("/api/bots/order-form/settings").then((orderFormData) => {
+      if (orderFormData) {
+        setOrderFormTemplate(orderFormData.order_form_template || "");
+        setOrderConfirmationMessage(orderFormData.order_confirmation_message || "");
+        setOrderFormEnabled(orderFormData.order_form_enabled ?? true);
+      }
+    }).catch(() => {});
+  }, [mode]); // Trigger when mode changes
 
   const handleSaveAll = async () => {
     console.log("Saving settings initiated...");
@@ -226,18 +345,28 @@ export default function SettingsPage() {
         templates,
         template_enabled: templateEnabled,
         template_statuses: templateStatuses,
+        welcome_message: welcomeMessage,
+        response_delay: responseDelay,
       };
       if (apiKey) {
         payload.api_key = apiKey;
       }
       console.log("Payload before sending:", JSON.stringify(payload, null, 2));
 
-      console.log("Sending API requests to /api/bots/mode and /api/bots/settings...");
+      console.log("Sending API requests to /api/bots/mode, /api/bots/settings, and /api/bots/order-form/settings...");
       await Promise.all([
         api("/api/bots/mode", { method: "PATCH", body: JSON.stringify({ mode }) }),
         api("/api/bots/settings", {
           method: "PATCH",
           body: JSON.stringify(payload),
+        }),
+        api("/api/bots/order-form/settings", {
+          method: "PUT",
+          body: JSON.stringify({
+            order_form_template: orderFormTemplate,
+            order_confirmation_message: orderConfirmationMessage,
+            order_form_enabled: orderFormEnabled
+          })
         }),
       ]);
       console.log("API requests completed.");
@@ -376,6 +505,112 @@ export default function SettingsPage() {
     setModelName(availableModels.length > 0 ? availableModels[0].value : "");
   };
 
+  const handleAddTemplate = () => {
+    setCustomTemplates([...customTemplates, { template_name: "", content: "" }]);
+    setHasUnsavedChanges(true);
+  };
+
+  const handleUpdateTemplate = (index: number, field: "template_name" | "content", value: string) => {
+    const updated = [...customTemplates];
+    updated[index][field] = value;
+    setCustomTemplates(updated);
+    setHasUnsavedChanges(true);
+  };
+
+  const handleDeleteTemplate = async (index: number) => {
+    const template = customTemplates[index];
+
+    if (!confirm("Delete this template? It will be removed from your bot menu.")) {
+      return;
+    }
+
+    // If template has an ID, delete from backend
+    if (template.id) {
+      try {
+        await api(`/api/bots/custom-templates/${template.id}`, { method: "DELETE" });
+        showToast("Template deleted successfully!", "success");
+      } catch (err: any) {
+        showToast(err.message || "Failed to delete template", "error");
+        return;
+      }
+    }
+
+    // Remove from local state
+    setCustomTemplates(customTemplates.filter((_, i) => i !== index));
+    setHasUnsavedChanges(true);
+  };
+
+  const handleSaveTemplates = async () => {
+    setSaving(true);
+    try {
+      // Validate all templates
+      for (const template of customTemplates) {
+        if (!template.template_name || !template.template_name.trim()) {
+          showToast("All templates must have a name", "error");
+          setSaving(false);
+          return;
+        }
+        if (template.template_name.length > 50) {
+          showToast("Template names must be 50 characters or less", "error");
+          setSaving(false);
+          return;
+        }
+        if (!template.content || !template.content.trim()) {
+          showToast("All templates must have content", "error");
+          setSaving(false);
+          return;
+        }
+        if (template.content.length > 1000) {
+          showToast("Template content must be 1000 characters or less", "error");
+          setSaving(false);
+          return;
+        }
+      }
+
+      // Save or update each template
+      for (const template of customTemplates) {
+        if (template.id) {
+          // Update existing template
+          await api(`/api/bots/custom-templates/${template.id}`, {
+            method: "PUT",
+            body: JSON.stringify({
+              template_name: template.template_name,
+              content: template.content
+            })
+          });
+        } else {
+          // Create new template
+          const result = await api("/api/bots/custom-templates", {
+            method: "POST",
+            body: JSON.stringify({
+              template_name: template.template_name,
+              content: template.content
+            })
+          });
+          // Update local state with new ID
+          template.id = result.id;
+        }
+      }
+
+      // Save order form settings
+      await api("/api/bots/order-form/settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          order_form_template: orderFormTemplate,
+          order_confirmation_message: orderConfirmationMessage,
+          order_form_enabled: orderFormEnabled
+        })
+      });
+
+      setHasUnsavedChanges(false);
+      showToast("Settings saved successfully!", "success");
+    } catch (err: any) {
+      showToast(err.message || "Failed to save settings", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto pb-32 animate-in fade-in duration-700">
       <ToastContainer />
@@ -383,18 +618,47 @@ export default function SettingsPage() {
       <div className="mb-12">
         <h1 className={`text-4xl font-bold tracking-tighter mb-2 ${isDark ? "text-white" : "text-slate-900"}`}>Bot Settings</h1>
         <p className={`${isDark ? "text-zinc-500" : "text-slate-500"} font-medium`}>Configure your bot's conversational style and behavior.</p>
+
+        {/* Active Bot Mode Badge - Read-only */}
+        {bot && (
+          <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-full border" style={{
+            backgroundColor: isDark ? 'rgba(34, 197, 94, 0.1)' : 'rgba(34, 197, 94, 0.1)',
+            borderColor: isDark ? 'rgba(34, 197, 94, 0.3)' : 'rgba(34, 197, 94, 0.3)'
+          }}>
+            <div className="w-2 h-2 rounded-full bg-green-500"></div>
+            <span className={`text-sm font-medium ${isDark ? "text-green-400" : "text-green-700"}`}>
+              {bot.mode === "default" ? "Build Your Own Reply Templates" :
+               bot.mode === "predefined" ? "Reply to Specific Words" :
+               bot.mode === "ai" ? "Dynamic AI Conversations" :
+               "No mode selected"}
+            </span>
+          </div>
+        )}
       </div>
 
       <div className={`p-2.5 rounded-[3rem] mb-12 flex flex-col md:flex-row gap-2.5 border ${isDark ? "bg-[#050505] border-zinc-800" : "bg-slate-100/50 border-slate-200/50"}`}>
         {[
-          { value: "default", label: "E-commerce Mode", desc: "Uses your store data" },
+          { value: "default", label: "Customize Flow Mode", desc: "Build your own reply templates" },
           { value: "predefined", label: "Keyword Trigger Mode", desc: "Reply to specific words" },
           { value: "ai", label: "Dynamic AI Mode", desc: "Dynamic AI Conversations" },
         ].map(opt => (
-          <button key={opt.value} onClick={() => setMode(opt.value)}
-            className={`flex-1 flex items-center gap-5 p-5 rounded-[2.5rem] transition-all duration-500 ${mode === opt.value ? isDark ? "bg-[#121212] text-white shadow-2xl shadow-black" : "bg-white shadow-lg ring-1 ring-slate-200" : isDark ? "text-zinc-500 hover:bg-white/5 hover:text-white" : "text-slate-500 hover:bg-white/50"}`}>
+          <button key={opt.value} onClick={() => {
+            if (hasUnsavedChanges && mode === "default") {
+              if (!confirm("You have unsaved changes. Save before switching?")) {
+                return;
+              }
+            }
+            setMode(opt.value);
+          }}
+            className={`flex-1 flex items-center gap-5 p-5 rounded-[2.5rem] transition-all duration-500 relative ${mode === opt.value ? isDark ? "bg-[#121212] text-white shadow-2xl shadow-black" : "bg-white shadow-lg ring-1 ring-slate-200" : isDark ? "text-zinc-500 hover:bg-white/5 hover:text-white" : "text-slate-500 hover:bg-white/50"}`}>
+            {bot?.mode === opt.value && (
+              <div className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-green-500/10 border border-green-500/20">
+                <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
+                <span className="text-[9px] font-bold uppercase tracking-wide text-green-600">Active</span>
+              </div>
+            )}
             <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-xl font-black transition-all duration-500 ${mode === opt.value ? (isDark ? "bg-white text-black" : "bg-black text-white") : isDark ? "bg-zinc-900 text-zinc-600" : "bg-slate-200/50 text-slate-400"}`}>
-              {opt.value === "default" ? "EC" : opt.value === "predefined" ? "KW" : "AI"}
+              {opt.value === "default" ? "CF" : opt.value === "predefined" ? "KW" : "AI"}
             </div>
             <div className="text-left">
               <div className={`font-bold text-sm tracking-tight ${mode === opt.value ? (isDark ? "text-white" : "text-slate-900") : "inherit"}`}>{opt.label}</div>
@@ -448,73 +712,154 @@ export default function SettingsPage() {
         {mode === "default" && (
           <div className="space-y-10">
             <div className={`rounded-[3rem] p-12 shadow-2xl ${isDark ? "bg-white text-black" : "bg-slate-900 text-white"}`}>
-              <h2 className="text-4xl font-bold tracking-tighter mb-4">Automated Messaging</h2>
-              <p className={`font-medium max-w-xl ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Configure standard responses for recurring customer inquiries and system events.</p>
+              <h2 className="text-4xl font-bold tracking-tighter mb-4">Customize Flow Mode</h2>
+              <p className={`font-medium max-w-xl ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Build your own reply templates. Your brand, your words.</p>
             </div>
 
             <div className={`rounded-[3rem] border p-12 ${isDark ? "bg-[#090909] border-zinc-800" : "bg-white border-slate-200"}`}>
-              <h3 className={`text-xl font-bold tracking-tight mb-8 ${isDark ? "text-white" : "text-slate-900"}`}>Message Activation</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {TOGGLABLE_TEMPLATES.map((item) => {
-                  const isEnabled = templateStatuses[`template_${item.id}_enabled`] ?? item.defaultOn;
-                  return (
-                    <div key={item.id} className={`flex items-center justify-between p-6 rounded-[2rem] border transition-all duration-300 ${isDark ? "bg-black border-zinc-800" : "bg-slate-50 border-slate-100"}`}>
-                      <div className="flex items-center gap-4">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xs font-black ${isDark ? "bg-zinc-900 text-zinc-400" : "bg-slate-200 text-slate-600"}`}>{item.icon}</div>
-                        <span className={`font-bold text-xs uppercase tracking-wide ${isDark ? "text-zinc-200" : "text-slate-700"}`}>{item.label}</span>
+              <h3 className={`text-xl font-bold tracking-tight mb-4 ${isDark ? "text-white" : "text-slate-900"}`}>Greeting Message</h3>
+              <p className={`text-sm font-medium mb-6 ${isDark ? "text-zinc-600" : "text-slate-500"}`}>The first message customers see when they contact you.</p>
+              <textarea
+                value={templates["template_greeting"] || ""}
+                placeholder="Hi {user_name}! Welcome to {site_name}. Type *menu* to see how I can help you today!"
+                onChange={(e) => setTemplates({ ...templates, "template_greeting": e.target.value })}
+                rows={4}
+                className="textarea-field"
+              />
+            </div>
+
+            <div className={`rounded-[3rem] border p-12 ${isDark ? "bg-[#090909] border-zinc-800" : "bg-white border-slate-200"}`}>
+              <div className="flex justify-between items-center mb-8">
+                <div>
+                  <h3 className={`text-xl font-bold tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>Smart Template Builder</h3>
+                  <p className={`text-sm font-medium mt-1 ${isDark ? "text-zinc-600" : "text-slate-500"}`}>Create custom reply templates. Each template becomes a menu option for your customers on WhatsApp automatically.</p>
+                </div>
+                <button onClick={handleAddTemplate} className="btn-success py-2">+ Add Template</button>
+              </div>
+
+              <div className="space-y-6">
+                {customTemplates.length === 0 ? (
+                  <div className={`text-center py-24 rounded-[3rem] border-2 border-dashed ${isDark ? "bg-black border-zinc-800" : "bg-slate-50 border-slate-200"}`}>
+                    <p className={`${isDark ? "text-zinc-600" : "text-slate-400"} font-medium text-sm`}>No templates yet. Click + Add Template to create your first one.</p>
+                    <p className={`${isDark ? "text-zinc-700" : "text-slate-400"} text-xs mt-2`}>Your customers will see these as reply options.</p>
+                  </div>
+                ) : (
+                  customTemplates.map((template, idx) => (
+                    <div key={idx} className={`rounded-[2.5rem] border p-10 transition-all duration-300 ${isDark ? "bg-black border-zinc-800 hover:border-zinc-700" : "bg-slate-50 border-slate-100 hover:border-slate-200"}`}>
+                      <div className="flex justify-between items-start mb-6">
+                        <div className="flex-1 space-y-4">
+                          <div className="space-y-2">
+                            <label className={`text-[10px] font-bold uppercase tracking-wide px-1 ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Template Name</label>
+                            <input
+                              value={template.template_name}
+                              onChange={(e) => handleUpdateTemplate(idx, "template_name", e.target.value)}
+                              placeholder="e.g., Services, Pricing, Contact Info"
+                              maxLength={50}
+                              className="input-field"
+                            />
+                            <p className={`text-[9px] font-medium px-1 ${isDark ? "text-zinc-700" : "text-slate-400"}`}>
+                              {template.template_name.length}/50 characters
+                            </p>
+                          </div>
+                          <div className="space-y-2">
+                            <label className={`text-[10px] font-bold uppercase tracking-wide px-1 ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Reply Content</label>
+                            <textarea
+                              value={template.content}
+                              onChange={(e) => handleUpdateTemplate(idx, "content", e.target.value)}
+                              placeholder="Type the message customers will receive when they select this option..."
+                              maxLength={1000}
+                              rows={6}
+                              className="textarea-field"
+                            />
+                            <p className={`text-[9px] font-medium px-1 ${isDark ? "text-zinc-700" : "text-slate-400"}`}>
+                              {template.content.length}/1000 characters
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteTemplate(idx)}
+                          className={`ml-6 w-10 h-10 rounded-xl flex items-center justify-center transition-all ${isDark ? "bg-zinc-900 hover:bg-red-900 text-zinc-400 hover:text-red-400" : "bg-slate-200 hover:bg-red-100 text-slate-600 hover:text-red-600"}`}
+                        >
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/>
+                          </svg>
+                        </button>
                       </div>
-                      <button
-                        onClick={() => setTemplateStatuses({ ...templateStatuses, [`template_${item.id}_enabled`]: !isEnabled })}
-                        className={`w-12 h-6 rounded-full transition-all relative ${isEnabled ? (isDark ? 'bg-white' : 'bg-[#6c4ef2]') : (isDark ? 'bg-zinc-800' : 'bg-slate-300')}`}
-                      >
-                        <div className={`absolute top-0.5 w-5 h-5 rounded-full transition-all shadow-sm ${isEnabled ? (isDark ? 'left-6 bg-black' : 'left-6 bg-white') : 'left-0.5 bg-zinc-600'}`} />
-                      </button>
                     </div>
-                  );
-                })}
+                  ))
+                )}
+              </div>
+
+              {customTemplates.length > 0 && (
+                <div className="mt-8 flex justify-center">
+                  <button onClick={handleAddTemplate} className="btn-secondary py-2">+ Add New Template</button>
+                </div>
+              )}
+
+              <div className="mt-12 flex justify-end">
+                <button
+                  onClick={handleSaveTemplates}
+                  disabled={!hasUnsavedChanges || saving}
+                  className={`btn-primary min-w-[220px] ${!hasUnsavedChanges ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  {saving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : "Save Settings"}
+                </button>
               </div>
             </div>
 
             <div className={`rounded-[3rem] border p-12 ${isDark ? "bg-[#090909] border-zinc-800" : "bg-white border-slate-200"}`}>
-              <h3 className={`text-xl font-bold tracking-tight mb-8 ${isDark ? "text-white" : "text-slate-900"}`}>Response Customization</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                {templateConfigs.map((config) => {
-                  const templateKey = `template_${config.id}`;
-                  const isEnabled = templateStatuses[`${templateKey}_enabled`] ?? config.defaultOn;
-                  const isFixed = config.isFixed || false;
+              <div className="flex justify-between items-center mb-8">
+                <div>
+                  <h3 className={`text-xl font-bold tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>Order Form</h3>
+                  <p className={`text-sm font-medium mt-1 ${isDark ? "text-zinc-600" : "text-slate-500"}`}>Edit the order form your customers receive on WhatsApp. Customers fill and reply with their details in one message.</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setOrderFormEnabled(!orderFormEnabled);
+                    setHasUnsavedChanges(true);
+                  }}
+                  className={`w-12 h-6 rounded-full transition-all relative ${orderFormEnabled ? (isDark ? 'bg-white' : 'bg-[#6c4ef2]') : (isDark ? 'bg-zinc-800' : 'bg-slate-300')}`}
+                >
+                  <div className={`absolute top-0.5 w-5 h-5 rounded-full transition-all shadow-sm ${orderFormEnabled ? (isDark ? 'left-6 bg-black' : 'left-6 bg-white') : 'left-0.5 bg-zinc-600'}`} />
+                </button>
+              </div>
 
-                  return (
-                    <div key={config.id} className={`rounded-[2.5rem] border p-10 flex flex-col transition-all duration-500 ${!isEnabled && 'opacity-30'} ${isFixed ? (isDark ? 'bg-zinc-900/50 border-zinc-800' : 'bg-amber-50 border-amber-200') : (isDark ? 'bg-black border-zinc-800' : 'bg-slate-50 border-slate-100')}`}>
-                      <div className="flex justify-between items-center mb-6">
-                        <div className="flex items-center gap-3">
-                          <h4 className={`text-lg font-bold tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>{config.name}</h4>
-                          {isFixed && (
-                            <span className={`px-2 py-1 text-[8px] font-bold uppercase tracking-[0.2em] rounded-lg ${isDark ? "bg-white text-black" : "bg-amber-200 text-amber-800"}`}>Core</span>
-                          )}
-                        </div>
-                        <button
-                          disabled={isFixed}
-                          onClick={() => setTemplateStatuses({ ...templateStatuses, [`${templateKey}_enabled`]: !isEnabled })}
-                          className={`w-10 h-5 rounded-full transition-all relative ${isFixed ? 'bg-zinc-800 cursor-not-allowed' : isEnabled ? (isDark ? 'bg-white' : 'bg-[#6c4ef2]') : 'bg-zinc-900'}`}
-                        >
-                          <div className={`absolute top-0.5 w-4 h-4 rounded-full transition-all ${isFixed ? 'left-5 bg-zinc-600' : isEnabled ? (isDark ? 'left-5 bg-black' : 'left-5 bg-white') : 'left-0.5 bg-zinc-700'}`} />
-                        </button>
-                      </div>
-                      <textarea
-                        value={templates[templateKey] || ""}
-                        placeholder={config.placeholder}
-                        onChange={(e) => setTemplates({ ...templates, [templateKey]: e.target.value })}
-                        rows={6}
-                        className="textarea-field"
-                      />
-                      <div className="flex justify-between items-center mt-5">
-                        <p className={`text-[9px] font-bold uppercase tracking-wide ${isDark ? "text-zinc-600" : "text-slate-400"}`}>
-                          {isFixed ? "System Default" : isEnabled ? "Custom Message" : "Turned Off"}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="space-y-8">
+                <div className="space-y-3">
+                  <label className={`text-[10px] font-bold uppercase tracking-wide px-1 ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Order Form Template</label>
+                  <textarea
+                    value={orderFormTemplate}
+                    onChange={(e) => {
+                      setOrderFormTemplate(e.target.value);
+                      setHasUnsavedChanges(true);
+                    }}
+                    placeholder="🛍️ Order Form&#10;&#10;Please fill in the details below and reply:&#10;&#10;Full Name:&#10;Phone Number:&#10;Delivery Address:&#10;Product / Item:&#10;Quantity:&#10;Special Instructions (optional):"
+                    maxLength={1000}
+                    rows={12}
+                    className="textarea-field"
+                  />
+                  <p className={`text-[9px] font-medium px-1 ${isDark ? "text-zinc-700" : "text-slate-400"}`}>
+                    {orderFormTemplate.length}/1000 characters
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <label className={`text-[10px] font-bold uppercase tracking-wide px-1 ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Order Confirmation Message</label>
+                  <textarea
+                    value={orderConfirmationMessage}
+                    onChange={(e) => {
+                      setOrderConfirmationMessage(e.target.value);
+                      setHasUnsavedChanges(true);
+                    }}
+                    placeholder="✅ Thank you! Your order has been received.&#10;Our team will contact you shortly to confirm."
+                    maxLength={500}
+                    rows={4}
+                    className="textarea-field"
+                  />
+                  <p className={`text-[9px] font-medium px-1 ${isDark ? "text-zinc-700" : "text-slate-400"}`}>
+                    {orderConfirmationMessage.length}/500 characters
+                  </p>
+                </div>
               </div>
             </div>
           </div>

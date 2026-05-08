@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
 
-PLAN_ERROR_FREE = "⚠️ Product features are not available in Free plan. Please upgrade to Starter or Growth plan."
+PLAN_ERROR_FREE = "⚠️ Product features are not available in Essentials plan. Please upgrade to Growth or Scale plan."
 
 def get_current_user_id(request: Request) -> int:
     auth = request.headers.get("Authorization", "")
@@ -99,7 +99,14 @@ def update_integrations(
         data.woo_consumer_secret is not None
     )
 
-    if user_plan == "free" and product_field_submitted:
+    # Normalize plan name for backward compatibility
+    normalized_plan = user_plan.lower()
+    if normalized_plan == "free":
+        normalized_plan = "essentials"
+    elif normalized_plan == "starter":
+        normalized_plan = "growth"
+
+    if normalized_plan == "essentials" and product_field_submitted:
         raise HTTPException(403, PLAN_ERROR_FREE)
 
     # Track changes for cache refresh
@@ -259,7 +266,14 @@ def get_whatsapp_button_code(user_id: int = Depends(get_current_user_id), db: Se
 def fetch_woocommerce_data(user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
     from models import Bot
     user_plan = get_user_plan(user_id, db)
-    if user_plan == "free":
+    # Normalize plan name for backward compatibility
+    normalized_plan = user_plan.lower()
+    if normalized_plan == "free":
+        normalized_plan = "essentials"
+    elif normalized_plan == "starter":
+        normalized_plan = "growth"
+
+    if normalized_plan == "essentials":
         raise HTTPException(403, PLAN_ERROR_FREE)
 
     integ = db.query(Integration).join(Integration.bot).filter(Bot.user_id == user_id).first()
@@ -335,7 +349,14 @@ async def configure_integration_base(
     user_plan = get_user_plan(user_id, db)
     integration_type = config.get("integration_type")
     
-    if user_plan == "free" and integration_type == "product":
+    # Normalize plan name for backward compatibility
+    normalized_plan = user_plan.lower()
+    if normalized_plan == "free":
+        normalized_plan = "essentials"
+    elif normalized_plan == "starter":
+        normalized_plan = "growth"
+
+    if normalized_plan == "essentials" and integration_type == "product":
         raise HTTPException(403, PLAN_ERROR_FREE)
 
     integ = db.query(Integration).join(Integration.bot).filter(Bot.user_id == user_id).first()

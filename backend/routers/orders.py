@@ -4,7 +4,11 @@ from typing import List
 from database import get_db
 from models import Order, User
 from routers.auth import get_current_user_id, get_current_user
+from routers.notifications import create_notification
 from pydantic import BaseModel
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
@@ -21,20 +25,24 @@ async def get_user_orders(user_id: int = Depends(get_current_user_id), db: Sessi
 
     orders = db.query(Order).filter(Order.user_id == user_id).order_by(Order.created_at.desc()).all()
 
+    logger.info(f"📋 Fetching orders for user {user_id}")
+    logger.info(f"📋 Found {len(orders)} orders")
+
     # Format orders to include basic details for the list view
     formatted_orders = []
     for order in orders:
+        logger.info(f"📋 Order {order.id}: order_details length = {len(order.order_details) if order.order_details else 0}")
+        logger.info(f"📋 Order {order.id}: order_details content = {order.order_details}")
+
         formatted_orders.append({
             "id": order.id,
-            "customer_name": order.name,
             "phone": order.phone,
-            "product_name": order.product_name,
-            "quantity": order.quantity,
-            "address": order.address,
-            "status": getattr(order, 'status', 'Pending'),  # Get status from model or default to Pending
+            "order_details": order.order_details,  # Raw filled form from customer
+            "status": getattr(order, 'status', 'Pending'),
             "created_at": order.created_at
         })
 
+    logger.info(f"📋 Returning {len(formatted_orders)} formatted orders")
     return formatted_orders
 
 @router.patch("/{order_id}/status")

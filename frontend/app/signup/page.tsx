@@ -28,20 +28,38 @@ export default function SignupPage() {
     }
     setLoading(true);
     setError("");
-    try {
-      const res = await apiPost("/api/auth/signup", {
-        full_name: fullName,
-        email,
-        password
-      });
-      localStorage.setItem("token", res.access_token);
-      localStorage.setItem("refreshToken", res.refresh_token);
-      router.push("/dashboard");
-    } catch (err: any) {
-      setError(err.message || "Something went wrong. Please try again.");
-    } finally {
-      setLoading(false);
+
+    let retryCount = 0;
+    const maxRetries = 2;
+
+    while (retryCount <= maxRetries) {
+      try {
+        const res = await apiPost("/api/auth/signup", {
+          full_name: fullName,
+          email,
+          password
+        });
+        localStorage.setItem("token", res.access_token);
+        localStorage.setItem("refreshToken", res.refresh_token);
+        router.push("/dashboard");
+        return; // Success - exit the function
+      } catch (err: any) {
+        const isTimeoutError = err.message?.includes("timed out") || err.message?.includes("did not respond");
+
+        if (isTimeoutError && retryCount < maxRetries) {
+          retryCount++;
+          setError(`Server is waking up... Retrying (${retryCount}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retry
+          continue;
+        }
+
+        // Final error - no more retries
+        setError(err.message || "Something went wrong. Please try again.");
+        break;
+      }
     }
+
+    setLoading(false);
   };
 
   return (

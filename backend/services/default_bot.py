@@ -9,6 +9,7 @@ import threading
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 # Configure Logging
 logger = logging.getLogger(__name__)
@@ -49,21 +50,48 @@ def _get_greeting(name, site_name, bot_settings):
     sn = site_name or "our business"
     return f"Hi {name or 'there'}! Welcome to {sn}. Type *menu* to see how I can help you today!"
 
-def _get_menu(business_type, bot_settings, site_name):
-    """Get menu template with dynamic numbered options based on enabled templates."""
+def _get_menu(business_type, bot_settings, site_name, user_id=None):
+    """Get menu template with dynamic options based on custom templates."""
+    from models import UserTemplate
+    from database import SessionLocal
+
     templates = bot_settings.get("templates") or bot_settings.get("custom_responses") or {}
 
-    # Check if menu is enabled (Issue 1)
+    # Check if menu is enabled
     enabled = templates.get("template_menu_enabled", True)
     if not enabled:
         return None
 
-    # Check if there's a custom menu saved
+    # Check if there's a custom menu saved (legacy)
     custom = templates.get("template_menu")
     if custom:
         return custom
 
-    # Build dynamic menu with numbered options based on enabled templates
+    # Fetch user's custom templates from database
+    if user_id:
+        db = SessionLocal()
+        try:
+            custom_templates = db.query(UserTemplate).filter(
+                UserTemplate.user_id == user_id
+            ).order_by(UserTemplate.position).all()
+
+            if custom_templates:
+                # Build menu from custom templates (no numbers, just names)
+                menu_items = [f"• {t.template_name}" for t in custom_templates]
+
+                # Check if order form is enabled and add it to menu
+                order_form_enabled = bot_settings.get("order_form_enabled", True)
+                if order_form_enabled:
+                    menu_items.append("• Order")
+
+                items_str = "\n".join(menu_items)
+                return f"*Main Menu*\n\n{items_str}\n\nType the name of any option to continue!"
+        except Exception as e:
+            logger.error(f"Error fetching custom templates: {e}")
+        finally:
+            db.close()
+
+    # Fallback to legacy numbered menu if no custom templates
     enabled_map = {
         "services": templates.get("template_services_enabled", business_type == "service"),
         "delivery": templates.get("template_delivery_enabled", True),
@@ -128,6 +156,7 @@ def _get_contact_info(bot_settings, contact_data, phone=None, name=None):
                 context["interest_level"] = "high"
                 context["requested_contact"] = True
                 lead.context = context
+                flag_modified(lead, 'context')
                 lead.name = name or lead.name
                 db.commit()
                 logger.info(f"🎯 Lead marked as highly interested (requested contact): {phone}")
@@ -188,71 +217,48 @@ def _get_product_text(bot_settings):
 
 
 def _get_order_form(bot_settings):
-    """Get order form template."""
-    templates = bot_settings.get("templates") or bot_settings.get("custom_responses") or {}
-
-    # Check if order form is enabled (Issue 1)
-    enabled = templates.get("template_order_form_enabled", True)
-    if not enabled:
+    """Get order form template from bot settings."""
+    # Check if order form is enabled
+    order_form_enabled = bot_settings.get("order_form_enabled", True)
+    if not order_form_enabled:
         return None
 
-    custom = templates.get("template_order_form")
-    if custom:
-        return custom
+    # Get custom order form template
+    custom_template = bot_settings.get("order_form_template")
+    if custom_template:
+        return custom_template
 
-    return """*Order Form*
+    # Default fallback
+    return """🛍️ Order Form
 
-Please provide your order details in the following format:
+Please fill in the details below and reply:
 
-Name: [Your Full Name]
-Product: [Product Name]
-Quantity: [Number]
-Address: [Delivery Address]
-Phone: [Phone Number]
-
-Example:
-Name: John Doe
-Product: Blue Shirt
-Quantity: 2
-Address: 123 Main Street, City
-Phone: +1234567890"""
+Full Name:
+Phone Number:
+Delivery Address:
+Product / Item:
+Quantity:
+Special Instructions (optional):"""
 
 
 def _get_order_confirmation_template(bot_settings, order_data=None):
-    """Get order confirmation template with placeholder replacement."""
-    templates = bot_settings.get("templates") or bot_settings.get("custom_responses") or {}
-
-    # Check if order confirmation is enabled
-    enabled = templates.get("template_order_confirmation_enabled", True)
-    if not enabled:
-        return None
-
-    custom = templates.get("template_order_confirmation")
-
-    # Replace placeholders if order_data is provided
-    if custom and order_data:
-        message = custom
-        message = message.replace("{name}", order_data.get("name", "Customer"))
-        message = message.replace("{product}", order_data.get("product_name", ""))
-        message = message.replace("{quantity}", str(order_data.get("quantity", 1)))
-        message = message.replace("{address}", order_data.get("address", ""))
-        message = message.replace("{phone}", order_data.get("phone", ""))
-        return message
-    elif custom:
-        return custom
+    """Get order confirmation message from bot settings."""
+    # Get custom confirmation message
+    custom_confirmation = bot_settings.get("order_confirmation_message")
+    if custom_confirmation:
+        return custom_confirmation
 
     # Default fallback
-    if order_data:
-        return f"*Order Confirmed!*\n\nThank you {order_data.get('name', 'Customer')} for your order!\n\nProduct: {order_data.get('product_name', '')}\nQuantity: {order_data.get('quantity', 1)}\nDelivery to: {order_data.get('address', '')}\n\nWe'll contact you soon at {order_data.get('phone', '')} to confirm delivery details."
-
-    return "*Order Confirmed!*\n\nThank you for your order! We'll contact you soon to confirm delivery details."
+    return """✅ Thank you! Your order has been received.
+Our team will contact you shortly to confirm."""
 
 # ===================== LOGIC =====================
 
-def _save_order(bot_id: int, user_id: int, phone: str, name: str, product_name: str, quantity: int, address: str):
-    """Save order to database."""
+def _save_order(bot_id: int, user_id: int, phone: str, order_details: str):
+    """Save order to database with raw filled form details."""
     from models import Order, Bot
     from database import SessionLocal
+    from routers.notifications import create_notification
 
     db = SessionLocal()
     try:
@@ -270,22 +276,39 @@ def _save_order(bot_id: int, user_id: int, phone: str, name: str, product_name: 
             logger.error(f"Cannot save order: user_id is None for bot {bot_id}")
             return False
 
+        logger.info(f"💾 Saving order to database...")
+        logger.info(f"💾 bot_id={bot_id}, user_id={user_id}, phone={phone}")
+        logger.info(f"💾 order_details length: {len(order_details)} chars")
+        logger.info(f"💾 order_details content: {order_details}")
+
         order = Order(
             bot_id=bot_id,
             user_id=user_id,
-            name=name,
             phone=phone,
-            product_name=product_name,
-            quantity=quantity,
-            address=address,
+            order_details=order_details,  # Save raw filled form
             source="default_mode"
         )
         db.add(order)
         db.commit()
-        logger.info(f"📦 Order saved: {product_name} x{quantity} for {name} (Order ID: {order.id})")
+        db.refresh(order)
+        logger.info(f"✅ Order saved successfully: Order ID {order.id} from {phone}")
+        logger.info(f"✅ Saved order_details: {order.order_details}")
+
+        # Create notification for new order
+        try:
+            create_notification(
+                db=db,
+                user_id=user_id,
+                type="new_order",
+                title="New Order Received",
+                message=f"New order from {phone}"
+            )
+        except Exception as e:
+            logger.error(f"Failed to create order notification: {e}")
+
         return True
     except Exception as e:
-        logger.error(f"Failed to save order: {e}", exc_info=True)
+        logger.error(f"❌ Failed to save order: {e}", exc_info=True)
         db.rollback()
         return False
     finally:
@@ -294,7 +317,7 @@ def _save_order(bot_id: int, user_id: int, phone: str, name: str, product_name: 
 
 def process(bot_id: int, text: str, phone: str, name: str, business_type: str = "product",
             user_plan: str = "starter", products: list = None, services: list = None,
-            contact_info: dict = None, user_id: int = None):
+            contact_info: dict = None, user_id: int = None, bot_settings: dict = None):
     from models import Lead, BotSettings, Integration
     from database import SessionLocal
 
@@ -305,23 +328,35 @@ def process(bot_id: int, text: str, phone: str, name: str, business_type: str = 
         st = lead.context if lead and lead.context else {"step": "active"}
         tl = text.lower().strip()
 
-        # 2. Fetch Bot Settings (always refresh from database to ensure latest settings)
-        bs = db.query(BotSettings).filter(BotSettings.bot_id == bot_id).first()
-        if bs:
-            # FORCE REFRESH from database to get latest settings
-            db.refresh(bs)
-            # Merge template_statuses into templates so toggle states are accessible
-            merged_templates = bs.templates or {}
-            if bs.template_statuses:
-                merged_templates.update(bs.template_statuses)
-            bot_settings = {
-                "templates": merged_templates,
-                "custom_responses": bs.custom_responses or {},
-                "language": bs.language or "english",
-                "_bot_id": bot_id  # Store bot_id for lead capture
-            }
-        else:
-            bot_settings = {"templates": {}, "custom_responses": {}, "language": "english", "_bot_id": bot_id}
+        # 2. Fetch Bot Settings (only if not provided as parameter)
+        if bot_settings is None:
+            bs = db.query(BotSettings).filter(BotSettings.bot_id == bot_id).first()
+            if bs:
+                # FORCE REFRESH from database to get latest settings
+                db.refresh(bs)
+                # Merge template_statuses into templates so toggle states are accessible
+                merged_templates = bs.templates or {}
+                if bs.template_statuses:
+                    merged_templates.update(bs.template_statuses)
+                bot_settings = {
+                    "templates": merged_templates,
+                    "custom_responses": bs.custom_responses or {},
+                    "language": bs.language or "english",
+                    "order_form_template": bs.order_form_template,
+                    "order_confirmation_message": bs.order_confirmation_message,
+                    "order_form_enabled": bs.order_form_enabled if bs.order_form_enabled is not None else True,
+                    "_bot_id": bot_id  # Store bot_id for lead capture
+                }
+            else:
+                bot_settings = {
+                    "templates": {},
+                    "custom_responses": {},
+                    "language": "english",
+                    "order_form_template": None,
+                    "order_confirmation_message": None,
+                    "order_form_enabled": True,
+                    "_bot_id": bot_id
+                }
 
         # 3. Handle Context Data - Use passed-in contact_info (already fetched from user's integration)
         contact_data = {
@@ -346,6 +381,7 @@ def process(bot_id: int, text: str, phone: str, name: str, business_type: str = 
             st = {"step": "active"}
             if lead:
                 lead.context = st
+                flag_modified(lead, 'context')
                 db.commit()
 
             # Return greeting if enabled, otherwise return to menu
@@ -354,7 +390,7 @@ def process(bot_id: int, text: str, phone: str, name: str, business_type: str = 
             if greeting:
                 return greeting
             else:
-                menu = _get_menu(business_type, bot_settings, site_name)
+                menu = _get_menu(business_type, bot_settings, site_name, user_id)
                 if menu:
                     return menu
                 return "Returning to main menu..."
@@ -367,17 +403,18 @@ def process(bot_id: int, text: str, phone: str, name: str, business_type: str = 
             st = {"step": "active"}
             if lead:
                 lead.context = st
+                flag_modified(lead, 'context')
             db.commit()
 
             if tl in ["hi", "hello"]:
                 resp = _get_greeting(name, site_name, bot_settings)
                 if resp:
-                    menu = _get_menu(business_type, bot_settings, site_name)
+                    menu = _get_menu(business_type, bot_settings, site_name, user_id)
                     if menu:
                         return resp + "\n\n" + menu
                 return resp or "Type *menu* to see options."
 
-            return _get_menu(business_type, bot_settings, site_name) or "Type *menu* to see options."
+            return _get_menu(business_type, bot_settings, site_name, user_id) or "Type *menu* to see options."
 
         # Check for order trigger words
         order_triggers = ["order", "buy", "purchase", "i want to buy", "i want to order"]
@@ -385,93 +422,81 @@ def process(bot_id: int, text: str, phone: str, name: str, business_type: str = 
 
         # Handle order flow - single form submission
         if st.get("step") == "ordering":
-            # Parse the order information from user's message
-            order_data = {}
-            lines = text.strip().split('\n')
+            # Customer has replied with filled form - save it as-is
+            order_details = text.strip()
 
-            for line in lines:
-                line = line.strip()
-                if ':' in line:
-                    key, value = line.split(':', 1)
-                    key = key.strip().lower()
-                    value = value.strip()
+            logger.info(f"📦 ORDER RECEIVED from {phone}")
+            logger.info(f"📦 Order details text length: {len(order_details)} characters")
+            logger.info(f"📦 Order details preview: {order_details[:200]}...")
 
-                    if 'name' in key:
-                        order_data['name'] = value
-                    elif 'product' in key:
-                        order_data['product_name'] = value
-                    elif 'quantity' in key or 'qty' in key:
-                        try:
-                            order_data['quantity'] = int(value)
-                        except ValueError:
-                            order_data['quantity'] = 1
-                    elif 'address' in key:
-                        order_data['address'] = value
-                    elif 'phone' in key:
-                        order_data['phone'] = value
-
-            # Validate required fields
-            required_fields = ['name', 'product_name', 'quantity', 'address', 'phone']
-            missing_fields = [f for f in required_fields if f not in order_data or not order_data[f]]
-
-            if missing_fields:
-                # Show which fields are missing
-                missing_names = []
-                for f in missing_fields:
-                    if f == 'product_name':
-                        missing_names.append('Product')
-                    elif f == 'quantity':
-                        missing_names.append('Quantity')
-                    else:
-                        missing_names.append(f.capitalize())
-
-                return f"Please provide all required information. Missing: {', '.join(missing_names)}\n\nPlease use the format:\nName: [Your Name]\nProduct: [Product]\nQuantity: [Number]\nAddress: [Address]\nPhone: [Phone]"
-
-            # Save the order
+            # Save the order with raw details
             success = _save_order(
                 bot_id=bot_id,
                 user_id=user_id,
-                phone=order_data['phone'],
-                name=order_data['name'],
-                product_name=order_data['product_name'],
-                quantity=order_data['quantity'],
-                address=order_data['address']
+                phone=phone,
+                order_details=order_details
             )
 
             # Reset state
             st = {"step": "active"}
             if lead:
                 lead.context = st
+                flag_modified(lead, 'context')
             db.commit()
 
             if success:
-                # Get order confirmation with placeholders replaced
-                confirmation = _get_order_confirmation_template(bot_settings, order_data)
+                # Get order confirmation message
+                confirmation = _get_order_confirmation_template(bot_settings)
                 if confirmation:
                     return confirmation
                 else:
-                    # If confirmation template is disabled, just save silently
                     return "Order saved successfully!"
             else:
                 return "Sorry, there was an error saving your order. Please try again or contact us directly."
 
         # Start order flow
         if is_order_trigger:
-            # Check if order form is enabled in templates (Issue 1)
-            templates = bot_settings.get("templates") or {}
-            order_enabled = templates.get("template_order_form_enabled", True)
+            # Check if order form is enabled
+            order_enabled = bot_settings.get("order_form_enabled", True)
 
             if order_enabled:
                 st = {"step": "ordering", "order_data": {}}
                 if lead:
                     lead.context = st
+                    flag_modified(lead, 'context')
                 db.commit()
                 return _get_order_form(bot_settings)
             else:
                 # Order form disabled, show menu instead
-                return _get_menu(business_type, bot_settings, site_name) or "Type *menu* to see options."
+                return _get_menu(business_type, bot_settings, site_name, user_id) or "Type *menu* to see options."
 
         if st.get("step") == "active":
+            # First, check if user input matches a custom template name
+            from models import UserTemplate
+            if user_id:
+                try:
+                    custom_templates = db.query(UserTemplate).filter(
+                        UserTemplate.user_id == user_id
+                    ).all()
+
+                    # Try to match template name (case-insensitive)
+                    for template in custom_templates:
+                        if template.template_name.lower() == tl:
+                            return template.content
+                except Exception as e:
+                    logger.error(f"Error matching custom template: {e}")
+
+            # Check if user typed "order" and order form is enabled
+            if tl == "order":
+                order_enabled = bot_settings.get("order_form_enabled", True)
+                if order_enabled:
+                    st = {"step": "ordering", "order_data": {}}
+                    if lead:
+                        lead.context = st
+                        flag_modified(lead, 'context')
+                    db.commit()
+                    return _get_order_form(bot_settings)
+
             # Map numbers to actions based on enabled templates
             templates = bot_settings.get("templates") or bot_settings.get("custom_responses") or {}
             enabled_map = {
@@ -521,6 +546,7 @@ def process(bot_id: int, text: str, phone: str, name: str, business_type: str = 
                     st = {"step": "ordering", "order_data": {}}
                     if lead:
                         lead.context = st
+                        flag_modified(lead, 'context')
                     db.commit()
                     return _get_order_form(bot_settings)
 
@@ -538,9 +564,13 @@ def process(bot_id: int, text: str, phone: str, name: str, business_type: str = 
                 resp = _get_product_text(bot_settings)
                 return resp if resp else "Product information is currently unavailable."
 
+            # If no match found, show menu or fallback message
+            menu = _get_menu(business_type, bot_settings, site_name, user_id)
+            if menu:
+                return "❓ I didn't quite catch that. Here's the menu:\n\n" + menu
             return "❓ I didn't quite catch that. Type *menu* to see available options."
 
-        return _get_menu(business_type, bot_settings, site_name)
+        return _get_menu(business_type, bot_settings, site_name, user_id)
         
     except Exception as e:
         logger.error(f"Critical error in process(): {e}", exc_info=True)

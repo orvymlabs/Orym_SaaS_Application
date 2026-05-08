@@ -146,10 +146,17 @@ def ai_reply(text: str, lang: str, api_key: str, provider: str,
     contact_address = contact.get('address', '')
     contact_hours = contact.get('hours', '')
 
-    # Feature gating: Free plan = service only, Starter/Growth = product access
-    # Starter plan: limit to 10 products, Growth: unlimited (up to 30 in AI context)
-    show_products = (user_plan in ["starter", "growth"] and business_type == "product")
-    product_limit = 10 if user_plan == "starter" else 30
+    # Feature gating: Essentials plan = service only, Growth/Scale = product access
+    # Growth plan: limit to 10 products, Scale: unlimited (up to 30 in AI context)
+    # Backward compatibility: free -> essentials, starter -> growth
+    normalized_plan = user_plan.lower()
+    if normalized_plan == "free":
+        normalized_plan = "essentials"
+    elif normalized_plan == "starter":
+        normalized_plan = "growth"
+
+    show_products = (normalized_plan in ["growth", "scale"] and business_type == "product")
+    product_limit = 10 if normalized_plan == "growth" else 30
 
     # Build CONTACT section FIRST (most important for service queries)
     contact_section = f"## 📞 CONTACT INFO for {site_name}:\n"
@@ -179,11 +186,11 @@ def ai_reply(text: str, lang: str, api_key: str, provider: str,
                 catalog_lines.append(f"  - {p_name} | SKU: {sku} | {price} PKR | {stock}")
             if len(products) > product_limit:
                 catalog_lines.append(f"  ...and {len(products) - product_limit} more products")
-            if user_plan == "starter":
-                catalog_lines.append("\n📦 *Note*: Starter plan shows first 10 products. Upgrade to Growth for full catalog.")
+            if normalized_plan == "growth":
+                catalog_lines.append("\n📦 *Note*: Growth plan shows first 10 products. Upgrade to Scale for full catalog.")
             catalog_section = "\n".join(catalog_lines)
-        elif user_plan == "free":
-            catalog_section = "## PRODUCTS: Not available in Free plan. Upgrade to Starter or Growth for product catalog access."
+        elif normalized_plan == "essentials":
+            catalog_section = "## PRODUCTS: Not available in Essentials plan. Upgrade to Growth or Scale for product catalog access."
         else:
             catalog_section = "## PRODUCTS: No product data available. Focus on services and contact info."
     else:
@@ -292,7 +299,7 @@ def ai_reply(text: str, lang: str, api_key: str, provider: str,
             # Google Gemini OpenAI-compatible endpoint is mostly standard
             pass
             
-        r = requests.post(cfg["url"], headers=headers, json=request_payload, timeout=30, verify=False)
+        r = requests.post(cfg["url"], headers=headers, json=request_payload, timeout=12, verify=False)
         logger.info(f"AI ({provider}) API response status: {r.status_code}")
 
         if r.status_code == 200:

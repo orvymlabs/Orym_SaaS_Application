@@ -50,8 +50,10 @@ def _is_website_query(text: str) -> bool:
 
 def _capture_lead(bot_id: int, phone: str, name: str, text: str):
     """Capture or update lead with latest message and detect interest level."""
-    from models import Lead
+    from models import Lead, Bot
     from database import SessionLocal
+    from sqlalchemy.orm.attributes import flag_modified
+    from routers.notifications import create_notification
 
     # Interest keywords that indicate buying intent
     interest_keywords = ['price', 'cost', 'buy', 'order', 'purchase', 'interested', 'how much',
@@ -65,12 +67,15 @@ def _capture_lead(bot_id: int, phone: str, name: str, text: str):
     db = SessionLocal()
     try:
         lead = db.query(Lead).filter(Lead.bot_id == bot_id, Lead.phone == phone).first()
+        is_new_lead = lead is None
+
         if not lead:
             # New lead
             context = {
                 "step": "active",
                 "interest_level": "high" if is_interested else "medium",
-                "last_query": text[:200]
+                "last_query": text[:200],
+                "last_active_at": str(datetime.now())
             }
             lead = Lead(bot_id=bot_id, phone=phone, name=name, last_message=text, context=context)
             db.add(lead)
@@ -83,14 +88,35 @@ def _capture_lead(bot_id: int, phone: str, name: str, text: str):
             # Update context with interest tracking
             context = lead.context or {}
             context["last_query"] = text[:200]
+            context["last_active_at"] = str(datetime.now())
             if is_interested:
                 context["interest_level"] = "high"
                 context["interested_at"] = str(datetime.now())
-        lead.context = context
+
+            lead.context = context
+            # Mark JSON field as modified so SQLAlchemy detects the change
+            flag_modified(lead, 'context')
 
         db.commit()
+        logger.info(f"✓ Lead updated: {phone} - {name}")
+
+        # Create notification for new lead
+        if is_new_lead:
+            try:
+                bot = db.query(Bot).filter(Bot.id == bot_id).first()
+                if bot:
+                    create_notification(
+                        db=db,
+                        user_id=bot.user_id,
+                        type="new_lead",
+                        title="New Lead Captured",
+                        message=f"New lead from {phone} - {name or 'Unknown'}"
+                    )
+            except Exception as e:
+                logger.error(f"Failed to create lead notification: {e}")
+
     except Exception as e:
-        logger.error(f"Failed to capture lead: {e}")
+        logger.error(f"Failed to capture lead: {e}", exc_info=True)
         db.rollback()
     finally:
         db.close()
@@ -101,26 +127,9 @@ def handle_message(bot_mode: str, bot_id: int, text: str, phone: str, name: str,
                    products: list, categories: list, business_type: str = "product",
                    user_plan: str = "starter", user_id: int = None) -> str:
 
-    from models import Lead
-    from database import SessionLocal
-
     # Capture lead for ALL modes (universal lead capture)
+    # This also updates last_active_at in the context
     _capture_lead(bot_id, phone, name, text)
-
-    # Ensure last_active_at is set in context for inactivity tracking
-    db = SessionLocal()
-    try:
-        lead = db.query(Lead).filter(Lead.bot_id == bot_id, Lead.phone == phone).first()
-        if lead:
-            context = lead.context or {}
-            context["last_active_at"] = str(datetime.now())
-            lead.context = context
-            db.commit()
-    except Exception as e:
-        logger.error(f"Failed to update last_active_at: {e}")
-        db.rollback()
-    finally:
-        db.close()
 
     tl = text.lower().strip()
     lang = bot_settings.get("language", "english")
@@ -140,7 +149,8 @@ def handle_message(bot_mode: str, bot_id: int, text: str, phone: str, name: str,
             user_plan=user_plan,
             products=products,
             contact_info=contact_info,
-            user_id=user_id
+            user_id=user_id,
+            bot_settings=bot_settings
         )
 
     # PREDEFINED MODE
@@ -235,5 +245,6 @@ def handle_message(bot_mode: str, bot_id: int, text: str, phone: str, name: str,
         user_plan=user_plan,
         products=products,
         contact_info=contact_info,
-        user_id=user_id
+        user_id=user_id,
+        bot_settings=bot_settings
     )

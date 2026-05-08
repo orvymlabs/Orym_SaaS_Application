@@ -43,6 +43,8 @@ class BotSettingsUpdate(BaseModel):
     template_statuses: Optional[Dict[str, bool]] = None # Added for individual template statuses
     custom_responses: Optional[Dict[str, str]] = None # Added custom_responses field
     custom_products: Optional[Any] = None
+    welcome_message: Optional[str] = None  # Dynamic welcome/greeting message
+    response_delay: Optional[int] = None  # Delay in seconds before bot responds
 
 class SettingsResponse(BaseModel): # Added SettingsResponse class
     id: int
@@ -58,6 +60,8 @@ class SettingsResponse(BaseModel): # Added SettingsResponse class
     custom_responses: Optional[Dict[str, str]] = None # Added custom_responses field
     custom_products: Optional[Any] = None
     has_api_key: bool # Added has_api_key field
+    welcome_message: Optional[str] = None  # Dynamic welcome/greeting message
+    response_delay: Optional[int] = None  # Delay in seconds before bot responds
 
 class TestChatRequest(BaseModel): # Added TestChatRequest class
     message: str

@@ -50,6 +50,11 @@ class BotSettings(Base):
     templates = Column(JSON, nullable=True)
     template_enabled = Column(Boolean, default=True)
     template_statuses = Column(JSON, nullable=True)
+    order_form_template = Column(Text, nullable=True)
+    order_confirmation_message = Column(Text, nullable=True)
+    order_form_enabled = Column(Boolean, default=True)
+    welcome_message = Column(Text, nullable=True)  # Dynamic welcome/greeting message
+    response_delay = Column(Integer, default=0)  # Delay in seconds before bot responds (0 = instant)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -169,13 +174,14 @@ class Order(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
     # Customer details
-    name = Column(String(100), nullable=False)
+    name = Column(String(100), nullable=True)
     phone = Column(String(30), nullable=False)
-    address = Column(Text, nullable=False)
+    address = Column(Text, nullable=True)
 
     # Order details
-    product_name = Column(String(255), nullable=False)
+    product_name = Column(String(255), nullable=True)
     quantity = Column(Integer, default=1)
+    order_details = Column(Text, nullable=True)  # Raw filled form from customer
 
     # Order status
     status = Column(String(20), default="Pending")  # Pending, Completed, Cancelled
@@ -185,6 +191,34 @@ class Order(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     bot = relationship("Bot", back_populates="orders")
+    user = relationship("User")
+
+
+class UserTemplate(Base):
+    __tablename__ = "user_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    template_name = Column(String(50), nullable=False)
+    content = Column(Text, nullable=False)
+    position = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    user = relationship("User")
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    type = Column(String(50), nullable=False)  # new_order, new_lead, bot_error, plan_expiry, payment_failed
+    title = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    read = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
     user = relationship("User")
 
 

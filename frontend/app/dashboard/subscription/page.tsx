@@ -15,52 +15,47 @@ interface Usage {
 }
 
 const PLANS = {
-  free: {
-    name: "Free",
+  essentials: {
+    name: "Essentials",
     price: "$0",
     period: "/month",
     popular: false,
     features: [
       { text: "WhatsApp Bot Access", included: true },
-      { text: "Service-based Flows Only", included: true },
-      { text: "Basic Website Content Fetch", included: true },
-      { text: "Limited Predefined Templates", included: true },
-      { text: "AI Bot Integration (Your API Key)", included: true },
-      { text: "Up to 200 Conversations/Month", included: true },
-      { text: "Basic Lead Capture", included: true },
+      { text: "Service-based Flows", included: true },
+      { text: "Basic Website Content", included: true },
+      { text: "AI Bot (Your API Key)", included: true },
+      { text: "Up to 200 Conversations", included: true },
       { text: "Test Mode (Sandbox)", included: true },
-      { text: "Basic Dashboard", included: true },
-      { text: "Email Support", included: true },
-      { text: "Product-based Flows", included: false },
     ],
   },
-  starter: {
-    name: "Starter",
-    price: "$1",
+  growth: {
+    name: "Growth",
+    price: "$9.99",
     period: "/month",
-    popular: false,
+    popular: true,
     features: [
-      { text: "Everything in Free Plan", included: true },
+      { text: "Everything in Essentials", included: true },
       { text: "Product + Service Flows (Both)", included: true },
       { text: "WooCommerce Integration (10 Products)", included: true },
       { text: "Product Listing + Search", included: true },
       { text: "Unlimited Templates", included: true },
       { text: "Smart AI Responses", included: true },
-      { text: "Up to 500 Conversations/Month", included: true },
+      { text: "Up to 500 Conversations", included: true },
     ],
   },
-  growth: {
-    name: "Growth",
-    price: "$3",
+  scale: {
+    name: "Scale",
+    price: "$49.99",
     period: "/month",
-    popular: true,
+    popular: false,
     features: [
-      { text: "Everything in Starter", included: true },
-      { text: "WooCommerce Integration (Unlimited)", included: true },
+      { text: "Everything in Growth", included: true },
+      { text: "Unlimited WooCommerce Integration", included: true },
       { text: "Product Listing + Search (Unlimited)", included: true },
       { text: "Unlimited Templates", included: true },
       { text: "Smart AI Responses", included: true },
-      { text: "Up to 1500 Conversations/Month", included: true },
+      { text: "Up to 1500 Conversations", included: true },
     ],
   },
 };
@@ -81,7 +76,7 @@ export default function SubscriptionPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handleUpgrade = async (targetPlan: "starter" | "growth") => {
+  const handleUpgrade = async (targetPlan: "growth" | "scale") => {
     setUpgrading(true);
     try {
       await apiPost("/api/auth/upgrade-plan", { plan: targetPlan });
@@ -95,7 +90,7 @@ export default function SubscriptionPage() {
     }
   };
 
-  const handleDowngradeTo = async (targetPlan: "free" | "starter") => {
+  const handleDowngradeTo = async (targetPlan: "essentials" | "growth") => {
     if (!confirm("Are you sure? Paid features will be disabled.")) return;
 
     setDowngrading(true);
@@ -122,7 +117,7 @@ export default function SubscriptionPage() {
     );
   }
 
-  const currentPlan = usage?.plan || "free";
+  const currentPlan = usage?.plan || "essentials";
 
   return (
     <div className="max-w-7xl mx-auto space-y-12 pb-24 animate-in fade-in duration-500">
@@ -168,13 +163,15 @@ export default function SubscriptionPage() {
 
           return (
             <div key={key} className={`rounded-[3rem] p-10 border-2 transition-all duration-500 relative flex flex-col ${
-              isDark 
-                ? (isCurrent ? 'bg-[#0F0F0F] border-white/20 shadow-2xl shadow-black' : 'bg-[#090909] border-zinc-800 hover:border-zinc-700') 
-                : (isCurrent ? 'bg-white border-slate-500 shadow-2xl shadow-slate-50' : 'bg-white border-slate-100 hover:border-slate-200')
+              plan.popular && !isCurrent
+                ? (isDark ? 'bg-[#0F0F0F] border-purple-500/50 shadow-2xl shadow-purple-900/20' : 'bg-white border-purple-500 shadow-2xl shadow-purple-100')
+                : isDark
+                  ? (isCurrent ? 'bg-[#0F0F0F] border-white/20 shadow-2xl shadow-black' : 'bg-[#090909] border-zinc-800 hover:border-zinc-700')
+                  : (isCurrent ? 'bg-white border-slate-500 shadow-2xl shadow-slate-50' : 'bg-white border-slate-100 hover:border-slate-200')
             }`}>
               {plan.popular && !isCurrent && (
-                <div className="absolute top-0 right-10 bg-white text-black px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-b-xl shadow-xl">
-                  Most Popular
+                <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-gradient-to-r from-purple-600 to-purple-500 text-white px-6 py-2 text-[10px] font-black uppercase tracking-widest rounded-full shadow-xl shadow-purple-500/30">
+                  ⭐ Most Popular
                 </div>
               )}
               {isCurrent && (
@@ -221,8 +218,8 @@ export default function SubscriptionPage() {
                   <div className={`w-full py-4 text-center text-[10px] font-black uppercase tracking-[0.2em] rounded-2xl ${isDark ? "bg-zinc-900 text-zinc-700" : "bg-slate-50 text-slate-400"}`}>
                     Active Plan
                   </div>
-                ) : key === "growth" ||
-                  (key === "starter" && currentPlan === "free") ? (
+                ) : key === "scale" ||
+                  (key === "growth" && (currentPlan === "essentials" || currentPlan === "starter" || currentPlan === "free")) ? (
                   <button
                     onClick={() => handleUpgrade(key as any)}
                     disabled={upgrading}

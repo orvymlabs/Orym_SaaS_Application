@@ -21,7 +21,7 @@ export async function api<T = any>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const timeoutDuration = 15000; // 15 seconds timeout
+  const timeoutDuration = 30000; // 30 seconds timeout
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
 

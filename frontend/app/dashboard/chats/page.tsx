@@ -111,7 +111,6 @@ export default function ConversationsPage() {
                   </div>
                   <div>
                     <p className="font-bold text-xs tracking-tight">{phone}</p>
-                    <p className={`text-[9px] font-bold uppercase tracking-wide mt-1 ${selectedPhone === phone ? (isDark ? "text-black/50" : "text-slate-400") : "text-zinc-600"}`}>Online</p>
                   </div>
                 </div>
               </button>
@@ -143,10 +142,6 @@ export default function ConversationsPage() {
                   </div>
                   <div>
                     <h2 className={`text-lg font-bold tracking-tight leading-tight ${isDark ? "text-white" : "text-slate-900"}`}>{selectedPhone}</h2>
-                    <div className="flex items-center gap-2 mt-1">
-                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
-                      <span className={`text-[10px] font-bold uppercase tracking-wide ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Active Session</span>
-                    </div>
                   </div>
                 </div>
                 <button className="btn-icon">

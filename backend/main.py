@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from database import init_db
-from routers import auth, bots, integrations, webhook, chat, conversations, leads, orders
+from routers import auth, bots, integrations, webhook, chat, conversations, leads, orders, notifications
 from config import get_settings
 
 logging.basicConfig(
@@ -43,12 +43,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.APP_NAME, version="2.0", lifespan=lifespan)
 
-# Configure CORS origins
+# Configure CORS origins - Production only
 origins = [
     "https://apps.orvym.com",  # Production frontend (HTTPS)
     "http://apps.orvym.com",   # Production frontend (HTTP fallback)
-    "http://localhost:3001",   # Local development (Next.js default port)
-    "http://127.0.0.1:3001",   # Local development
 ]
 
 if settings.ALLOWED_ORIGINS:
@@ -65,15 +63,10 @@ if settings.ALLOWED_ORIGINS:
 def get_cors_headers(request: Request):
     """Helper to get correct CORS headers for a request."""
     origin = request.headers.get("origin")
-    
+
     # If origin is allowed, echo it back. Otherwise use the primary production origin.
-    # We check for exact match or domain match
-    is_allowed = False
-    if origin in origins:
-        is_allowed = True
-    elif origin and ("localhost" in origin or "127.0.0.1" in origin):
-        is_allowed = True
-        
+    is_allowed = origin in origins if origin else False
+
     allowed_origin = origin if is_allowed else "https://apps.orvym.com"
     
     return {
@@ -128,6 +121,7 @@ app.include_router(chat.router)
 app.include_router(conversations.router)
 app.include_router(leads.router)
 app.include_router(orders.router)
+app.include_router(notifications.router)
 
 # Manual OPTIONS handler for any path (CORS Preflight fallback)
 @app.options("/{rest_of_path:path}")

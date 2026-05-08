@@ -119,6 +119,10 @@ def process_whatsapp_message_background(
                 contact_info_data = {"site_name": website_url or "our business"}
 
         # Bot settings (includes bot_id for lead capture)
+        # FORCE REFRESH from database to get latest saved settings
+        if bot.settings:
+            db.refresh(bot.settings)
+
         bot_settings = {
             "prompt": bot.settings.prompt if bot.settings else "",
             "model_name": bot.settings.model_name if bot.settings else "openrouter",
@@ -129,7 +133,11 @@ def process_whatsapp_message_background(
             "templates": bot.settings.templates if bot.settings else {},
             "custom_responses": bot.settings.custom_responses if bot.settings else {},
             "template_enabled": getattr(bot.settings, 'template_enabled', True) if bot.settings else True,
+            "template_statuses": bot.settings.template_statuses if bot.settings else {},
             "custom_products": bot.settings.custom_products if bot.settings else [],
+            "order_form_template": bot.settings.order_form_template if bot.settings else None,
+            "order_confirmation_message": bot.settings.order_confirmation_message if bot.settings else None,
+            "order_form_enabled": bot.settings.order_form_enabled if bot.settings and bot.settings.order_form_enabled is not None else True,
             "_bot_id": bot.id  # Pass bot ID for lead capture in helper functions
         }
 
@@ -347,6 +355,11 @@ async def webhook_post(request: Request, background_tasks: BackgroundTasks, db: 
         metadata = value.get("metadata", {})
         phone_number_id = metadata.get("phone_number_id")
         contact_info = value.get("contacts", [{}])[0].get("profile", {})
+
+        logger.info(f"[{webhook_id}] 📨 Incoming message from {from_num}")
+        logger.info(f"[{webhook_id}] 📨 Message text length: {len(text)} characters")
+        logger.info(f"[{webhook_id}] 📨 Message preview: {text[:100]}...")
+        logger.info(f"[{webhook_id}] 📨 Full message: {text}")
 
         # Verify integration exists before queueing background task
         integ = db.query(Integration).filter(Integration.phone_number_id == phone_number_id).first()

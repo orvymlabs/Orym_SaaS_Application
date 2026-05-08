@@ -7,7 +7,7 @@ import { Logo } from "@/components/Logo";
 import "@/components/dashboard/dashboard.css";
 
 function PlanBadge() {
-  const [plan, setPlan] = useState<string>("starter");
+  const [plan, setPlan] = useState<string>("essentials");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -21,24 +21,43 @@ function PlanBadge() {
 
   if (loading) return null;
 
+  const getPlanColor = (planName: string) => {
+    if (planName === 'essentials' || planName === 'free') {
+      return {
+        bg: 'bg-slate-50/50',
+        border: 'border-slate-200 hover:border-slate-300',
+        text: 'text-slate-700'
+      };
+    } else if (planName === 'growth' || planName === 'starter') {
+      return {
+        bg: 'bg-purple-50/50',
+        border: 'border-purple-200 hover:border-purple-300',
+        text: 'text-purple-700'
+      };
+    } else {
+      return {
+        bg: 'bg-emerald-50/50',
+        border: 'border-emerald-200 hover:border-emerald-300',
+        text: 'text-emerald-700'
+      };
+    }
+  };
+
+  const colors = getPlanColor(plan);
+  const displayName = plan === 'free' ? 'essentials' : plan === 'starter' ? 'growth' : plan;
+
   return (
     <div className="px-4 pb-6">
       <Link href="/dashboard/subscription" className="block">
-        <div className={`rounded-2xl p-4 border-2 transition-all hover:scale-[1.02] ${
-          plan === 'starter'
-            ? 'bg-amber-50/50 border-amber-200 hover:border-amber-300'
-            : 'bg-emerald-50/50 border-emerald-200 hover:border-emerald-300'
-        }`}>
+        <div className={`rounded-2xl p-4 border-2 transition-all hover:scale-[1.02] ${colors.bg} ${colors.border}`}>
           <div className="flex items-center justify-between">
             <div>
               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Current Plan</p>
-              <p className={`text-sm font-black uppercase tracking-wide ${
-                plan === 'starter' ? 'text-amber-700' : 'text-emerald-700'
-              }`}>
-                {plan}
+              <p className={`text-sm font-black uppercase tracking-wide ${colors.text}`}>
+                {displayName}
               </p>
             </div>
-            {plan === 'starter' ? (
+            {plan === 'essentials' || plan === 'free' ? (
               <div className="btn-upgrade px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider">
                 Upgrade
               </div>
@@ -57,6 +76,9 @@ function PlanBadge() {
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+  )},
+  { href: "/dashboard/subscription", label: "Plan & Billing", icon: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
   )},
   { href: "/dashboard/chats", label: "Chats", icon: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
@@ -79,9 +101,6 @@ const navItems = [
   { href: "/dashboard/Support", label: "Support", icon: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
   )},
-  { href: "/dashboard/subscription", label: "Plan & Billing", icon: (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
-  )},
 ];
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
@@ -94,6 +113,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   // NEW: Bot Status and User Data
   const [botStatus, setBotStatus] = useState(false);
   const [userName, setUserName] = useState("User");
+  const [userEmail, setUserEmail] = useState("");
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -108,19 +131,66 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       return;
     }
 
+    // Fetch User Info
+    apiGet("/api/auth/me").then(data => {
+      if (data) {
+        setUserName(data.full_name || data.email);
+        setUserEmail(data.email);
+      }
+    }).catch(error => {
+      console.error("Failed to fetch user info:", error);
+    });
+
     // Fetch Bot Info
     apiGet("/api/bots/me").then(data => {
       if (data) {
         setBotStatus(data.status ?? false);
-        setUserName(data.name || "User");
       }
-    }).catch(error => { // Added error logging
+    }).catch(error => {
       console.error("Failed to fetch bot info:", error);
-      // Optionally, you could set default states or show a toast here if desired
-      // setBotStatus(false); 
-      // setUserName("Error");
     });
+
+    // Fetch Notifications
+    fetchNotifications();
+
+    // Poll for new notifications every 30 seconds
+    const notificationInterval = setInterval(() => {
+      fetchNotifications();
+    }, 30000);
+
+    return () => clearInterval(notificationInterval);
   }, []);
+
+  const fetchNotifications = async () => {
+    try {
+      const [notifData, countData] = await Promise.all([
+        apiGet("/api/notifications?limit=10"),
+        apiGet("/api/notifications/unread-count")
+      ]);
+      setNotifications(notifData || []);
+      setUnreadCount(countData?.count || 0);
+    } catch (error) {
+      console.error("Failed to fetch notifications:", error);
+    }
+  };
+
+  const markAsRead = async (notificationId: number) => {
+    try {
+      await apiGet(`/api/notifications/${notificationId}/read`, { method: "PATCH" });
+      fetchNotifications();
+    } catch (error) {
+      console.error("Failed to mark notification as read:", error);
+    }
+  };
+
+  const markAllAsRead = async () => {
+    try {
+      await apiGet("/api/notifications/mark-all-read", { method: "PATCH" });
+      fetchNotifications();
+    } catch (error) {
+      console.error("Failed to mark all as read:", error);
+    }
+  };
 
   useEffect(() => {
     if (mounted) {
@@ -243,10 +313,54 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               <span>{botStatus ? "Connected" : "Offline"}</span>
             </div>
 
-            <button className="notif-btn">
+            <button className="notif-btn" onClick={() => setShowNotifications(!showNotifications)}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" /></svg>
-              <span className="notif-badge">3</span>
+              {unreadCount > 0 && <span className="notif-badge">{unreadCount}</span>}
             </button>
+
+            {/* Notification Dropdown */}
+            {showNotifications && (
+              <div className={`absolute top-20 right-8 w-96 rounded-2xl border shadow-2xl z-50 ${isDark ? "bg-[#090909] border-zinc-800" : "bg-white border-slate-200"}`}>
+                <div className={`p-4 border-b flex items-center justify-between ${isDark ? "border-zinc-800" : "border-slate-200"}`}>
+                  <h3 className={`font-bold text-sm ${isDark ? "text-white" : "text-slate-900"}`}>Notifications</h3>
+                  {unreadCount > 0 && (
+                    <button onClick={markAllAsRead} className={`text-xs font-bold ${isDark ? "text-blue-400 hover:text-blue-300" : "text-blue-600 hover:text-blue-700"}`}>
+                      Mark all read
+                    </button>
+                  )}
+                </div>
+                <div className="max-h-96 overflow-y-auto">
+                  {notifications.length === 0 ? (
+                    <div className="p-8 text-center">
+                      <p className={`text-sm ${isDark ? "text-zinc-600" : "text-slate-400"}`}>No notifications</p>
+                    </div>
+                  ) : (
+                    notifications.map((notif: any) => (
+                      <div
+                        key={notif.id}
+                        onClick={() => markAsRead(notif.id)}
+                        className={`p-4 border-b cursor-pointer transition-colors ${
+                          notif.read
+                            ? isDark ? "bg-transparent hover:bg-zinc-900" : "bg-transparent hover:bg-slate-50"
+                            : isDark ? "bg-zinc-900/50 hover:bg-zinc-900" : "bg-blue-50/50 hover:bg-blue-50"
+                        } ${isDark ? "border-zinc-800" : "border-slate-200"}`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className={`w-2 h-2 rounded-full mt-2 ${notif.read ? "bg-transparent" : "bg-blue-500"}`} />
+                          <div className="flex-1">
+                            <p className={`font-bold text-sm ${isDark ? "text-white" : "text-slate-900"}`}>{notif.title}</p>
+                            <p className={`text-xs mt-1 ${isDark ? "text-zinc-500" : "text-slate-600"}`}>{notif.message}</p>
+                            <p className={`text-[10px] mt-2 ${isDark ? "text-zinc-700" : "text-slate-400"}`}>
+                              {new Date(notif.created_at).toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Theme Toggle */}
             <button
@@ -267,10 +381,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             <div className={`h-6 w-px ${isDark ? "bg-zinc-800" : "bg-slate-200"}`}></div>
             
             <div className="user-chip">
-              <div className="user-avatar">{userName.charAt(0)}</div>
+              <div className="user-avatar">{userName.charAt(0).toUpperCase()}</div>
               <div className="user-info hidden lg:block text-left">
                 <h4>{userName}</h4>
-                <p>Founder Mode</p>
               </div>
             </div>
           </div>

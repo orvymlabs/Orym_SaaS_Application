@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Bot, BotSettings, Integration, Message, Lead, User 
+from models import Bot, BotSettings, Integration, Message, Lead, User, UserTemplate 
 from schemas.bot import (
     BotResponse, BotSettingsUpdate, BotModeUpdate, BotStatusUpdate, SettingsResponse,
     TestChatRequest, TestChatResponse
@@ -24,9 +24,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/bots", tags=["bots"])
 
 def get_plan_limits(plan: str) -> dict:
-    if plan == "growth":
-        return {"custom_responses": -1, "custom_products": -1}
-    return {"custom_responses": 10, "custom_products": 20}
+    """Get plan limits with backward compatibility.
+
+    New plans: essentials, growth, scale
+    Old plans: free -> essentials, starter -> growth
+    """
+    normalized_plan = plan.lower()
+    if normalized_plan == "free":
+        normalized_plan = "essentials"
+    elif normalized_plan == "starter":
+        normalized_plan = "growth"
+
+    if normalized_plan == "essentials":
+        return {"custom_responses": 10, "custom_products": 20, "custom_templates": 3}
+    elif normalized_plan == "growth":
+        return {"custom_responses": -1, "custom_products": -1, "custom_templates": 10}
+    elif normalized_plan == "scale":
+        return {"custom_responses": -1, "custom_products": -1, "custom_templates": 15}
+    return {"custom_responses": 10, "custom_products": 20, "custom_templates": 3}
 
 def get_user_plan(user_id: int, db: Session) -> str:
     user = db.query(User).filter(User.id == user_id).first()
@@ -173,6 +188,8 @@ def get_settings(user_id: int = Depends(get_current_user_id), db: Session = Depe
         "custom_responses": s.custom_responses or {},
         "custom_products": s.custom_products,
         "has_api_key": bool(s.api_key),
+        "welcome_message": s.welcome_message,
+        "response_delay": s.response_delay or 0,
     }
 
 @router.patch("/settings")
@@ -213,6 +230,14 @@ def update_settings(data: BotSettingsUpdate, user_id: int = Depends(get_current_
     if data.template_statuses is not None:
         s.template_statuses = data.template_statuses
         logger.info(f"Updated template_statuses: {data.template_statuses}")
+
+    # Update WhatsApp engine settings
+    if data.welcome_message is not None:
+        s.welcome_message = data.welcome_message
+        logger.info(f"Updated welcome_message")
+    if data.response_delay is not None:
+        s.response_delay = data.response_delay
+        logger.info(f"Updated response_delay: {data.response_delay}")
 
     # Measure commit time
     import time
@@ -302,60 +327,290 @@ def update_template(template_id: str, data: TemplateUpdate, user_id: int = Depen
 
 @router.post("/test-chat")
 def test_chat(data: TestChatRequest, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    bot = db.query(Bot).filter(Bot.user_id == user_id).first()
-    if not bot: raise HTTPException(404, "Bot not found")
-    integ = db.query(Integration).filter(Integration.bot_id == bot.id).first()
-    if not integ: raise HTTPException(404, "Integrations not found")
+    """Test chat endpoint with timeout handling and proper error responses."""
+    import threading
 
-    products, categories, contact_info_data = [], [], {}
-    website_url = integ.woocommerce_url or integ.wp_base_url
-    if website_url:
-        try:
-            prod_res = UniversalWebsiteFetcher.scrape_products_from_website(website_url)
-            if prod_res.get("success"):
-                products = prod_res.get("products", [])
-                categories = prod_res.get("categories", [])
-            site_info = UniversalWebsiteFetcher.fetch_site_info(website_url)
-            contact_info_data = {
-                "site_name": site_info.get("site_name") or website_url,
-                "phone": site_info.get("contact", {}).get("phone", ""),
-                "email": site_info.get("contact", {}).get("email", ""),
-                "address": site_info.get("contact", {}).get("address", ""),
-                "services": site_info.get("services", []),
-                "about": site_info.get("about", ""),
-            }
-        except Exception as e:
-            logger.warning(f"Failed to fetch website data for test chat: {e}")
-            contact_info_data = {"site_name": "Test Store"}
+    logger.info(f"Test chat request from user {user_id}: {data.message}")
 
-    # Ensure all bot settings are included
-    bot_settings = {
-        "prompt": bot.settings.prompt if bot.settings else "",
-        "model_name": bot.settings.model_name if bot.settings else "openrouter",
-        "specific_model_name": bot.settings.specific_model_name if bot.settings else None,
-        "api_key": decrypt_value(bot.settings.api_key) if bot.settings and bot.settings.api_key else "",
-        "temperature": bot.settings.temperature if bot.settings else 70,
-        "language": bot.settings.language if bot.settings else "english",
-        "templates": bot.settings.templates if bot.settings else {},
-        "custom_responses": bot.settings.custom_responses if bot.settings else {},
-        "template_enabled": getattr(bot.settings, 'template_enabled', True) if bot.settings else True,
-        "template_statuses": bot.settings.template_statuses if bot.settings else {},
-        "_bot_id": bot.id  # Pass bot ID for lead capture
+    try:
+        bot = db.query(Bot).filter(Bot.user_id == user_id).first()
+        if not bot:
+            logger.error(f"Bot not found for user {user_id}")
+            raise HTTPException(404, "Bot not found")
+
+        integ = db.query(Integration).filter(Integration.bot_id == bot.id).first()
+        if not integ:
+            logger.error(f"Integrations not found for bot {bot.id}")
+            raise HTTPException(404, "Integrations not found")
+
+        logger.info(f"Bot mode: {bot.mode}, Bot status: {bot.status}")
+
+        # Skip website fetching for sandbox to speed up response
+        products, categories, contact_info_data = [], [], {"site_name": "Test Store"}
+
+        # Ensure all bot settings are included
+        bot_settings = {
+            "prompt": bot.settings.prompt if bot.settings else "",
+            "model_name": bot.settings.model_name if bot.settings else "openrouter",
+            "specific_model_name": bot.settings.specific_model_name if bot.settings else None,
+            "api_key": decrypt_value(bot.settings.api_key) if bot.settings and bot.settings.api_key else "",
+            "temperature": bot.settings.temperature if bot.settings else 70,
+            "language": bot.settings.language if bot.settings else "english",
+            "templates": bot.settings.templates if bot.settings else {},
+            "custom_responses": bot.settings.custom_responses if bot.settings else {},
+            "template_enabled": getattr(bot.settings, 'template_enabled', True) if bot.settings else True,
+            "template_statuses": bot.settings.template_statuses if bot.settings else {},
+            "order_form_template": bot.settings.order_form_template if bot.settings else None,
+            "order_confirmation_message": bot.settings.order_confirmation_message if bot.settings else None,
+            "order_form_enabled": getattr(bot.settings, 'order_form_enabled', True) if bot.settings else True,
+            "_bot_id": bot.id
+        }
+
+        logger.info(f"Calling handle_message with mode: {bot.mode}")
+
+        # Call handle_message with timeout using threading
+        reply_result = {"reply": None, "error": None}
+
+        def generate_reply():
+            try:
+                reply_result["reply"] = handle_message(
+                    bot_mode=bot.mode,
+                    bot_id=bot.id,
+                    text=data.message,
+                    phone="sandbox_test_user",
+                    name="Test User",
+                    bot_settings=bot_settings,
+                    integrations={},
+                    contact_info=contact_info_data,
+                    products=products,
+                    categories=categories,
+                    business_type=integ.business_type or "product",
+                    user_plan=get_user_plan(user_id, db),
+                    user_id=user_id
+                )
+                logger.info(f"Reply generated successfully: {reply_result['reply'][:100] if reply_result['reply'] else 'None'}")
+            except Exception as e:
+                reply_result["error"] = str(e)
+                logger.error(f"Error generating reply: {e}", exc_info=True)
+
+        reply_thread = threading.Thread(target=generate_reply, daemon=True)
+        reply_thread.start()
+        reply_thread.join(timeout=15)  # 15 second timeout
+
+        if reply_thread.is_alive():
+            logger.error("Bot response generation timed out after 15 seconds")
+            return {"reply": "⏱️ Response timeout. Your bot is taking too long to respond. If using AI mode, check your API key and model settings.", "mode": bot.mode, "bot_id": bot.id}
+
+        if reply_result["error"]:
+            logger.error(f"Reply error: {reply_result['error']}")
+            return {"reply": f"❌ Error: {reply_result['error']}", "mode": bot.mode, "bot_id": bot.id}
+
+        if reply_result["reply"] is None:
+            logger.error("No reply generated")
+            return {"reply": "❌ No response generated. Please check your bot settings.", "mode": bot.mode, "bot_id": bot.id}
+
+        logger.info("Test chat completed successfully")
+        return {"reply": reply_result["reply"], "mode": bot.mode, "bot_id": bot.id}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in test chat: {e}", exc_info=True)
+        return {"reply": f"❌ Error: {str(e)}", "mode": "error", "bot_id": None}
+
+
+# Custom Templates CRUD Endpoints
+class CustomTemplateCreate(BaseModel):
+    template_name: str
+    content: str
+
+class CustomTemplateUpdate(BaseModel):
+    template_name: Optional[str] = None
+    content: Optional[str] = None
+    position: Optional[int] = None
+
+@router.get("/custom-templates")
+def get_custom_templates(user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    """Fetch all custom templates for the logged-in user"""
+    templates = db.query(UserTemplate).filter(UserTemplate.user_id == user_id).order_by(UserTemplate.position).all()
+    return {"templates": [
+        {
+            "id": t.id,
+            "template_name": t.template_name,
+            "content": t.content,
+            "position": t.position,
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+            "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+        }
+        for t in templates
+    ]}
+
+@router.post("/custom-templates")
+def create_custom_template(data: CustomTemplateCreate, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    """Create a new custom template"""
+    # Validate template name and content
+    if not data.template_name or not data.template_name.strip():
+        raise HTTPException(400, "Template name is required")
+    if len(data.template_name) > 50:
+        raise HTTPException(400, "Template name must be 50 characters or less")
+    if not data.content or not data.content.strip():
+        raise HTTPException(400, "Template content is required")
+    if len(data.content) > 1000:
+        raise HTTPException(400, "Template content must be 1000 characters or less")
+
+    # Check plan limits
+    user_plan = get_user_plan(user_id, db)
+    limits = get_plan_limits(user_plan)
+    existing_count = db.query(UserTemplate).filter(UserTemplate.user_id == user_id).count()
+
+    max_templates = limits.get("custom_templates", 3)
+    if max_templates != -1 and existing_count >= max_templates:
+        raise HTTPException(403, f"Template limit reached. Your {user_plan} plan allows {max_templates} templates.")
+
+    # Get the highest position and increment
+    max_position = db.query(UserTemplate).filter(UserTemplate.user_id == user_id).count()
+
+    new_template = UserTemplate(
+        user_id=user_id,
+        template_name=data.template_name.strip(),
+        content=data.content.strip(),
+        position=max_position
+    )
+    db.add(new_template)
+    db.commit()
+    db.refresh(new_template)
+
+    return {
+        "id": new_template.id,
+        "template_name": new_template.template_name,
+        "content": new_template.content,
+        "position": new_template.position,
+        "created_at": new_template.created_at.isoformat() if new_template.created_at else None,
+        "updated_at": new_template.updated_at.isoformat() if new_template.updated_at else None,
     }
 
-    reply = handle_message(
-        bot_mode=bot.mode,
-        bot_id=bot.id,
-        text=data.message,
-        phone="sandbox_test_user",
-        name="Test User",
-        bot_settings=bot_settings,
-        integrations={},
-        contact_info=contact_info_data,
-        products=products,
-        categories=categories,
-        business_type=integ.business_type or "product",
-        user_plan=get_user_plan(user_id, db),
-        user_id=user_id
-    )
-    return {"reply": reply}
+@router.put("/custom-templates/{template_id}")
+def update_custom_template(template_id: int, data: CustomTemplateUpdate, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    """Update an existing custom template"""
+    template = db.query(UserTemplate).filter(
+        UserTemplate.id == template_id,
+        UserTemplate.user_id == user_id
+    ).first()
+
+    if not template:
+        raise HTTPException(404, "Template not found")
+
+    # Validate and update fields
+    if data.template_name is not None:
+        if not data.template_name.strip():
+            raise HTTPException(400, "Template name cannot be empty")
+        if len(data.template_name) > 50:
+            raise HTTPException(400, "Template name must be 50 characters or less")
+        template.template_name = data.template_name.strip()
+
+    if data.content is not None:
+        if not data.content.strip():
+            raise HTTPException(400, "Template content cannot be empty")
+        if len(data.content) > 1000:
+            raise HTTPException(400, "Template content must be 1000 characters or less")
+        template.content = data.content.strip()
+
+    if data.position is not None:
+        template.position = data.position
+
+    db.commit()
+    db.refresh(template)
+
+    return {
+        "id": template.id,
+        "template_name": template.template_name,
+        "content": template.content,
+        "position": template.position,
+        "created_at": template.created_at.isoformat() if template.created_at else None,
+        "updated_at": template.updated_at.isoformat() if template.updated_at else None,
+    }
+
+@router.delete("/custom-templates/{template_id}")
+def delete_custom_template(template_id: int, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    """Delete a custom template"""
+    template = db.query(UserTemplate).filter(
+        UserTemplate.id == template_id,
+        UserTemplate.user_id == user_id
+    ).first()
+
+    if not template:
+        raise HTTPException(404, "Template not found")
+
+    db.delete(template)
+    db.commit()
+
+    return {"status": "ok", "message": "Template deleted successfully"}
+
+
+# Order Form Settings Endpoints
+class OrderFormSettings(BaseModel):
+    order_form_template: Optional[str] = None
+    order_confirmation_message: Optional[str] = None
+    order_form_enabled: Optional[bool] = None
+
+@router.get("/order-form/settings")
+def get_order_form_settings(user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    """Fetch order form template, confirmation message, and enabled status for logged in user"""
+    bot = db.query(Bot).filter(Bot.user_id == user_id).first()
+    if not bot or not bot.settings:
+        raise HTTPException(404, "Bot settings not found")
+
+    s = bot.settings
+
+    # Default values if not set
+    default_form_template = """🛍️ Order Form
+
+Please fill in the details below and reply:
+
+Full Name:
+Phone Number:
+Delivery Address:
+Product / Item:
+Quantity:
+Special Instructions (optional):"""
+
+    default_confirmation = """✅ Thank you! Your order has been received.
+Our team will contact you shortly to confirm."""
+
+    return {
+        "order_form_template": s.order_form_template or default_form_template,
+        "order_confirmation_message": s.order_confirmation_message or default_confirmation,
+        "order_form_enabled": s.order_form_enabled if s.order_form_enabled is not None else True
+    }
+
+@router.put("/order-form/settings")
+def update_order_form_settings(data: OrderFormSettings, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    """Save order form template, confirmation message, and enabled status"""
+    bot = db.query(Bot).filter(Bot.user_id == user_id).first()
+    if not bot or not bot.settings:
+        raise HTTPException(404, "Bot settings not found")
+
+    s = bot.settings
+
+    # Validate and update fields
+    if data.order_form_template is not None:
+        if not data.order_form_template.strip():
+            raise HTTPException(400, "Order form template cannot be empty")
+        if len(data.order_form_template) > 1000:
+            raise HTTPException(400, "Order form template must be 1000 characters or less")
+        s.order_form_template = data.order_form_template.strip()
+
+    if data.order_confirmation_message is not None:
+        if not data.order_confirmation_message.strip():
+            raise HTTPException(400, "Order confirmation message cannot be empty")
+        if len(data.order_confirmation_message) > 500:
+            raise HTTPException(400, "Order confirmation message must be 500 characters or less")
+        s.order_confirmation_message = data.order_confirmation_message.strip()
+
+    if data.order_form_enabled is not None:
+        s.order_form_enabled = data.order_form_enabled
+
+    db.commit()
+    clear_cache_for_bot(bot.id)
+
+    return {"status": "ok", "message": "Order form settings saved successfully"}

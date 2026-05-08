@@ -8,23 +8,54 @@ interface RightColumnProps {
   bot?: any;
   usage?: any;
   isDark?: boolean;
+  integrations?: any;
 }
 
-export default function RightColumn({ messagesCount, aiRequestsCount, bot, usage, isDark }: RightColumnProps) {
+export default function RightColumn({ messagesCount, aiRequestsCount, bot, usage, isDark, integrations }: RightColumnProps) {
   // Extract values for progress bars
   const [msgSent, msgLimit] = messagesCount.split('/').map(s => parseInt(s.replace(/,/g, '')) || 0);
   const msgPercent = msgLimit > 0 ? (msgSent / msgLimit) * 100 : 0;
-  
-  // WhatsApp Engine Data
-  const whatsappStatus = bot?.status ? "Connected" : "Offline";
-  const connectedNumber = bot?.phone_number || "+92 300 1234567";
 
-  // Automation flows from existing system templates
+  // WhatsApp Engine Data - Use actual integrations data
+  const whatsappStatus = integrations?.whatsapp_number ? "Connected" : "Not Connected";
+  const connectedNumber = integrations?.whatsapp_number || "Not Connected";
+  const phoneNumberId = integrations?.phone_number_id || "Not Set";
+
+  // Get bot mode label
+  const getBotModeLabel = (mode: string) => {
+    if (mode === "default") return "Customize Flow";
+    if (mode === "predefined") return "Keyword Trigger";
+    if (mode === "ai") return "Dynamic AI";
+    return "Not Set";
+  };
+
+  const getBotModeDescription = (mode: string) => {
+    if (mode === "default") return "Template-based responses with custom flows";
+    if (mode === "predefined") return "Keyword-triggered automated replies";
+    if (mode === "ai") return "AI-powered dynamic conversations";
+    return "No mode configured";
+  };
+
+  // Automation flows based on actual bot mode and integrations
   const automationFlows = [
-    { id: 'greeting', name: "Welcome Greeting", status: "Active" },
-    { id: 'menu', name: "Main Menu", status: "Active" },
-    { id: 'order', name: "Order Form", status: bot?.mode === 'default' ? "Active" : "Inactive" },
-    { id: 'ai', name: "AI Brain", status: bot?.mode === 'ai' ? "Active" : "Inactive" }
+    {
+      id: 'whatsapp',
+      name: "WhatsApp Integration",
+      status: integrations?.whatsapp_number ? "Active" : "Inactive",
+      detail: integrations?.whatsapp_number ? `Connected: ${integrations.whatsapp_number}` : "Not connected"
+    },
+    {
+      id: 'woocommerce',
+      name: "WooCommerce Sync",
+      status: integrations?.woocommerce_url ? "Active" : "Inactive",
+      detail: integrations?.woocommerce_url ? "Store connected" : "Not configured"
+    },
+    {
+      id: 'bot',
+      name: "Bot Engine",
+      status: bot?.status ? "Active" : "Inactive",
+      detail: bot?.status ? "Responding to messages" : "Bot is offline"
+    },
   ];
 
   const activeCount = automationFlows.filter(f => f.status === "Active").length;
@@ -40,7 +71,7 @@ export default function RightColumn({ messagesCount, aiRequestsCount, bot, usage
             </svg>
             <h3>WhatsApp Engine</h3>
           </div>
-          <span className={`btn-pill py-1 !text-[9px] ${bot?.status ? 'btn-pill-active' : 'btn-pill-inactive'}`}>{whatsappStatus}</span>
+          <span className={`btn-pill py-1 !text-[9px] ${integrations?.whatsapp_number ? 'btn-pill-active' : 'btn-pill-inactive'}`}>{whatsappStatus}</span>
         </div>
 
         <div className="usage-stats">
@@ -54,16 +85,17 @@ export default function RightColumn({ messagesCount, aiRequestsCount, bot, usage
             </span>
           </div>
           <div className="usage-stat-row">
-            <span className="usage-stat-key">API Health</span>
-            <span className="usage-stat-val">
-              <span className="badge badge-success !rounded-full !px-3">Grade A ●</span>
+            <span className="usage-stat-key">Phone Number ID</span>
+            <span className="usage-stat-val text-xs">
+              {integrations?.phone_number_id ? integrations.phone_number_id.slice(0, 15) + '...' : 'Not Set'}
             </span>
           </div>
           <div className="usage-stat-row">
-            <span className="usage-stat-key">Last Sync</span>
+            <span className="usage-stat-key">Bot Status</span>
             <span className="usage-stat-val">
-              Just now
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="12" height="12" className="text-[#6c4ef2]"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/></svg>
+              <span className={`badge !rounded-full !px-3 ${bot?.status ? 'badge-success' : 'badge-danger'}`}>
+                {bot?.status ? 'Active ●' : 'Inactive ●'}
+              </span>
             </span>
           </div>
           <div className="usage-stat-row">
@@ -84,10 +116,32 @@ export default function RightColumn({ messagesCount, aiRequestsCount, bot, usage
       <div className="card">
         <div className="usage-header">
           <div className="usage-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#6c4ef2" stroke-width="2" className="w-5 h-5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="#6c4ef2" strokeWidth="2" className="w-5 h-5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
             <h3>Automation Engine</h3>
           </div>
           <span className="btn-pill btn-pill-active py-1 !text-[9px]">{activeCount} Active</span>
+        </div>
+
+        {/* Active Bot Mode - Prominent Display */}
+        <div className="p-4 mx-4 mt-4 rounded-2xl border-2 border-dashed" style={{
+          borderColor: isDark ? '#3b82f6' : '#60a5fa',
+          backgroundColor: isDark ? 'rgba(59, 130, 246, 0.05)' : 'rgba(96, 165, 250, 0.05)'
+        }}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: isDark ? '#94a3b8' : '#64748b' }}>
+              Active Bot Mode
+            </span>
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
+              <span className="text-[9px] font-bold uppercase tracking-wide text-green-600">Live</span>
+            </div>
+          </div>
+          <h4 className="text-base font-bold mb-1" style={{ color: isDark ? '#ffffff' : '#0f172a' }}>
+            {getBotModeLabel(bot?.mode || "default")}
+          </h4>
+          <p className="text-[11px] font-medium" style={{ color: isDark ? '#71717a' : '#94a3b8' }}>
+            {getBotModeDescription(bot?.mode || "default")}
+          </p>
         </div>
 
         <div className="automation-list">
@@ -95,7 +149,7 @@ export default function RightColumn({ messagesCount, aiRequestsCount, bot, usage
             <div key={flow.id} className="automation-item">
               <div className="automation-info">
                 <h4>{flow.name}</h4>
-                <p>{flow.status}</p>
+                <p className="text-[10px]" style={{ color: isDark ? '#71717a' : '#94a3b8' }}>{flow.detail}</p>
               </div>
               <div className={`insight-dot ${flow.status === 'Active' ? 'bg-green-500' : 'bg-zinc-500'}`}></div>
             </div>
@@ -104,7 +158,7 @@ export default function RightColumn({ messagesCount, aiRequestsCount, bot, usage
 
         <Link href="/dashboard/settings" className="btn-primary m-4 !py-2.5 !text-[11px] uppercase tracking-widest">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="14" height="14"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-          Manage Automations
+          Configure Bot Engine
         </Link>
       </div>
     </div>
