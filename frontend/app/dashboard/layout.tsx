@@ -2,7 +2,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ReactNode, useEffect, useState } from "react";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPatch } from "@/lib/api";
 import { Logo } from "@/components/Logo";
 import "@/components/dashboard/dashboard.css";
 
@@ -176,7 +176,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   const markAsRead = async (notificationId: number) => {
     try {
-      await apiGet(`/api/notifications/${notificationId}/read`, { method: "PATCH" });
+      await apiPatch(`/api/notifications/${notificationId}/read`, {});
       fetchNotifications();
     } catch (error) {
       console.error("Failed to mark notification as read:", error);
@@ -185,7 +185,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   const markAllAsRead = async () => {
     try {
-      await apiGet("/api/notifications/mark-all-read", { method: "PATCH" });
+      await apiPatch("/api/notifications/mark-all-read", {});
       fetchNotifications();
     } catch (error) {
       console.error("Failed to mark all as read:", error);

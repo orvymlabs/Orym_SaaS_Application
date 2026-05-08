@@ -56,13 +56,20 @@ export async function api<T = any>(
         const refreshToken = localStorage.getItem("refreshToken");
         if (refreshToken) {
           try {
+            // Create a new controller for the refresh request
+            const refreshController = new AbortController();
+            const refreshTimeoutId = setTimeout(() => refreshController.abort(), timeoutDuration);
+
             // Attempt to refresh token using the refresh endpoint
             const refreshResp = await fetch(`${API_BASE}/api/auth/refresh`, { // Use API_BASE for refresh endpoint
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ refresh_token: refreshToken }),
+              signal: refreshController.signal,
             });
-            
+
+            clearTimeout(refreshTimeoutId);
+
             if (refreshResp.ok) {
               const data = await refreshResp.json();
               // Update tokens in localStorage
@@ -72,7 +79,14 @@ export async function api<T = any>(
               }
               // Retry the original request with the new token
               headers["Authorization"] = `Bearer ${data.access_token}`;
-              const retryResp = await fetch(url, { ...options, headers, signal: controller.signal }); // Retry original fetch with signal
+
+              // Create a new controller for the retry request
+              const retryController = new AbortController();
+              const retryTimeoutId = setTimeout(() => retryController.abort(), timeoutDuration);
+
+              const retryResp = await fetch(url, { ...options, headers, signal: retryController.signal });
+              clearTimeout(retryTimeoutId);
+
               if (!retryResp.ok) {
                 // If retry also fails, throw an error
                 throw new Error(`HTTP ${retryResp.status} after token refresh`);
@@ -124,6 +138,9 @@ export async function api<T = any>(
     // Parse and return JSON response for successful requests
     return await response.json();
   } catch (error) {
+    // Always clear the timeout in case of error
+    clearTimeout(timeoutId);
+
     // Handle network errors or errors thrown above, including aborts from timeout
     if (error instanceof Error && error.name === 'AbortError') {
         throw new Error("Request timed out. The server did not respond in time.");
