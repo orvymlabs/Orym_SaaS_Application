@@ -15,7 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql import func
 
 from database import get_db
-from models import Integration, Bot, User, Message, SiteInfoCache
+from models import Integration, Bot, User, Message, SiteInfoCache, Usage
 from services.encryption import decrypt_value
 from services.whatsapp import send_whatsapp_text, mark_message_as_read
 from services.bot_engine import handle_message
@@ -183,6 +183,23 @@ def process_whatsapp_message_background(
             db.add(bot_msg)
             db.commit()
             logger.info(f"[{webhook_id}] Saved bot message {bot_msg.id} with WhatsApp ID: {whatsapp_msg_id}")
+
+            # Increment WhatsApp messages sent counter
+            try:
+                usage = db.query(Usage).filter(Usage.user_id == bot.user_id).first()
+                if not usage:
+                    # Create usage record if it doesn't exist
+                    usage = Usage(user_id=bot.user_id, whatsapp_messages_sent=1)
+                    db.add(usage)
+                    logger.info(f"[{webhook_id}] Created usage record for user {bot.user_id}")
+                else:
+                    usage.whatsapp_messages_sent += 1
+                    logger.info(f"[{webhook_id}] Incremented message count for user {bot.user_id}: {usage.whatsapp_messages_sent}")
+                db.commit()
+            except Exception as e:
+                logger.error(f"[{webhook_id}] Failed to update usage stats: {e}")
+                db.rollback()
+
 
         db.close()
 

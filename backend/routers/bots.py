@@ -480,6 +480,11 @@ def create_custom_template(data: CustomTemplateCreate, user_id: int = Depends(ge
     db.commit()
     db.refresh(new_template)
 
+    # Clear cache so menu updates immediately
+    bot = db.query(Bot).filter(Bot.user_id == user_id).first()
+    if bot:
+        clear_cache_for_bot(bot.id)
+
     return {
         "id": new_template.id,
         "template_name": new_template.template_name,
@@ -521,6 +526,11 @@ def update_custom_template(template_id: int, data: CustomTemplateUpdate, user_id
     db.commit()
     db.refresh(template)
 
+    # Clear cache so menu updates immediately
+    bot = db.query(Bot).filter(Bot.user_id == user_id).first()
+    if bot:
+        clear_cache_for_bot(bot.id)
+
     return {
         "id": template.id,
         "template_name": template.template_name,
@@ -543,6 +553,11 @@ def delete_custom_template(template_id: int, user_id: int = Depends(get_current_
 
     db.delete(template)
     db.commit()
+
+    # Clear cache so menu updates immediately
+    bot = db.query(Bot).filter(Bot.user_id == user_id).first()
+    if bot:
+        clear_cache_for_bot(bot.id)
 
     return {"status": "ok", "message": "Template deleted successfully"}
 
@@ -593,22 +608,27 @@ def update_order_form_settings(data: OrderFormSettings, user_id: int = Depends(g
     s = bot.settings
 
     # Validate and update fields
-    if data.order_form_template is not None:
-        if not data.order_form_template.strip():
-            raise HTTPException(400, "Order form template cannot be empty")
-        if len(data.order_form_template) > 1000:
-            raise HTTPException(400, "Order form template must be 1000 characters or less")
-        s.order_form_template = data.order_form_template.strip()
-
-    if data.order_confirmation_message is not None:
-        if not data.order_confirmation_message.strip():
-            raise HTTPException(400, "Order confirmation message cannot be empty")
-        if len(data.order_confirmation_message) > 500:
-            raise HTTPException(400, "Order confirmation message must be 500 characters or less")
-        s.order_confirmation_message = data.order_confirmation_message.strip()
-
+    # First, update order_form_enabled if provided
     if data.order_form_enabled is not None:
         s.order_form_enabled = data.order_form_enabled
+
+    # Only validate order form template if order form is enabled
+    if data.order_form_template is not None:
+        # If order form is disabled, allow empty template
+        if s.order_form_enabled and not data.order_form_template.strip():
+            raise HTTPException(400, "Order form template cannot be empty when order form is enabled")
+        if data.order_form_template.strip() and len(data.order_form_template) > 1000:
+            raise HTTPException(400, "Order form template must be 1000 characters or less")
+        s.order_form_template = data.order_form_template.strip() if data.order_form_template.strip() else None
+
+    # Only validate confirmation message if order form is enabled
+    if data.order_confirmation_message is not None:
+        # If order form is disabled, allow empty confirmation message
+        if s.order_form_enabled and not data.order_confirmation_message.strip():
+            raise HTTPException(400, "Order confirmation message cannot be empty when order form is enabled")
+        if data.order_confirmation_message.strip() and len(data.order_confirmation_message) > 500:
+            raise HTTPException(400, "Order confirmation message must be 500 characters or less")
+        s.order_confirmation_message = data.order_confirmation_message.strip() if data.order_confirmation_message.strip() else None
 
     db.commit()
     clear_cache_for_bot(bot.id)
