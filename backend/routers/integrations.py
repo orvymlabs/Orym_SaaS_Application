@@ -194,22 +194,24 @@ def update_integrations(
         logger.error(f"Database commit failed: {e}")
         raise HTTPException(500, f"Database error: {str(e)}")
 
-    # Trigger background cache refresh if needed
+    # Always clear cache after any integration update
+    from services.default_bot import clear_cache_for_bot, refresh_cache
+    clear_cache_for_bot(integ.bot_id)
+    logger.info(f"Cache cleared for bot {integ.bot_id} after integration update")
+
+    # Trigger background cache refresh if URL changed
     if url_changed:
-        from services.default_bot import clear_cache_for_bot, refresh_cache
-        clear_cache_for_bot(integ.bot_id)
-        
         refresh_url = integ.woocommerce_url or integ.wp_base_url
         if refresh_url:
             key = decrypt_value(integ.woo_consumer_key) if integ.woo_consumer_key else ""
             secret = decrypt_value(integ.woo_consumer_secret) if integ.woo_consumer_secret else ""
-            
+
             logger.info(f"Queueing background cache refresh for bot {integ.bot_id}")
             background_tasks.add_task(
-                refresh_cache, 
-                integ.bot_id, key, secret, 
-                integ.woocommerce_url or "", "", 
-                integ.wp_base_url or "", 
+                refresh_cache,
+                integ.bot_id, key, secret,
+                integ.woocommerce_url or "", "",
+                integ.wp_base_url or "",
                 business_type=integ.business_type
             )
 
