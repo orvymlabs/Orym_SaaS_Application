@@ -16,7 +16,10 @@
       "Bash(python -c \"from config import get_settings; s = get_settings\\(\\); print\\(s.DATABASE_URL\\)\")",
       "Bash(cat)",
       "Bash(chmod +x test_routes.sh)",
-      "Bash(bash test_routes.sh)"
+      "Bash(bash test_routes.sh)",
+      "Bash(python -c \"import os; print\\('DATABASE_URL:', os.getenv\\('DATABASE_URL', 'NOT SET'\\)[:50]\\)\")",
+      "Bash(python -c \"from routers import webhook; print\\('Webhook router imports successfully'\\)\")",
+      "Bash(npm run *)"
     ]
   }
 }

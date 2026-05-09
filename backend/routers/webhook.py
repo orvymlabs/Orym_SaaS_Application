@@ -12,6 +12,7 @@ from fastapi import APIRouter, Request, HTTPException, Query, Depends, Backgroun
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.sql import func
 
 from database import get_db
 from models import Integration, Bot, User, Message, SiteInfoCache
