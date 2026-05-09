@@ -97,7 +97,7 @@ def _get_menu(business_type, bot_settings, site_name, user_id=None):
         "delivery": templates.get("template_delivery_enabled", True),
         "contact": templates.get("template_contact_enabled", True),
         "product": templates.get("template_product_enabled", True),
-        "order_form": templates.get("template_order_form_enabled", True)
+        "order_form": bot_settings.get("order_form_enabled", True)  # Use bot_settings, not templates
     }
 
     # Build menu items dynamically
@@ -504,7 +504,7 @@ def process(bot_id: int, text: str, phone: str, name: str, business_type: str = 
                 "delivery": templates.get("template_delivery_enabled", True),
                 "contact": templates.get("template_contact_enabled", True),
                 "product": templates.get("template_product_enabled", True),
-                "order_form": templates.get("template_order_form_enabled", True)
+                "order_form": bot_settings.get("order_form_enabled", True)  # Use bot_settings, not templates
             }
 
             # Build dynamic menu mapping
