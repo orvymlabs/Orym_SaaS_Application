@@ -1,3 +1,3 @@
 # Claude Code Instructions
 
-This file is for project-specific instructions for Claude Code.
+This file contains project-specific instructions for Claude Code.

@@ -101,27 +101,30 @@ export async function api<T = any>(
               // If refresh token request fails, clear tokens and redirect to login
               localStorage.removeItem("token");
               localStorage.removeItem("refreshToken");
-              if (typeof window !== "undefined") {
-                window.location.href = "/login"; // Redirect to login page
+              // Only redirect if not already on login/signup page
+              if (typeof window !== "undefined" && !window.location.pathname.includes("/login") && !window.location.pathname.includes("/signup")) {
+                window.location.href = "/login";
               }
-              throw new Error("Session expired: Refresh token failed");
+              throw new Error("Unauthorized");
             }
           } catch (refreshErr) {
             // Catch any errors during token refresh process
             localStorage.removeItem("token");
             localStorage.removeItem("refreshToken");
-            if (typeof window !== "undefined") {
+            // Only redirect if not already on login/signup page
+            if (typeof window !== "undefined" && !window.location.pathname.includes("/login") && !window.location.pathname.includes("/signup")) {
               window.location.href = "/login";
             }
-            throw refreshErr; // Re-throw the error
+            throw new Error("Unauthorized");
           }
         } else {
-          // If no refresh token is found, clear existing token and redirect to login
+          // If no refresh token is found, clear existing token
           localStorage.removeItem("token");
-          if (typeof window !== "undefined") {
+          // Only redirect if not already on login/signup page
+          if (typeof window !== "undefined" && !window.location.pathname.includes("/login") && !window.location.pathname.includes("/signup")) {
             window.location.href = "/login";
           }
-          throw new Error("Session expired: No refresh token");
+          throw new Error("Unauthorized");
         }
       }
       // If not in browser or other issues, throw unauthorized error
