@@ -44,7 +44,7 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./frontend/out/
-          server-dir: /public_html/
+          server-dir: /
           port: 21
           protocol: ftps
           security: loose
