@@ -1,2 +1,2 @@
-// Re-export UI components
-export { useToast } from './toast';
+// Re-export UI components from parent ui.tsx
+export { useToast, Toast } from '../ui';
