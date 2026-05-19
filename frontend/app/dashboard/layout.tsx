@@ -2,33 +2,45 @@
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ReactNode, useEffect, useState } from "react";
-import { apiGet, apiPatch } from "@/lib/api";
+import { apiGet, apiPatch, apiDelete } from "@/lib/api";
 import { Logo } from "@/components/Logo";
 import "@/components/dashboard/dashboard.css";
 
 function PlanBadge() {
-  const [plan, setPlan] = useState<string>("essentials");
+  const [plan, setPlan] = useState<string>("free");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const fetchPlan = () => {
     apiGet("/api/auth/usage")
       .then(data => {
         if (data?.plan) setPlan(data.plan);
         setLoading(false);
       })
       .catch(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchPlan();
+
+    // Listen for plan updates from other components
+    const handlePlanUpdate = () => {
+      fetchPlan();
+    };
+
+    window.addEventListener('plan-updated', handlePlanUpdate);
+    return () => window.removeEventListener('plan-updated', handlePlanUpdate);
   }, []);
 
   if (loading) return null;
 
   const getPlanColor = (planName: string) => {
-    if (planName === 'essentials' || planName === 'free') {
+    if (planName === 'free') {
       return {
         bg: 'bg-slate-50/50',
         border: 'border-slate-200 hover:border-slate-300',
         text: 'text-slate-700'
       };
-    } else if (planName === 'growth' || planName === 'starter') {
+    } else if (planName === 'starter') {
       return {
         bg: 'bg-purple-50/50',
         border: 'border-purple-200 hover:border-purple-300',
@@ -44,7 +56,7 @@ function PlanBadge() {
   };
 
   const colors = getPlanColor(plan);
-  const displayName = plan === 'free' ? 'essentials' : plan === 'starter' ? 'growth' : plan;
+  const displayName = plan;
 
   return (
     <div className="px-4 pb-6">
@@ -57,7 +69,7 @@ function PlanBadge() {
                 {displayName}
               </p>
             </div>
-            {plan === 'essentials' || plan === 'free' ? (
+            {plan === 'free' ? (
               <div className="btn-upgrade px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider">
                 Upgrade
               </div>
@@ -86,7 +98,7 @@ const navItems = [
   { href: "/dashboard/leads", label: "Leads", icon: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
   )},
-  { href: "/dashboard/orders", label: "Orders", icon: (
+  { href: "/dashboard/orders", label: "Submissions", icon: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
   )},
   { href: "/dashboard/test-chat", label: "Sandbox", icon: (
@@ -114,6 +126,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const [botStatus, setBotStatus] = useState(false);
   const [userName, setUserName] = useState("User");
   const [userEmail, setUserEmail] = useState("");
+  const [userRole, setUserRole] = useState<string>("user");
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -136,6 +149,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       if (data) {
         setUserName(data.full_name || data.email);
         setUserEmail(data.email);
+        setUserRole(data.role);
       }
     }).catch(error => {
       console.error("Failed to fetch user info:", error);
@@ -192,6 +206,66 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     }
   };
 
+  const deleteNotification = async (notificationId: number, event: React.MouseEvent) => {
+    event.stopPropagation(); // Prevent marking as read when deleting
+    try {
+      await apiDelete(`/api/notifications/${notificationId}`);
+      fetchNotifications();
+    } catch (error) {
+      console.error("Failed to delete notification:", error);
+    }
+  };
+
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case "new_lead":
+        return (
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center flex-shrink-0">
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+          </div>
+        );
+      case "new_order":
+        return (
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center flex-shrink-0">
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+            </svg>
+          </div>
+        );
+      case "ai_limit_exceeded":
+      case "ai_api_error":
+        return (
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center flex-shrink-0">
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+        );
+      default:
+        return (
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-500 to-slate-600 flex items-center justify-center flex-shrink-0">
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+        );
+    }
+  };
+
+  const getRelativeTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+    if (diffInSeconds < 60) return "Just now";
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+    if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d ago`;
+    return date.toLocaleDateString();
+  };
+
   useEffect(() => {
     if (mounted) {
       localStorage.setItem("theme", theme);
@@ -213,6 +287,15 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   if (!mounted) return null;
 
   const isDark = theme === "dark";
+
+  // NEW: Render admin pages without user sidebar/topbar
+  if (pathname?.startsWith("/dashboard/admin")) {
+    return (
+      <div className={`min-h-screen transition-colors duration-300 ${isDark ? "bg-[#050505] text-zinc-100" : "bg-[#F8FAFC] text-[#0F172A]"}`}>
+        {children}
+      </div>
+    );
+  }
 
   return (
     <div className={`flex h-screen font-sans overflow-hidden transition-colors duration-300 ${isDark ? "bg-[#050505] text-zinc-100" : "bg-[#F8FAFC] text-[#0F172A]"}`}>
@@ -300,7 +383,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16m-7 6h7"/></svg>
             </button>
             <h2 className={`text-lg font-bold tracking-tight capitalize ${isDark ? "text-white" : "text-slate-800"}`}>
-              {pathname === "/dashboard" ? "Dashboard" : pathname?.split("/").pop()?.replace("-", " ")}
+              {pathname === "/dashboard" ? "Dashboard" : pathname === "/dashboard/orders" ? "Submissions" : pathname?.split("/").pop()?.replace("-", " ")}
             </h2>
           </div>
 
@@ -313,53 +396,136 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               <span>{botStatus ? "Connected" : "Offline"}</span>
             </div>
 
-            <button className="notif-btn" onClick={() => setShowNotifications(!showNotifications)}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" /></svg>
-              {unreadCount > 0 && <span className="notif-badge">{unreadCount}</span>}
+            <button
+              className={`relative p-3 rounded-xl transition-all duration-200 ${
+                isDark
+                  ? "bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white"
+                  : "bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900"
+              }`}
+              onClick={() => setShowNotifications(!showNotifications)}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+              </svg>
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-gradient-to-br from-red-500 to-red-600 text-white text-[10px] font-black rounded-full flex items-center justify-center shadow-lg shadow-red-500/50">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
             </button>
 
             {/* Notification Dropdown */}
             {showNotifications && (
-              <div className={`absolute top-20 right-8 w-96 rounded-2xl border shadow-2xl z-50 ${isDark ? "bg-[#090909] border-zinc-800" : "bg-white border-slate-200"}`}>
-                <div className={`p-4 border-b flex items-center justify-between ${isDark ? "border-zinc-800" : "border-slate-200"}`}>
-                  <h3 className={`font-bold text-sm ${isDark ? "text-white" : "text-slate-900"}`}>Notifications</h3>
-                  {unreadCount > 0 && (
-                    <button onClick={markAllAsRead} className={`text-xs font-bold ${isDark ? "text-blue-400 hover:text-blue-300" : "text-blue-600 hover:text-blue-700"}`}>
-                      Mark all read
-                    </button>
-                  )}
-                </div>
-                <div className="max-h-96 overflow-y-auto">
-                  {notifications.length === 0 ? (
-                    <div className="p-8 text-center">
-                      <p className={`text-sm ${isDark ? "text-zinc-600" : "text-slate-400"}`}>No notifications</p>
+              <>
+                {/* Backdrop */}
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowNotifications(false)}
+                />
+
+                {/* Dropdown */}
+                <div className={`absolute top-20 right-8 w-[420px] rounded-3xl border backdrop-blur-xl shadow-2xl z-50 overflow-hidden ${
+                  isDark
+                    ? "bg-[#090909]/95 border-zinc-800 shadow-black/50"
+                    : "bg-white/95 border-slate-200 shadow-slate-900/10"
+                }`}>
+                  {/* Header */}
+                  <div className={`px-6 py-5 border-b ${isDark ? "border-zinc-800" : "border-slate-200"}`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className={`text-lg font-black tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>
+                          Notifications
+                        </h3>
+                        <p className={`text-[10px] font-bold uppercase tracking-wider mt-0.5 ${isDark ? "text-zinc-600" : "text-slate-400"}`}>
+                          {unreadCount > 0 ? `${unreadCount} unread` : "All caught up"}
+                        </p>
+                      </div>
+                      {unreadCount > 0 && (
+                        <button
+                          onClick={markAllAsRead}
+                          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${
+                            isDark
+                              ? "bg-blue-500/10 text-blue-400 hover:bg-blue-500/20"
+                              : "bg-blue-50 text-blue-600 hover:bg-blue-100"
+                          }`}
+                        >
+                          Mark all read
+                        </button>
+                      )}
                     </div>
-                  ) : (
-                    notifications.map((notif: any) => (
-                      <div
-                        key={notif.id}
-                        onClick={() => markAsRead(notif.id)}
-                        className={`p-4 border-b cursor-pointer transition-colors ${
-                          notif.read
-                            ? isDark ? "bg-transparent hover:bg-zinc-900" : "bg-transparent hover:bg-slate-50"
-                            : isDark ? "bg-zinc-900/50 hover:bg-zinc-900" : "bg-blue-50/50 hover:bg-blue-50"
-                        } ${isDark ? "border-zinc-800" : "border-slate-200"}`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className={`w-2 h-2 rounded-full mt-2 ${notif.read ? "bg-transparent" : "bg-blue-500"}`} />
-                          <div className="flex-1">
-                            <p className={`font-bold text-sm ${isDark ? "text-white" : "text-slate-900"}`}>{notif.title}</p>
-                            <p className={`text-xs mt-1 ${isDark ? "text-zinc-500" : "text-slate-600"}`}>{notif.message}</p>
-                            <p className={`text-[10px] mt-2 ${isDark ? "text-zinc-700" : "text-slate-400"}`}>
-                              {new Date(notif.created_at).toLocaleString()}
-                            </p>
+                  </div>
+
+                  {/* Notifications List */}
+                  <div className="max-h-[500px] overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <div className="px-6 py-16 text-center">
+                        <div className={`w-16 h-16 mx-auto mb-4 rounded-2xl flex items-center justify-center ${
+                          isDark ? "bg-zinc-900" : "bg-slate-100"
+                        }`}>
+                          <svg className={`w-8 h-8 ${isDark ? "text-zinc-700" : "text-slate-400"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                          </svg>
+                        </div>
+                        <p className={`text-sm font-bold ${isDark ? "text-zinc-600" : "text-slate-400"}`}>
+                          No notifications yet
+                        </p>
+                        <p className={`text-xs mt-1 ${isDark ? "text-zinc-700" : "text-slate-500"}`}>
+                          We'll notify you when something important happens
+                        </p>
+                      </div>
+                    ) : (
+                      notifications.map((notif: any) => (
+                        <div
+                          key={notif.id}
+                          className={`group px-6 py-4 border-b transition-all duration-200 ${
+                            notif.read
+                              ? isDark ? "bg-transparent hover:bg-zinc-900/50" : "bg-transparent hover:bg-slate-50"
+                              : isDark ? "bg-blue-500/5 hover:bg-blue-500/10" : "bg-blue-50/50 hover:bg-blue-50"
+                          } ${isDark ? "border-zinc-800/50" : "border-slate-200/50"}`}
+                        >
+                          <div className="flex items-start gap-4">
+                            {/* Icon */}
+                            {getNotificationIcon(notif.type)}
+
+                            {/* Content */}
+                            <div
+                              className="flex-1 cursor-pointer min-w-0"
+                              onClick={() => markAsRead(notif.id)}
+                            >
+                              <div className="flex items-start justify-between gap-2 mb-1">
+                                <h4 className={`font-bold text-sm leading-tight ${isDark ? "text-white" : "text-slate-900"}`}>
+                                  {notif.title}
+                                </h4>
+                                {!notif.read && (
+                                  <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0 mt-1.5" />
+                                )}
+                              </div>
+                              <p className={`text-xs leading-relaxed ${isDark ? "text-zinc-400" : "text-slate-600"}`}>
+                                {notif.message}
+                              </p>
+                            </div>
+
+                            {/* Delete Button */}
+                            <button
+                              onClick={(e) => deleteNotification(notif.id, e)}
+                              className={`opacity-0 group-hover:opacity-100 p-2 rounded-lg transition-all duration-200 flex-shrink-0 ${
+                                isDark
+                                  ? "text-zinc-600 hover:text-red-400 hover:bg-red-500/10"
+                                  : "text-slate-400 hover:text-red-600 hover:bg-red-50"
+                              }`}
+                              title="Delete notification"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
                           </div>
                         </div>
-                      </div>
-                    ))
-                  )}
+                      ))
+                    )}
+                  </div>
                 </div>
-              </div>
+              </>
             )}
 
             {/* Theme Toggle */}

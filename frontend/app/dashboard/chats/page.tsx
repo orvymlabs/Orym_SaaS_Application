@@ -94,20 +94,20 @@ export default function ConversationsPage() {
             </div>
           </div>
           <div className="flex-1 overflow-y-auto custom-scrollbar">
-            {filteredPhones.map(phone => (
+            {filteredPhones.map((phone, index) => (
               <button key={phone} onClick={() => setSelectedPhone(phone)}
                 className={`w-full text-left p-6 border-b transition-all duration-300 group relative ${
-                  isDark 
+                  isDark
                     ? (selectedPhone === phone ? "bg-white text-black border-white/10" : "hover:bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-white")
                     : (selectedPhone === phone ? "bg-slate-50/50 border-slate-50 text-slate-600" : "hover:bg-slate-50 border-slate-50 text-slate-600")
                 }`}>
                 <div className="flex items-center gap-4">
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-[10px] transition-all duration-300 ${
-                    selectedPhone === phone 
-                      ? `bg-black text-white` 
+                    selectedPhone === phone
+                      ? `bg-black text-white`
                       : `${isDark ? "bg-zinc-800 text-zinc-500 group-hover:bg-zinc-700" : "bg-slate-100 text-slate-500"}`
                   }`}>
-                    {phone.slice(-2)}
+                    {index + 1}
                   </div>
                   <div>
                     <p className="font-bold text-xs tracking-tight">{phone}</p>
@@ -138,7 +138,7 @@ export default function ConversationsPage() {
               <div className={`p-8 border-b backdrop-blur-3xl flex items-center justify-between sticky top-0 z-10 ${isDark ? "border-zinc-800 bg-black/60" : "border-slate-100 bg-white/80"}`}>
                 <div className="flex items-center gap-5">
                   <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold text-xs shadow-2xl ${isDark ? "bg-white text-black" : "bg-slate-900 text-white"}`}>
-                    {selectedPhone.slice(-2)}
+                    {filteredPhones.indexOf(selectedPhone) + 1}
                   </div>
                   <div>
                     <h2 className={`text-lg font-bold tracking-tight leading-tight ${isDark ? "text-white" : "text-slate-900"}`}>{selectedPhone}</h2>

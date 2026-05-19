@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from database import init_db
-from routers import auth, bots, integrations, webhook, chat, conversations, leads, orders, notifications
+from routers import auth, admin, bots, integrations, webhook, chat, conversations, leads, orders, notifications, subscriptions
 from config import get_settings
 
 logging.basicConfig(
@@ -43,10 +43,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.APP_NAME, version="2.0", lifespan=lifespan)
 
-# Configure CORS origins - Production only
+# Configure CORS origins
+# Production origins
 origins = [
     "https://apps.orvym.com",  # Production frontend (HTTPS)
     "http://apps.orvym.com",   # Production frontend (HTTP fallback)
+    "https://orym-saas-application.onrender.com",  # Backend production URL
+    "http://localhost:3000",   # Local development frontend
+    "http://127.0.0.1:3000",   # Local development frontend (alternative)
 ]
 
 if settings.ALLOWED_ORIGINS:
@@ -114,6 +118,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(auth.router)
+app.include_router(admin.router)
 app.include_router(bots.router)
 app.include_router(integrations.router)
 app.include_router(webhook.router)
@@ -122,6 +127,7 @@ app.include_router(conversations.router)
 app.include_router(leads.router)
 app.include_router(orders.router)
 app.include_router(notifications.router)
+app.include_router(subscriptions.router)
 
 # Manual OPTIONS handler for any path (CORS Preflight fallback)
 @app.options("/{rest_of_path:path}")
