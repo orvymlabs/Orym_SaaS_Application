@@ -1,3 +1,1 @@
-# Claude Code Instructions
-
-This file contains project-specific instructions for Claude Code.
+Login failed: (sqlite3.OperationalError) no such table: users [SQL: SELECT users.id AS users_id, users.email AS users_email, users.password_hash AS users_password_hash, users.role AS users_role, users."plan" AS users_plan, users.full_name AS users_full_name, users.stripe_customer_id AS users_stripe_customer_id, users.created_at AS users_created_at FROM users WHERE users.email = ? LIMIT ? OFFSET ?] [parameters: ('royalplastics@gmail.com', 1, 0)] (Background on this error at: https://sqlalche.me/e/20/e3q8) 
