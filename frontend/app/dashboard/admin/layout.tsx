@@ -8,19 +8,19 @@ const adminNavItems = [
   { href: "/dashboard/admin", label: "Dashboard", icon: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
   )},
-  { href: "/dashboard/admin/users", label: "User Registry", icon: (
+  { href: "/dashboard/admin/users", label: "Users", icon: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
   )},
-  { href: "/dashboard/admin/announcements", label: "Broadcasts", icon: (
+  { href: "/dashboard/admin/announcements", label: "Announcements", icon: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"/></svg>
   )},
-  { href: "/dashboard/admin/revenue", label: "Financials", icon: (
+  { href: "/dashboard/admin/revenue", label: "Revenue & Plans", icon: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
   )},
-  { href: "/dashboard/admin/logs", label: "Audit Trails", icon: (
+  { href: "/dashboard/admin/logs", label: "Activity Logs", icon: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
   )},
-  { href: "/dashboard/admin/settings", label: "Core Settings", icon: (
+  { href: "/dashboard/admin/settings", label: "Settings", icon: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
   )},
 ];
@@ -29,6 +29,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState<string>("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
@@ -50,7 +51,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       .catch(() => {
         localStorage.removeItem("token");
         router.push("/login");
-      });
+      })
+      .finally(() => setLoading(false));
   }, [router]);
 
   const handleLogout = () => {
@@ -59,7 +61,17 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     router.push("/login");
   };
 
-  if (!mounted) return null;
+  if (!mounted || loading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-[#050505]">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-[#6c4ef2]/20 border-t-[#6c4ef2] rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-zinc-500 font-black uppercase tracking-[0.2em] text-[10px]">Authorizing Admin Session...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (userRole !== "admin" && userRole !== "super_admin") return null;
 
   return (
@@ -71,12 +83,12 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           <div className="p-8 pb-6 flex items-center justify-between border-b border-zinc-900">
             <Link href="/dashboard/admin" className="flex items-center gap-4 group">
               <div className="bg-[#6c4ef2] p-3.5 rounded-2xl shadow-2xl shadow-[#6c4ef2]/20 group-hover:shadow-[#6c4ef2]/40 transition-all duration-300">
-                <img src="/logo.png" alt="ORVYN" className="w-10 h-10 object-contain" />
+                <img src="/logo.png" alt="ORVYM" className="w-10 h-10 object-contain" />
               </div>
               <div>
                 <span className="text-2xl font-black tracking-tighter text-white">ORVYM</span>
                 <p className="text-[9px] font-bold text-[#8b6ff5] uppercase tracking-[0.2em] leading-none mt-1">
-                  {userRole === "super_admin" ? "SUPER CORE" : "NEXUS ADMIN"}
+                  {userRole === "super_admin" ? "ADMIN PANEL" : "ADMIN"}
                 </p>
               </div>
             </Link>
@@ -95,8 +107,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                   </svg>
                 </div>
                 <div>
-                  <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Master Auth</p>
-                  <p className="text-sm font-black text-white">{userRole === "super_admin" ? "Super Core" : "Admin"}</p>
+                  <p className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Admin Access</p>
+                  <p className="text-sm font-black text-white">{userRole === "super_admin" ? "Super Admin" : "Admin"}</p>
                 </div>
               </div>
             </div>
@@ -104,7 +116,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
           {/* Admin Navigation */}
           <nav className="flex-1 px-4 space-y-1.5 overflow-y-auto">
-            <p className="px-5 text-[10px] font-black text-zinc-700 uppercase tracking-[0.3em] mb-4">Command Center</p>
+            <p className="px-5 text-[10px] font-black text-zinc-700 uppercase tracking-[0.3em] mb-4">Menu</p>
             {adminNavItems.map(item => {
               const active = pathname === item.href || (item.href !== "/dashboard/admin" && pathname?.startsWith(item.href));
               return (
@@ -119,6 +131,17 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                 </Link>
               );
             })}
+
+            {/* Switch to User View */}
+            <div className="pt-6 mt-6 border-t border-zinc-900 px-2">
+              <Link href="/dashboard"
+                className="flex items-center gap-3.5 px-4 py-3.5 rounded-2xl text-[12px] font-black transition-all duration-300 group bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-500 hover:text-white">
+                <span className="w-5 h-5 flex items-center justify-center bg-zinc-800 text-zinc-600 group-hover:bg-zinc-700 group-hover:text-white rounded-lg transition-colors">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+                </span>
+                User Portal
+              </Link>
+            </div>
           </nav>
 
           {/* Sidebar Footer */}
@@ -128,7 +151,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
               </svg>
-              TERMINATE SESSION
+              SIGN OUT
             </button>
           </div>
         </div>
@@ -143,7 +166,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16m-7 6h7"/></svg>
             </button>
             <h2 className="text-lg font-black text-white tracking-tighter uppercase tracking-widest text-xs opacity-50">
-              {pathname === "/dashboard/admin" ? "Nexus Core Overview" : pathname?.split("/").pop()?.replace("-", " ")}
+              {pathname === "/dashboard/admin" ? "Admin Dashboard" : pathname?.split("/").pop()?.replace("-", " ")}
             </h2>
           </div>
 
@@ -153,8 +176,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                 <img src="/logo.png" alt="Profile" className="w-full h-full object-contain" />
               </div>
               <div>
-                <p className="text-xs font-black text-white tracking-tight uppercase">{userRole === "super_admin" ? "ROOT CORE" : "NEXUS ADMIN"}</p>
-                <p className="text-[9px] text-[#8b6ff5] font-bold uppercase tracking-widest mt-0.5">{userRole === "super_admin" ? "FULL AUTHORITY" : "RESTRICTED ACCESS"}</p>
+                <p className="text-xs font-black text-white tracking-tight uppercase">{userRole === "super_admin" ? "SUPER ADMIN" : "ADMIN"}</p>
+                <p className="text-[9px] text-[#8b6ff5] font-bold uppercase tracking-widest mt-0.5">{userRole === "super_admin" ? "FULL ACCESS" : "LIMITED ACCESS"}</p>
               </div>
             </div>
           </div>

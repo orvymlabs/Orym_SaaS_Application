@@ -131,7 +131,9 @@ export default function LeadsPage() {
                     </td>
                     <td className={`px-8 py-6 font-black text-sm ${isDark ? "text-white" : "text-slate-900"}`}>{lead.name || "Unknown"}</td>
                     <td className={`px-8 py-6 font-mono text-[11px] ${isDark ? "text-zinc-400" : "text-slate-600"}`}>{lead.phone}</td>
-                    <td className={`px-8 py-6 max-w-xs truncate font-medium text-sm ${isDark ? "text-zinc-300" : "text-slate-600"}`}>{lead.last_message}</td>
+                    <td className={`px-8 py-6 max-w-xs truncate font-medium text-sm ${isDark ? "text-zinc-300" : "text-slate-600"}`}>
+                      {lead.last_query || lead.last_message}
+                    </td>
                     <td className={`px-8 py-6 text-[10px] font-black uppercase tracking-wider ${isDark ? "text-zinc-600" : "text-slate-400"}`}>
                       {lead.updated_at ? new Date(lead.updated_at).toLocaleDateString() : '-'}
                     </td>

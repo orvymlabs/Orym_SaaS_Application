@@ -139,6 +139,10 @@ def process_whatsapp_message_background(
             "order_form_template": bot.settings.order_form_template if bot.settings else None,
             "order_confirmation_message": bot.settings.order_confirmation_message if bot.settings else None,
             "order_form_enabled": bot.settings.order_form_enabled if bot.settings and bot.settings.order_form_enabled is not None else True,
+            "form_menu_label": getattr(bot.settings, 'form_menu_label', None) if bot.settings else None,
+            "fallback_message": getattr(bot.settings, 'fallback_message', None) if bot.settings else None,
+            "order_error_message": getattr(bot.settings, 'order_error_message', None) if bot.settings else None,
+            "error_message": getattr(bot.settings, 'error_message', None) if bot.settings else None,
             "_bot_id": bot.id  # Pass bot ID for lead capture in helper functions
         }
 

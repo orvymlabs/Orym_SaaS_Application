@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from database import get_db
-from models import User, Bot, BotSettings, Integration, Usage, Announcement
+from models import User, Plan, Bot, BotSettings, Integration, Usage, Announcement
 from schemas.auth import UserCreate, UserLogin, TokenResponse, UserOut
 from services import hash_password, verify_password, create_access_token, create_refresh_token, decode_token
 from typing import Optional, List
@@ -92,45 +92,42 @@ async def signup(data: UserCreate, request: Request, db: Session = Depends(get_d
         raise HTTPException(500, f"Signup failed: {str(e)}")
 
 
-def get_plan_limits(plan: str) -> dict:
-    """Get usage limits based on user plan (CLAUDE.md specs).
+def get_plan_limits(db: Session, plan: str) -> dict:
+    """Get usage limits based on user plan."""
+    plan_lower = plan.lower()
 
-    New plans: essentials ($0), growth ($9.99), scale ($49.99)
-    Old plans: free, starter, growth (maintained for backward compatibility)
-    """
-    # Normalize plan names for backward compatibility
-    plan_normalized = plan.lower()
-
-    # Map old plan names to new ones
-    if plan_normalized in ["free"]:
-        plan_normalized = "essentials"
-    elif plan_normalized in ["starter"]:
-        plan_normalized = "growth"
-
-    if plan_normalized == "scale":
-        return {
-            "whatsapp_limit": 1500,
-            "ai_limit": 1500,
-            "custom_responses_limit": -1,  # unlimited
-            "custom_products_limit": -1,  # unlimited
-            "automation_rules": -1,  # unlimited
-        }
-    elif plan_normalized == "growth":
-        return {
-            "whatsapp_limit": 500,
-            "ai_limit": 500,
-            "custom_responses_limit": -1,  # unlimited
-            "custom_products_limit": 10,  # 10 products limit
-            "automation_rules": 20,
-        }
-    else:  # essentials (free)
-        return {
-            "whatsapp_limit": 200,
+    # Define limits based on plan tier
+    plan_limits = {
+        "free": {
+            "whatsapp_limit": 250,
             "ai_limit": 200,
             "custom_responses_limit": 5,
-            "custom_products_limit": 0,  # no product features
+            "custom_products_limit": 0,
             "automation_rules": 2,
+        },
+        "starter": {
+            "whatsapp_limit": 1000,
+            "ai_limit": 500,
+            "custom_responses_limit": 10,
+            "custom_products_limit": 20,
+            "automation_rules": 10,
+        },
+        "premium": {
+            "whatsapp_limit": -1,  # unlimited
+            "ai_limit": -1,  # unlimited
+            "custom_responses_limit": -1,
+            "custom_products_limit": -1,
+            "automation_rules": -1,
         }
+    }
+
+    return plan_limits.get(plan_lower, plan_limits["free"])
+
+
+@router.get("/plans")
+async def get_active_plans(db: Session = Depends(get_db)):
+    """Get list of active plans for users."""
+    return db.query(Plan).filter(Plan.is_active == True).all()
 
 
 @router.get("/usage")
@@ -149,7 +146,7 @@ async def get_usage(user_id: int = Depends(get_current_user_id), db: Session = D
         db.refresh(usage)
 
     # Apply plan-based limits
-    limits = get_plan_limits(user.plan)
+    limits = get_plan_limits(db, user.plan)
     usage.whatsapp_limit = limits["whatsapp_limit"]
     usage.ai_limit = limits["ai_limit"]
 
@@ -261,10 +258,7 @@ async def update_user_plan(
     admin: User = Depends(admin_required),
     db: Session = Depends(get_db)
 ):
-    """Admin only: change user's plan.
-
-    Supports: essentials, growth, scale (and old names: free, starter for backward compatibility)
-    """
+    """Admin only: change user's plan."""
     logger.info(f"Admin user {admin.id} attempting to update plan for user {user_id}.")
 
     user = db.query(User).filter(User.id == user_id).first()
@@ -273,8 +267,8 @@ async def update_user_plan(
         raise HTTPException(404, "User not found")
 
     target_plan = data.plan.lower()
-    if target_plan not in ("essentials", "growth", "scale", "free", "starter"):
-        raise HTTPException(400, "Invalid plan. Must be 'essentials', 'growth', or 'scale'")
+    if target_plan not in ("free", "starter", "premium"):
+        raise HTTPException(400, "Invalid plan. Must be 'free', 'starter', or 'premium'")
 
     old_plan = user.plan
     user.plan = target_plan
@@ -282,7 +276,7 @@ async def update_user_plan(
     # Update usage limits
     usage = db.query(Usage).filter(Usage.user_id == user_id).first()
     if usage:
-        limits = get_plan_limits(target_plan)
+        limits = get_plan_limits(db, target_plan)
         usage.whatsapp_limit = limits["whatsapp_limit"]
         usage.ai_limit = limits["ai_limit"]
 
@@ -317,14 +311,49 @@ async def get_admin_stats(admin: User = Depends(admin_required), db: Session = D
     """Admin only: platform usage stats."""
     logger.info(f"Admin user {admin.id} requested admin stats.")
     from models import Message, Lead
+    from sqlalchemy import func
+
     total_users = db.query(User).count()
     total_messages = db.query(Message).count()
     total_leads = db.query(Lead).count()
 
+    # Count active users (paid plans: starter, premium)
+    active_users = db.query(User).filter(
+        User.plan.in_(["starter", "premium"])
+    ).count()
+
+    # Plan distribution
+    plan_counts = db.query(User.plan, func.count(User.id)).group_by(User.plan).all()
+    plan_distribution = {plan: count for plan, count in plan_counts}
+
+    # Calculate estimated revenue (rough estimate based on plan pricing)
+    plan_prices = {
+        "free": 0,
+        "starter": 9.99,
+        "premium": 199.99
+    }
+    revenue_total = sum(plan_prices.get(plan, 0) * count for plan, count in plan_counts)
+
+    # Recent signups (last 10 users)
+    recent_signups = db.query(User).order_by(User.created_at.desc()).limit(10).all()
+    recent_signups_data = [
+        {
+            "id": user.id,
+            "email": user.email,
+            "plan": user.plan,
+            "created_at": user.created_at.isoformat() if user.created_at else None
+        }
+        for user in recent_signups
+    ]
+
     return {
         "total_users": total_users,
+        "active_users": active_users,
         "total_messages": total_messages,
         "total_contacts": total_leads,
+        "revenue_total": round(revenue_total, 2),
+        "plan_distribution": plan_distribution,
+        "recent_signups": recent_signups_data,
         "platform": "ORVYN"
     }
 
@@ -335,17 +364,14 @@ async def upgrade_plan(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Upgrade to Growth or Scale plan.
-
-    Supports both old (starter, growth) and new (growth, scale) plan names.
-    """
+    """Upgrade to Starter or Premium plan."""
     logger.info(f"User {user.id} attempting to upgrade plan from {user.plan} to {request.plan}.")
 
     target_plan = request.plan.lower()
 
     # Validate target plan
-    if target_plan not in ["starter", "growth", "scale"]:
-        raise HTTPException(400, "Invalid target plan. Must be 'growth' or 'scale'")
+    if target_plan not in ["starter", "premium"]:
+        raise HTTPException(400, "Invalid target plan. Must be 'starter' or 'premium'")
 
     if user.plan == target_plan:
         raise HTTPException(400, f"Already on {target_plan} plan")
@@ -360,7 +386,7 @@ async def upgrade_plan(
         usage = Usage(user_id=user.id)
         db.add(usage)
 
-    limits = get_plan_limits(target_plan)
+    limits = get_plan_limits(db, target_plan)
     usage.whatsapp_limit = limits["whatsapp_limit"]
     usage.ai_limit = limits["ai_limit"]
 
@@ -382,19 +408,15 @@ async def downgrade_plan(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Downgrade to Essentials or Growth plan.
-
-    Supports both old (free, starter) and new (essentials, growth) plan names.
-    """
-    target_plan = request.plan.lower() if request.plan else "essentials"
+    """Downgrade to Free or Starter plan."""
+    target_plan = request.plan.lower() if request.plan else "free"
     logger.info(f"User {user.id} attempting to downgrade plan from {user.plan} to {target_plan}.")
+
+    if target_plan not in ["free", "starter"]:
+        raise HTTPException(400, "Invalid target plan. Must be 'free' or 'starter'")
 
     if user.plan == target_plan:
         raise HTTPException(400, f"Already on {target_plan} plan")
-
-    # Validate target plan
-    if target_plan not in ["free", "essentials", "starter", "growth"]:
-        raise HTTPException(400, "Invalid target plan for downgrade")
 
     # Update user plan
     user.plan = target_plan
@@ -406,7 +428,7 @@ async def downgrade_plan(
         usage = Usage(user_id=user.id)
         db.add(usage)
 
-    limits = get_plan_limits(target_plan)
+    limits = get_plan_limits(db, target_plan)
     usage.whatsapp_limit = limits["whatsapp_limit"]
     usage.ai_limit = limits["ai_limit"]
 
@@ -429,7 +451,7 @@ class UserCreateAdmin(BaseModel):
     password: str
     full_name: str
     role: str = "user"
-    plan: str = "essentials"
+    plan: str = "free"
 
 
 class UserUpdateAdmin(BaseModel):

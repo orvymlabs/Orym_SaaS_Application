@@ -1,0 +1,8 @@
+*Main Menu*
+
+• Service
+• Contact info
+• LOcation
+• Appointment Form
+
+Type the name of any option to continue!

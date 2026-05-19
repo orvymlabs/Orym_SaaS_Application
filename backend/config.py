@@ -70,6 +70,13 @@ class Settings(BaseSettings):
     # ===========================================
     META_APP_SECRET: str = "" # REQUIRED: Your Meta App Secret for webhook signature verification
 
+    # ===========================================
+    # Stripe Payment Processing
+    # ===========================================
+    STRIPE_SECRET_KEY: str = ""  # Your Stripe secret key (sk_test_... or sk_live_...)
+    STRIPE_PUBLISHABLE_KEY: str = ""  # Your Stripe publishable key (pk_test_... or pk_live_...)
+    STRIPE_WEBHOOK_SECRET: str = ""  # Stripe webhook signing secret (whsec_...)
+
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
     def set_default_db(cls, v: str, info: ValidationInfo) -> str:

@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
 
-PLAN_ERROR_FREE = "⚠️ Product features are not available in Essentials plan. Please upgrade to Growth or Scale plan."
+PLAN_ERROR_FREE = "⚠️ Product features are not available in Free plan. Please upgrade to Starter or Premium plan."
 
 def get_current_user_id(request: Request) -> int:
     auth = request.headers.get("Authorization", "")
@@ -99,14 +99,10 @@ def update_integrations(
         data.woo_consumer_secret is not None
     )
 
-    # Normalize plan name for backward compatibility
+    # Normalize plan name
     normalized_plan = user_plan.lower()
-    if normalized_plan == "free":
-        normalized_plan = "essentials"
-    elif normalized_plan == "starter":
-        normalized_plan = "growth"
 
-    if normalized_plan == "essentials" and product_field_submitted:
+    if normalized_plan == "free" and product_field_submitted:
         raise HTTPException(403, PLAN_ERROR_FREE)
 
     # Track changes for cache refresh
@@ -219,32 +215,97 @@ def update_integrations(
 
 
 @router.post("/me/fetch-website-content")
-def fetch_website_content(site_type: str, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    from models import Bot
+def fetch_website_content(request: Request, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    """Fetch and cache website content for AI mode."""
+    from models import Bot, SiteInfoCache
+    from sqlalchemy.sql import func
+
     integ = db.query(Integration).join(Integration.bot).filter(Bot.user_id == user_id).first()
     if not integ:
         raise HTTPException(404, "Integrations not found")
 
+    # Determine which URL to use based on business type
+    site_type = integ.business_type or "product"
     website_url = integ.woocommerce_url if site_type == "product" else integ.wp_base_url
+
     if not website_url:
-        raise HTTPException(400, f"Please provide your {'store' if site_type == 'product' else 'website'} URL first.")
+        raise HTTPException(400, f"Please provide your {'store' if site_type == 'product' else 'website'} URL first in the Platform tab.")
 
-    result = fetch_website_service(website_url, site_type)
-    if "error" in result:
-        return {"success": False, "message": f"Failed to fetch content: {result['error']}", "data": {}}
+    try:
+        logger.info(f"Fetching website content for bot {integ.bot_id} from {website_url}")
 
-    return {
-        "success": True,
-        "message": f"Successfully extracted content from {result.get('site_name', 'website')}",
-        "data": {
-            "site_title": result.get("site_title", ""),
-            "site_name": result.get("site_name", ""),
-            "content_preview": result.get("content", "")[:500],
-            "products_count": len(result.get("products", [])),
-            "services_count": len(result.get("services", [])),
-            "contact": result.get("contact", {}),
+        # Initialize results
+        products = []
+        site_info = {
+            "site_name": website_url,
+            "site_description": "",
+            "about": "",
+            "services": [],
+            "contact": {"phone": "", "email": "", "address": "", "hours": ""}
         }
-    }
+
+        # Try to fetch site info (basic info - fast)
+        try:
+            site_info = UniversalWebsiteFetcher.fetch_site_info(website_url)
+            logger.info(f"Site info fetched: {site_info.get('site_name', 'N/A')}")
+        except Exception as e:
+            logger.warning(f"Failed to fetch site info: {e}")
+
+        # Try to fetch products (can be slow)
+        try:
+            fetcher_data = UniversalWebsiteFetcher.scrape_products_from_website(website_url, limit=30)
+            products = fetcher_data.get("products", [])
+            logger.info(f"Products fetched: {len(products)}")
+        except Exception as e:
+            logger.warning(f"Failed to fetch products: {e}")
+
+        # Update or create cache for this bot
+        cache = db.query(SiteInfoCache).filter(SiteInfoCache.bot_id == integ.bot_id).first()
+        if not cache:
+            cache = SiteInfoCache(bot_id=integ.bot_id, website_url=website_url)
+            db.add(cache)
+
+        cache.site_name = site_info.get("site_name") or website_url
+        cache.site_description = site_info.get("site_description", "")
+        cache.about = site_info.get("about", "")
+        cache.services = site_info.get("services", [])
+        cache.phone = site_info.get("contact", {}).get("phone", "")
+        cache.email = site_info.get("contact", {}).get("email", "")
+        cache.address = site_info.get("contact", {}).get("address", "")
+        cache.hours = site_info.get("contact", {}).get("hours", "")
+        cache.products = products
+        cache.last_updated = func.now()
+        db.commit()
+
+        logger.info(f"✅ Website content cached for bot {integ.bot_id}: {len(products)} products, site: {cache.site_name}")
+
+        # Build success message - show only site name and "all data fetched"
+        if cache.site_name and cache.site_name != website_url:
+            message = f"Successfully cached: Site: {cache.site_name}, all data fetched"
+        else:
+            message = "Successfully cached: all data fetched"
+
+        return {
+            "success": True,
+            "message": message,
+            "data": {
+                "site_title": cache.site_name,
+                "site_name": cache.site_name,
+                "site_description": cache.site_description,
+                "about": cache.about[:500] if cache.about else "",
+                "products_count": len(products),
+                "services_count": len(cache.services or []),
+                "contact": {
+                    "phone": cache.phone,
+                    "email": cache.email,
+                    "address": cache.address,
+                    "hours": cache.hours
+                },
+            }
+        }
+    except Exception as e:
+        logger.error(f"Failed to fetch website content: {e}", exc_info=True)
+        return {"success": False, "message": f"Failed to fetch content: {str(e)}", "data": {}}
 
 
 @router.get("/me/button-code")
@@ -267,25 +328,23 @@ def get_whatsapp_button_code(user_id: int = Depends(get_current_user_id), db: Se
 @router.post("/me/fetch-woocommerce", response_model=WooCommerceFetchStatus)
 def fetch_woocommerce_data(user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
     from models import Bot
-    user_plan = get_user_plan(user_id, db)
-    # Normalize plan name for backward compatibility
-    normalized_plan = user_plan.lower()
-    if normalized_plan == "free":
-        normalized_plan = "essentials"
-    elif normalized_plan == "starter":
-        normalized_plan = "growth"
+    from services.plan_enforcement import PlanEnforcementService
 
-    if normalized_plan == "essentials":
-        raise HTTPException(403, PLAN_ERROR_FREE)
+    # Initialize plan enforcement service
+    plan_service = PlanEnforcementService(db)
+    user_plan = plan_service.get_user_plan(user_id)
+
+    if not user_plan:
+        raise HTTPException(404, "User plan not found")
 
     integ = db.query(Integration).join(Integration.bot).filter(Bot.user_id == user_id).first()
     if not integ:
         raise HTTPException(404, "Integrations not found")
-    
+
     woo_url = integ.woocommerce_url or integ.wp_base_url
     if not woo_url:
         raise HTTPException(400, "Please provide your website/store URL first.")
-    
+
     consumer_key = consumer_secret = ""
     if integ.woo_consumer_key and integ.woo_consumer_secret:
         try:
@@ -298,7 +357,7 @@ def fetch_woocommerce_data(user_id: int = Depends(get_current_user_id), db: Sess
         result = UniversalWebsiteFetcher.fetch_products_with_auth(woo_url, consumer_key, consumer_secret)
     else:
         result = UniversalWebsiteFetcher.scrape_products_from_website(woo_url)
-    
+
     if not result["success"]:
         return {
             "success": False,
@@ -307,17 +366,36 @@ def fetch_woocommerce_data(user_id: int = Depends(get_current_user_id), db: Sess
             "message": result.get("error", "Failed to fetch content from website."),
             "error": result.get("error")
         }
-    
+
+    # Enforce product limits based on plan
+    total_products = result.get("total_products", 0)
+    can_fetch, error_msg = plan_service.can_fetch_products(user_id, total_products)
+
+    if not can_fetch:
+        return {
+            "success": False,
+            "total_products": integ.woo_products_count,
+            "total_categories": 0,
+            "message": error_msg,
+            "error": error_msg
+        }
+
     integ.woo_products_cached = True
     integ.woo_categories_cached = json.dumps(result.get("categories", []))
-    integ.woo_products_count = result.get("total_products", 0)
+    integ.woo_products_count = total_products
+
+    # Update subscription usage
+    subscription = plan_service.get_user_subscription(user_id)
+    if subscription:
+        subscription.products_fetched = total_products
+
     db.commit()
-    
+
     return {
         "success": True,
-        "total_products": result.get("total_products", 0),
+        "total_products": total_products,
         "total_categories": len(result.get("categories", [])),
-        "message": f"Successfully fetched {result.get('total_products', 0)} items from your website!"
+        "message": "Successfully fetched: all data fetched"
     }
 
 
@@ -351,14 +429,10 @@ async def configure_integration_base(
     user_plan = get_user_plan(user_id, db)
     integration_type = config.get("integration_type")
     
-    # Normalize plan name for backward compatibility
+    # Normalize plan name
     normalized_plan = user_plan.lower()
-    if normalized_plan == "free":
-        normalized_plan = "essentials"
-    elif normalized_plan == "starter":
-        normalized_plan = "growth"
 
-    if normalized_plan == "essentials" and integration_type == "product":
+    if normalized_plan == "free" and integration_type == "product":
         raise HTTPException(403, PLAN_ERROR_FREE)
 
     integ = db.query(Integration).join(Integration.bot).filter(Bot.user_id == user_id).first()

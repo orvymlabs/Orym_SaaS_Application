@@ -34,13 +34,13 @@
 
 /* DARK MODE */
 .dark {
-  --bg-content: #000000; /* Changed to pure black */
-  --bg-card: #1a1b2e;
+  --bg-content: #000000; /* Pure black background */
+  --bg-card: #000000; /* Pure black cards */
   --text-primary: #ffffff;
   --text-secondary: #94a3b8;
-  --border: #2a2b3d;
-  
-  --bg-card-hover: rgba(255, 255, 255, 0.05);
+  --border: #1a1a1a; /* Very dark gray border for subtle definition */
+
+  --bg-card-hover: rgba(255, 255, 255, 0.03);
 }
 
 /* HEADER ELEMENTS */

@@ -45,6 +45,9 @@ class BotSettingsUpdate(BaseModel):
     custom_products: Optional[Any] = None
     welcome_message: Optional[str] = None  # Dynamic welcome/greeting message
     response_delay: Optional[int] = None  # Delay in seconds before bot responds
+    fallback_message: Optional[str] = None  # Message when no template matches
+    order_error_message: Optional[str] = None  # Message when order saving fails
+    error_message: Optional[str] = None  # General error message
 
 class SettingsResponse(BaseModel): # Added SettingsResponse class
     id: int
@@ -62,6 +65,9 @@ class SettingsResponse(BaseModel): # Added SettingsResponse class
     has_api_key: bool # Added has_api_key field
     welcome_message: Optional[str] = None  # Dynamic welcome/greeting message
     response_delay: Optional[int] = None  # Delay in seconds before bot responds
+    fallback_message: Optional[str] = None  # Message when no template matches
+    order_error_message: Optional[str] = None  # Message when order saving fails
+    error_message: Optional[str] = None  # General error message
 
 class TestChatRequest(BaseModel): # Added TestChatRequest class
     message: str

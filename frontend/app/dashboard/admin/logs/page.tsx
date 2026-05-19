@@ -1,21 +1,120 @@
 "use client";
+import { useEffect, useState } from "react";
+import { apiGet } from "@/lib/api";
+
+interface AuditLog {
+  id: number;
+  timestamp: string;
+  user: string;
+  action: string;
+  target: string;
+  details: any;
+}
 
 export default function LogsPage() {
+  const [logs, setLogs] = useState<AuditLog[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchLogs();
+  }, []);
+
+  const fetchLogs = async () => {
+    setLoading(true);
+    try {
+      const data = await apiGet("/api/admin/audit");
+      setLogs(data || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-white/20 border-t-white rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-zinc-500 font-black uppercase tracking-[0.2em] text-[10px]">Retrieving Neural Audit Trails...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div>
-        <h1 className="text-3xl font-black text-white tracking-tight">System Logs</h1>
-        <p className="text-slate-400 font-medium mt-1">Monitor platform activity and errors</p>
+    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-4xl font-black text-white tracking-tighter">Audit Trails</h1>
+          <p className="text-zinc-500 font-medium mt-1">Immutable record of administrative intelligence and actions</p>
+        </div>
+        <button
+          onClick={fetchLogs}
+          className="btn-primary"
+        >
+          Refresh Logs
+        </button>
       </div>
 
-      <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl border border-slate-700 shadow-xl p-12">
-        <div className="text-center text-slate-400">
-          <svg className="w-20 h-20 mx-auto mb-6 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-          <p className="text-lg font-semibold">System Logs Coming Soon</p>
-          <p className="text-sm mt-2">This feature will display platform-wide activity logs, errors, and audit trails</p>
+      <div className="bg-[#090909] rounded-[3rem] border border-zinc-800 shadow-2xl overflow-hidden">
+        <div className="px-10 py-8 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50">
+          <h3 className="text-xl font-black text-white tracking-tight">System Event Stream</h3>
+          <span className="btn-pill btn-pill-inactive py-1 !text-[9px] border-zinc-700">{logs.length} EVENTS LOGGED</span>
         </div>
+        
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="bg-black/20">
+                <th className="px-10 py-6 text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em]">Timestamp</th>
+                <th className="px-10 py-6 text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em]">Operator</th>
+                <th className="px-10 py-6 text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em]">Action Protocol</th>
+                <th className="px-10 py-6 text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em]">Target Entity</th>
+                <th className="px-10 py-6 text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em]">Metadata</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800/50">
+              {logs.map(log => (
+                <tr key={log.id} className="transition-all hover:bg-white/5 group">
+                  <td className="px-10 py-6">
+                    <p className="text-[11px] font-black text-zinc-500 font-mono">
+                      {new Date(log.timestamp).toLocaleString()}
+                    </p>
+                  </td>
+                  <td className="px-10 py-6">
+                    <p className="font-bold text-white text-sm tracking-tight">{log.user}</p>
+                  </td>
+                  <td className="px-10 py-6">
+                    <span className={`btn-pill py-1 !text-[9px] border-none ${
+                      log.action.includes('delete') ? 'bg-rose-500 text-white' :
+                      log.action.includes('create') ? 'bg-emerald-500 text-white' :
+                      log.action.includes('update') ? 'bg-amber-500 text-white' :
+                      'bg-zinc-800 text-zinc-400'
+                    }`}>
+                      {log.action.toUpperCase()}
+                    </span>
+                  </td>
+                  <td className="px-10 py-6">
+                    <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">{log.target}</p>
+                  </td>
+                  <td className="px-10 py-6">
+                    <div className="max-w-xs truncate overflow-hidden">
+                      <pre className="text-[9px] text-zinc-600 font-mono">
+                        {JSON.stringify(log.details)}
+                      </pre>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {logs.length === 0 && (
+          <div className="text-center py-32 opacity-20 grayscale">
+            <p className="text-[10px] font-black uppercase tracking-[0.4em]">Zero System Events Detected</p>
+          </div>
+        )}
       </div>
     </div>
   );

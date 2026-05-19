@@ -4,12 +4,17 @@ import { apiGet, apiPost, apiPut, apiDelete, apiPatch } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui";
 
+interface Plan {
+  id: number;
+  plan_name: string;
+}
+
 interface User {
   id: number;
   email: string;
   full_name: string;
-  role: "user" | "admin" | "super_admin";
-  plan: "starter" | "growth";
+  role: string;
+  plan: string;
   created_at: string;
   bot?: { status: boolean };
 }
@@ -17,6 +22,7 @@ interface User {
 export default function UserManagementPage() {
   const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
+  const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterRole, setFilterRole] = useState<string>("all");
@@ -30,20 +36,24 @@ export default function UserManagementPage() {
     password: "",
     full_name: "",
     role: "user",
-    plan: "starter",
+    plan: "free",
   });
 
   useEffect(() => {
-    fetchUsers();
+    fetchData();
   }, []);
 
-  const fetchUsers = async () => {
+  const fetchData = async () => {
     setLoading(true);
     try {
-      const data = await apiGet<User[]>("/api/auth/admin/users");
-      setUsers(data);
+      const [u, p] = await Promise.all([
+        apiGet<User[]>("/api/admin/users"),
+        apiGet<Plan[]>("/api/admin/plans")
+      ]);
+      setUsers(u);
+      setPlans(p);
     } catch (err: any) {
-      showToast(err.message || "Failed to fetch users", "error");
+      showToast(err.message || "Failed to fetch data", "error");
     } finally {
       setLoading(false);
     }
@@ -51,7 +61,7 @@ export default function UserManagementPage() {
 
   const filteredUsers = users.filter(user => {
     const matchesSearch = user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.full_name?.toLowerCase().includes(searchQuery.toLowerCase());
+      (user.full_name && user.full_name.toLowerCase().includes(searchQuery.toLowerCase()));
     const matchesRole = filterRole === "all" || user.role === filterRole;
     const matchesPlan = filterPlan === "all" || user.plan === filterPlan;
     return matchesSearch && matchesRole && matchesPlan;
@@ -59,7 +69,7 @@ export default function UserManagementPage() {
 
   const openCreateModal = () => {
     setEditingUser(null);
-    setFormData({ email: "", password: "", full_name: "", role: "user", plan: "starter" });
+    setFormData({ email: "", password: "", full_name: "", role: "user", plan: plans[0]?.plan_name || "free" });
     setShowModal(true);
   };
 
@@ -78,6 +88,7 @@ export default function UserManagementPage() {
   const handleSubmit = async () => {
     try {
       if (editingUser) {
+        // Refactored to use general admin update if possible, or stay with specific one
         await apiPut(`/api/auth/admin/update-user/${editingUser.id}`, {
           email: formData.email,
           full_name: formData.full_name,
@@ -94,7 +105,7 @@ export default function UserManagementPage() {
         showToast("User created successfully", "success");
       }
       setShowModal(false);
-      fetchUsers();
+      fetchData();
     } catch (err: any) {
       showToast(err.message || "Operation failed", "error");
     }
@@ -103,9 +114,9 @@ export default function UserManagementPage() {
   const deleteUser = async (userId: number) => {
     if (!confirm("Are you sure? This will delete all user data.")) return;
     try {
-      await apiDelete(`/api/auth/admin/users/${userId}`);
+      await apiDelete(`/api/admin/users/${userId}`);
       showToast("User deleted successfully", "success");
-      fetchUsers();
+      fetchData();
     } catch (err: any) {
       showToast(err.message || "Failed to delete user", "error");
     }
@@ -113,19 +124,19 @@ export default function UserManagementPage() {
 
   const toggleBotStatus = async (userId: number) => {
     try {
-      await apiPatch(`/api/auth/admin/users/${userId}/status`, {});
+      await apiPut(`/api/admin/users/${userId}/suspend`, {});
       showToast("Bot status updated", "success");
-      fetchUsers();
+      fetchData();
     } catch (err: any) {
       showToast(err.message || "Failed to update status", "error");
     }
   };
 
-  const updatePlan = async (userId: number, newPlan: "starter" | "growth") => {
+  const updatePlan = async (userId: number, newPlan: string) => {
     try {
-      await apiPatch(`/api/auth/admin/users/${userId}/plan`, { plan: newPlan });
+      await apiPut(`/api/admin/users/${userId}/plan?plan_name=${newPlan}`, {});
       showToast(`User plan updated to ${newPlan}`, "success");
-      fetchUsers();
+      fetchData();
     } catch (err: any) {
       showToast(err.message || "Failed to update plan", "error");
     }
@@ -185,8 +196,9 @@ export default function UserManagementPage() {
             className="select-field !py-2.5 !text-xs"
           >
             <option value="all">All Plans</option>
-            <option value="starter">Starter</option>
-            <option value="growth">Growth</option>
+            {plans.map(p => (
+              <option key={p.id} value={p.plan_name}>{p.plan_name.charAt(0).toUpperCase() + p.plan_name.slice(1)}</option>
+            ))}
           </select>
         </div>
       </div>
@@ -222,13 +234,14 @@ export default function UserManagementPage() {
                     <td className="px-8 py-6">
                       <select
                         value={user.plan}
-                        onChange={(e) => updatePlan(user.id, e.target.value as "starter" | "growth")}
+                        onChange={(e) => updatePlan(user.id, e.target.value)}
                         className={`btn-pill py-1 !text-[9px] !bg-transparent focus:ring-0 cursor-pointer ${
-                          user.plan === 'growth' ? '!text-violet-400 !border-violet-500/30' : '!text-zinc-500 !border-zinc-800'
+                          user.plan !== 'free' ? '!text-violet-400 !border-violet-500/30' : '!text-zinc-500 !border-zinc-800'
                         }`}
                       >
-                        <option value="starter">Starter</option>
-                        <option value="growth">Growth</option>
+                        {plans.map(p => (
+                          <option key={p.id} value={p.plan_name}>{p.plan_name.charAt(0).toUpperCase() + p.plan_name.slice(1)}</option>
+                        ))}
                       </select>
                     </td>
                     <td className="px-8 py-6">
@@ -365,8 +378,9 @@ export default function UserManagementPage() {
                     onChange={(e) => setFormData({ ...formData, plan: e.target.value })}
                     className="select-field"
                   >
-                    <option value="starter">Starter</option>
-                    <option value="growth">Growth</option>
+                    {plans.map(p => (
+                      <option key={p.id} value={p.plan_name}>{p.plan_name.charAt(0).toUpperCase() + p.plan_name.slice(1)}</option>
+                    ))}
                   </select>
                 </div>
               </div>

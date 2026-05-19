@@ -146,17 +146,12 @@ def ai_reply(text: str, lang: str, api_key: str, provider: str,
     contact_address = contact.get('address', '')
     contact_hours = contact.get('hours', '')
 
-    # Feature gating: Essentials plan = service only, Growth/Scale = product access
-    # Growth plan: limit to 10 products, Scale: unlimited (up to 30 in AI context)
-    # Backward compatibility: free -> essentials, starter -> growth
+    # Feature gating: Free plan = service only, Starter/Premium = product access
+    # Starter plan: limit to 10 products, Premium: unlimited (up to 30 in AI context)
     normalized_plan = user_plan.lower()
-    if normalized_plan == "free":
-        normalized_plan = "essentials"
-    elif normalized_plan == "starter":
-        normalized_plan = "growth"
 
-    show_products = (normalized_plan in ["growth", "scale"] and business_type == "product")
-    product_limit = 10 if normalized_plan == "growth" else 30
+    show_products = (normalized_plan in ["starter", "premium"] and business_type == "product")
+    product_limit = 10 if normalized_plan == "starter" else 30
 
     # Build CONTACT section FIRST (most important for service queries)
     contact_section = f"## 📞 CONTACT INFO for {site_name}:\n"
@@ -186,11 +181,11 @@ def ai_reply(text: str, lang: str, api_key: str, provider: str,
                 catalog_lines.append(f"  - {p_name} | SKU: {sku} | {price} PKR | {stock}")
             if len(products) > product_limit:
                 catalog_lines.append(f"  ...and {len(products) - product_limit} more products")
-            if normalized_plan == "growth":
-                catalog_lines.append("\n📦 *Note*: Growth plan shows first 10 products. Upgrade to Scale for full catalog.")
+            if normalized_plan == "starter":
+                catalog_lines.append("\n📦 *Note*: Starter plan shows first 10 products. Upgrade to Premium for full catalog.")
             catalog_section = "\n".join(catalog_lines)
-        elif normalized_plan == "essentials":
-            catalog_section = "## PRODUCTS: Not available in Essentials plan. Upgrade to Growth or Scale for product catalog access."
+        elif normalized_plan == "free":
+            catalog_section = "## PRODUCTS: Not available in Free plan. Upgrade to Starter or Premium for product catalog access."
         else:
             catalog_section = "## PRODUCTS: No product data available. Focus on services and contact info."
     else:
@@ -249,6 +244,10 @@ def ai_reply(text: str, lang: str, api_key: str, provider: str,
     for k, v in cfg.get("extra_headers", {}).items():
         headers[k] = v
 
+    logger.info(f"AI ({provider}) Request headers: {list(headers.keys())}")
+    logger.info(f"AI ({provider}) Authorization header present: {'Authorization' in headers}")
+    logger.info(f"AI ({provider}) API URL: {cfg['url']}")
+
     # Model selection logic
     default_models = {
         "openrouter": "openai/gpt-4o-mini",
@@ -294,13 +293,18 @@ def ai_reply(text: str, lang: str, api_key: str, provider: str,
             "stream": False
         }
 
+        logger.info(f"AI ({provider}) Making request to: {cfg['url']}")
+        logger.info(f"AI ({provider}) Headers being sent: {headers}")
+        logger.info(f"AI ({provider}) Model: {model}")
+
         # Handle provider-specific payload differences if any
         if provider == "gemini" and "generativelanguage" in cfg["url"]:
             # Google Gemini OpenAI-compatible endpoint is mostly standard
             pass
-            
+
         r = requests.post(cfg["url"], headers=headers, json=request_payload, timeout=12, verify=False)
         logger.info(f"AI ({provider}) API response status: {r.status_code}")
+        logger.info(f"AI ({provider}) Response body: {r.text[:500]}")
 
         if r.status_code == 200:
             data = r.json()
@@ -309,8 +313,23 @@ def ai_reply(text: str, lang: str, api_key: str, provider: str,
             if reply and len(reply.strip()) > 1:
                 return reply.strip()[:600]
             logger.warning(f"AI ({provider}) response was empty or too short")
+        elif r.status_code == 429:
+            # Rate limit exceeded
+            logger.error(f"AI ({provider}) RATE LIMIT EXCEEDED: {r.text[:200] if r.text else 'No content'}")
+            return "API_RATE_LIMIT_EXCEEDED"
+        elif r.status_code in [402, 403]:
+            # Quota exceeded or payment required
+            logger.error(f"AI ({provider}) QUOTA EXCEEDED: {r.status_code} - {r.text[:200] if r.text else 'No content'}")
+            return "API_QUOTA_EXCEEDED"
+        elif r.status_code == 401:
+            # Invalid API key
+            logger.error(f"AI ({provider}) INVALID API KEY: {r.text[:200] if r.text else 'No content'}")
+            return "API_INVALID_KEY"
         else:
             logger.error(f"AI ({provider}) API error: {r.status_code} - {r.text[:200] if r.text else 'No content'}")
+    except requests.exceptions.Timeout:
+        logger.error(f"AI ({provider}) request timeout")
+        return "API_TIMEOUT"
     except Exception as e:
         logger.error(f"AI ({provider}) exception: {e}", exc_info=True)
 

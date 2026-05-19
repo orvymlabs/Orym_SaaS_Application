@@ -1,9 +1,12 @@
 "use client";
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 export default function NotFound() {
+  const [mounted, setMounted] = useState(false);
+
   useEffect(() => {
+    setMounted(true);
     // Check if user is logged in and redirect to appropriate dashboard after 5 seconds
     const token = localStorage.getItem("token");
     if (token) {
@@ -13,6 +16,10 @@ export default function NotFound() {
       return () => clearTimeout(timer);
     }
   }, []);
+
+  if (!mounted) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">

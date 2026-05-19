@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, JSON, UniqueConstraint, Float
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -11,14 +11,93 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     role = Column(String(20), default="user")  # super_admin, admin, user
-    plan = Column(String(20), default="free")  # free, starter, growth
+    plan = Column(String(20), default="free")  # free, starter, premium (deprecated - use subscription)
     full_name = Column(String(100), nullable=True)
+    stripe_customer_id = Column(String(100), nullable=True, unique=True)  # Stripe Customer ID
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     bot = relationship("Bot", back_populates="owner", uselist=False, cascade="all, delete-orphan")
+    subscription = relationship("Subscription", back_populates="user", uselist=False, cascade="all, delete-orphan")
 
 
-class Bot(Base):
+class Plan(Base):
+    __tablename__ = "plans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    plan_name = Column(String(50), unique=True, index=True, nullable=False)
+    display_name = Column(String(50), nullable=False)
+    monthly_price = Column(Float, default=0.0)
+    yearly_price = Column(Float, nullable=True)
+
+    # Legacy column for backward compatibility
+    daily_message_limit = Column(Integer, default=0)
+
+    # Conversation limits
+    max_templates = Column(Integer, default=0)
+    max_rule_based_messages = Column(Integer, default=0)
+    max_ai_responses_per_session = Column(Integer, default=0)
+
+    # Data & Integration limits
+    max_products = Column(Integer, default=0)
+    website_fetch_scope = Column(String(20), default="homepage")
+
+    # Features
+    order_form_enabled = Column(Boolean, default=False)
+    multi_ai_support = Column(Boolean, default=False)
+    setup_support = Column(Boolean, default=False)
+    team_collaboration = Column(Boolean, default=False)
+    analytics_dashboard = Column(Boolean, default=False)
+    crm_integrations = Column(Boolean, default=False)
+    managed_api = Column(Boolean, default=False)
+
+    is_active = Column(Boolean, default=True)
+    stripe_price_id = Column(String(100), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    subscriptions = relationship("Subscription", back_populates="plan")
+
+
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+    plan_id = Column(Integer, ForeignKey("plans.id"), nullable=False)
+
+    # Stripe integration
+    stripe_subscription_id = Column(String(100), unique=True, nullable=True)  # Stripe Subscription ID
+    stripe_price_id = Column(String(100), nullable=True)  # Current price ID
+
+    # Subscription status
+    status = Column(String(20), default="active")  # active, canceled, past_due, trialing, incomplete
+
+    # Billing
+    billing_cycle = Column(String(20), default="monthly")  # monthly, yearly
+    current_period_start = Column(DateTime(timezone=True), nullable=True)
+    current_period_end = Column(DateTime(timezone=True), nullable=True)
+    cancel_at_period_end = Column(Boolean, default=False)
+    canceled_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Trial
+    trial_start = Column(DateTime(timezone=True), nullable=True)
+    trial_end = Column(DateTime(timezone=True), nullable=True)
+
+    # Usage tracking (reset monthly)
+    templates_used = Column(Integer, default=0)
+    rule_messages_used = Column(Integer, default=0)
+    ai_responses_used = Column(Integer, default=0)
+    products_fetched = Column(Integer, default=0)
+    usage_reset_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    user = relationship("User", back_populates="subscription")
+    plan = relationship("Plan", back_populates="subscriptions")
+
+
+class Bot(Base) :
     __tablename__ = "bots"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -53,8 +132,12 @@ class BotSettings(Base):
     order_form_template = Column(Text, nullable=True)
     order_confirmation_message = Column(Text, nullable=True)
     order_form_enabled = Column(Boolean, default=True)
+    form_menu_label = Column(String(30), nullable=True)  # Custom label for form in WhatsApp menu
     welcome_message = Column(Text, nullable=True)  # Dynamic welcome/greeting message
     response_delay = Column(Integer, default=0)  # Delay in seconds before bot responds (0 = instant)
+    fallback_message = Column(Text, nullable=True)  # Message when no template matches user input
+    order_error_message = Column(Text, nullable=True)  # Message when order saving fails
+    error_message = Column(Text, nullable=True)  # General error message for technical issues
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -220,6 +303,30 @@ class Notification(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     user = relationship("User")
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    action = Column(String(100), nullable=False)
+    target_type = Column(String(50), nullable=True)  # user, plan, setting, etc.
+    target_id = Column(String(100), nullable=True)
+    details = Column(JSON, nullable=True)
+    ip_address = Column(String(50), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User")
+
+
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(100), unique=True, index=True, nullable=False)
+    value = Column(JSON, nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 # Add back-populates to Bot model

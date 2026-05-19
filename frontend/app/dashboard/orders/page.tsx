@@ -17,7 +17,17 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [userPlan, setUserPlan] = useState<string>("free");
   const { isDark } = useTheme();
+
+  useEffect(() => {
+    // Fetch user plan
+    api("/api/auth/me").then((userData) => {
+      if (userData && userData.plan) {
+        setUserPlan(userData.plan.toLowerCase());
+      }
+    }).catch(() => {});
+  }, []);
 
   const fetchOrders = async () => {
     try {
@@ -105,11 +115,83 @@ export default function OrdersPage() {
   }
 
   /* ---------------- MAIN UI ---------------- */
+
+  // Check if order form is locked for FREE plan
+  if (userPlan === "free") {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className={`text-3xl font-bold tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>Submissions</h1>
+          <p className={`${isDark ? "text-zinc-500" : "text-slate-500"} mt-2`}>Manage customer submissions from WhatsApp</p>
+        </div>
+
+        {/* Locked State for FREE Plan */}
+        <div className={`rounded-[3rem] border-2 p-16 text-center ${isDark ? "bg-[#090909] border-zinc-800" : "bg-white border-slate-200"}`}>
+          <div className="max-w-md mx-auto space-y-6">
+            {/* Lock Icon */}
+            <div className={`w-20 h-20 mx-auto rounded-full flex items-center justify-center ${isDark ? "bg-zinc-900" : "bg-slate-100"}`}>
+              <svg className={`w-10 h-10 ${isDark ? "text-zinc-600" : "text-slate-400"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+              </svg>
+            </div>
+
+            {/* Title */}
+            <div>
+              <h2 className={`text-2xl font-bold ${isDark ? "text-white" : "text-slate-900"}`}>
+                Order Form Feature Locked
+              </h2>
+              <p className={`mt-3 text-sm ${isDark ? "text-zinc-500" : "text-slate-500"}`}>
+                The order form and submissions feature is available on STARTER and PREMIUM plans.
+              </p>
+            </div>
+
+            {/* Features List */}
+            <div className={`text-left p-6 rounded-2xl ${isDark ? "bg-black border border-zinc-800" : "bg-slate-50 border border-slate-200"}`}>
+              <p className={`text-xs font-bold uppercase tracking-wide mb-3 ${isDark ? "text-zinc-600" : "text-slate-400"}`}>
+                Unlock with STARTER or PREMIUM:
+              </p>
+              <ul className="space-y-2">
+                <li className={`flex items-start gap-2 text-sm ${isDark ? "text-zinc-400" : "text-slate-600"}`}>
+                  <span className="text-green-500 mt-0.5">✓</span>
+                  <span>Collect customer orders via WhatsApp</span>
+                </li>
+                <li className={`flex items-start gap-2 text-sm ${isDark ? "text-zinc-400" : "text-slate-600"}`}>
+                  <span className="text-green-500 mt-0.5">✓</span>
+                  <span>Manage submissions in dashboard</span>
+                </li>
+                <li className={`flex items-start gap-2 text-sm ${isDark ? "text-zinc-400" : "text-slate-600"}`}>
+                  <span className="text-green-500 mt-0.5">✓</span>
+                  <span>Track order status and history</span>
+                </li>
+                <li className={`flex items-start gap-2 text-sm ${isDark ? "text-zinc-400" : "text-slate-600"}`}>
+                  <span className="text-green-500 mt-0.5">✓</span>
+                  <span>Automated order confirmations</span>
+                </li>
+              </ul>
+            </div>
+
+            {/* Upgrade Button */}
+            <a
+              href="/dashboard/subscription"
+              className={`inline-block px-8 py-4 rounded-2xl font-bold text-sm transition-all ${
+                isDark
+                  ? "bg-white text-black hover:bg-zinc-100"
+                  : "bg-slate-900 text-white hover:bg-slate-800"
+              }`}
+            >
+              Upgrade to Unlock Order Form
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className={`text-3xl font-bold tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>Orders</h1>
-        <p className={`${isDark ? "text-zinc-500" : "text-slate-500"} mt-2`}>Manage customer orders from WhatsApp</p>
+        <h1 className={`text-3xl font-bold tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>Submissions</h1>
+        <p className={`${isDark ? "text-zinc-500" : "text-slate-500"} mt-2`}>Manage customer submissions from WhatsApp</p>
       </div>
 
       {orders.length === 0 ? (
@@ -122,7 +204,7 @@ export default function OrdersPage() {
             <div key={order.id} className={`rounded-[2rem] border p-8 ${isDark ? "bg-[#090909] border-zinc-800" : "bg-white border-slate-200"}`}>
               <div className="flex justify-between items-start mb-6">
                 <div>
-                  <h3 className={`text-lg font-bold ${isDark ? "text-white" : "text-slate-900"}`}>Order #{order.id}</h3>
+                  <h3 className={`text-lg font-bold ${isDark ? "text-white" : "text-slate-900"}`}>Submission #{order.id}</h3>
                   <p className={`text-sm mt-1 ${isDark ? "text-zinc-500" : "text-slate-500"}`}>
                     {new Date(order.created_at).toLocaleString()}
                   </p>
@@ -147,15 +229,15 @@ export default function OrdersPage() {
                 </div>
 
                 <div>
-                  <label className={`text-xs font-bold uppercase tracking-wide ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Order Details</label>
+                  <label className={`text-xs font-bold uppercase tracking-wide ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Submission Details</label>
                   {order.order_details ? (
                     <pre className={`mt-2 p-4 rounded-xl text-sm whitespace-pre-wrap font-mono ${isDark ? "bg-black text-zinc-300" : "bg-slate-50 text-slate-700"}`}>
                       {order.order_details}
                     </pre>
                   ) : (
                     <div className={`mt-2 p-4 rounded-xl text-sm ${isDark ? "bg-black text-zinc-500 border border-zinc-800" : "bg-slate-50 text-slate-400 border border-slate-200"}`}>
-                      <p className="italic">No order details available for this order.</p>
-                      <p className="text-xs mt-1">This order was created before the order form feature was implemented.</p>
+                      <p className="italic">No submission details available for this submission.</p>
+                      <p className="text-xs mt-1">This submission was created before the form submission feature was implemented.</p>
                     </div>
                   )}
                 </div>

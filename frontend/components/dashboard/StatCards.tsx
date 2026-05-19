@@ -76,10 +76,8 @@ export default function StatCards({ messagesCount, contactsCount, aiRequestsCoun
         </div>
         <div>
           <div className="stat-label">Messages Sent</div>
-          <h3>{messagesCount.split('/')[0]}</h3>
-        </div>
-        <div className="stat-change">
-          Limit: {messagesCount.split('/')[1] || '200'}
+          {/* Ensure messagesCount is a string before splitting */}
+          <h3>{typeof messagesCount === 'string' && messagesCount.includes('/') ? messagesCount.split('/')[0] : (typeof messagesCount === 'number' ? messagesCount : 'N/A')}</h3>
         </div>
       </div>
 
@@ -116,10 +114,8 @@ export default function StatCards({ messagesCount, contactsCount, aiRequestsCoun
         </div>
         <div>
           <div className="stat-label">AI Responses</div>
-          <h3>{aiRequestsCount.split('/')[0]}</h3>
-        </div>
-        <div className="stat-change">
-          Limit: {aiRequestsCount.split('/')[1] || '200'}
+          {/* Ensure aiRequestsCount is a string before splitting */}
+          <h3>{typeof aiRequestsCount === 'string' && aiRequestsCount.includes('/') ? aiRequestsCount.split('/')[0] : (typeof aiRequestsCount === 'number' ? aiRequestsCount : 'N/A')}</h3>
         </div>
       </div>
     </div>

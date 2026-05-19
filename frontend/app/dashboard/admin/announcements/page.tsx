@@ -25,6 +25,7 @@ export default function AdminAnnouncementsPage() {
     message: "",
     priority: "normal",
     expires_at: "",
+    recipients: "all",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -56,13 +57,13 @@ export default function AdminAnnouncementsPage() {
         await apiPut(`/api/auth/admin/announcements/${editingId}`, formData);
         setSuccess("Announcement updated successfully");
       } else {
-        await apiPost("/api/auth/admin/announcements", formData);
-        setSuccess("Announcement created successfully");
+        await apiPost("/api/admin/broadcast", formData);
+        setSuccess("Broadcast deployed successfully");
       }
 
       setShowForm(false);
       setEditingId(null);
-      setFormData({ title: "", message: "", priority: "normal", expires_at: "" });
+      setFormData({ title: "", message: "", priority: "normal", expires_at: "", recipients: "all" });
       fetchAnnouncements();
     } catch (err: any) {
       setError(err.message || "Failed to save announcement");
@@ -78,6 +79,7 @@ export default function AdminAnnouncementsPage() {
       message: announcement.message,
       priority: announcement.priority,
       expires_at: announcement.expires_at ? new Date(announcement.expires_at).toISOString().slice(0, 16) : "",
+      recipients: "all",
     });
     setShowForm(true);
   };
@@ -143,7 +145,7 @@ export default function AdminAnnouncementsPage() {
           onClick={() => {
             setShowForm(!showForm);
             setEditingId(null);
-            setFormData({ title: "", message: "", priority: "normal", expires_at: "" });
+            setFormData({ title: "", message: "", priority: "normal", expires_at: "", recipients: "all" });
           }}
           className={showForm ? "btn-secondary" : "btn-primary"}
         >
@@ -170,6 +172,36 @@ export default function AdminAnnouncementsPage() {
             {editingId ? "Modify Neural Broadcast" : "Initialize New Broadcast"}
           </h2>
           <form onSubmit={handleSubmit} className="space-y-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="space-y-3">
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-600 ml-1">Target Recipients</label>
+                <select
+                  value={formData.recipients}
+                  onChange={(e) => setFormData({ ...formData, recipients: e.target.value })}
+                  className="select-field"
+                >
+                  <option value="all">All Users</option>
+                  <option value="free">Free Plan Users</option>
+                  <option value="starter">Starter Plan Users</option>
+                  <option value="growth">Growth Plan Users</option>
+                  <option value="specific">Specific User (Email)</option>
+                </select>
+              </div>
+              {formData.recipients !== "all" && !["free", "starter", "growth"].includes(formData.recipients) && (
+                <div className="space-y-3">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-zinc-600 ml-1">Recipient Email</label>
+                  <input
+                    type="email"
+                    value={formData.recipients === "specific" ? "" : formData.recipients}
+                    onChange={(e) => setFormData({ ...formData, recipients: e.target.value })}
+                    className="input-field"
+                    placeholder="user@example.com"
+                    required
+                  />
+                </div>
+              )}
+            </div>
+
             <div className="space-y-3">
               <label className="text-[10px] font-black uppercase tracking-widest text-zinc-600 ml-1">Broadcast Title</label>
               <input

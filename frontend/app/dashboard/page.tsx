@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { apiGet } from "@/lib/api";
 import { useTheme } from "@/lib/useTheme";
 
-import Topbar from "@/components/dashboard/Topbar";
 import StatCards from "@/components/dashboard/StatCards";
 import AnalyticsChart from "@/components/dashboard/AnalyticsChart";
 import RightColumn from "@/components/dashboard/RightColumn";
@@ -17,7 +16,6 @@ export default function DashboardPage() {
   const [conversations, setConversations] = useState<any[]>([]);
   const [integrations, setIntegrations] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-
   const { isDark } = useTheme();
 
   useEffect(() => {
@@ -43,13 +41,26 @@ export default function DashboardPage() {
         setConversations(convData);
         setIntegrations(integData);
       } catch (error) {
-        console.error("Dashboard fetch error:", error);
+        console.error("Error fetching dashboard data:", error);
       } finally {
         setLoading(false);
       }
     };
 
     fetchData();
+
+    // Listen for bot mode changes from settings page
+    const handleBotModeChange = () => {
+      apiGet("/api/bots/me").then((botData) => {
+        setBot(botData);
+      }).catch(console.error);
+    };
+
+    window.addEventListener('botModeChanged', handleBotModeChange);
+
+    return () => {
+      window.removeEventListener('botModeChanged', handleBotModeChange);
+    };
   }, []);
 
   /* ---------------- LOADING UI ---------------- */
@@ -86,15 +97,10 @@ export default function DashboardPage() {
 
   return (
     <div className="main">
-      <Topbar
-        isDark={isDark}
-        botStatus={bot?.status ?? false}
-        userName={bot?.name ?? "User"}
-      />
-
       <div className="dashboard-content">
         {/* LEFT COLUMN */}
         <div className="col-left">
+
           {/* Active Bot Mode Card */}
           <a href="/dashboard/settings" className="block mb-6 no-underline">
             <div className={`rounded-[2rem] p-6 border-2 transition-all hover:scale-[1.02] cursor-pointer ${
@@ -133,9 +139,13 @@ export default function DashboardPage() {
             aiRequestsCount={`${usage?.ai_requests_made ?? 0}/${usage?.ai_limit ?? 1500}`}
             isDark={isDark}
           />
-
-          {/* AnalyticsChart is assumed to fetch its own data or use context, as per instructions. */}
-          <AnalyticsChart isDark={isDark} />
+          
+          {/* Handle cases where analytics data might be empty */}
+          {usage?.whatsapp_messages_sent === undefined && usage?.ai_requests_made === undefined ? (
+             <div className="h-full flex items-center justify-center text-center text-zinc-500 text-sm">Could not load usage data.</div>
+          ) : (
+            <AnalyticsChart isDark={isDark} />
+          )}
         </div>
 
         {/* RIGHT COLUMN */}

@@ -5,10 +5,10 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://orym-saas-applicati
 const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || 'wss://orym-saas-application.onrender.com';
 const WEBHOOK_BASE = process.env.NEXT_PUBLIC_WEBHOOK_URL || 'https://orym-saas-application.onrender.com/webhook';
 
-// Local development (use .env.local to override)
-// const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
-// const WS_BASE = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8001';
-// const WEBHOOK_BASE = process.env.NEXT_PUBLIC_WEBHOOK_URL || 'http://localhost:8001/webhook';
+// For local development, create a .env.local file with:
+// NEXT_PUBLIC_API_URL=http://localhost:8001
+// NEXT_PUBLIC_WS_URL=ws://localhost:8001
+// NEXT_PUBLIC_WEBHOOK_URL=http://localhost:8001/webhook
 
 export interface ApiResponse<T> {
   data?: T;
@@ -51,7 +51,12 @@ export async function api<T = any>(
     clearTimeout(timeoutId); // Clear the timeout if the fetch completes in time
 
     // Handle 401 Unauthorized: attempt to refresh token
-    if (response.status === 401) {
+    // Skip token refresh for auth endpoints (login, signup, refresh)
+    const isAuthEndpoint = path.includes("/api/auth/login") ||
+                          path.includes("/api/auth/signup") ||
+                          path.includes("/api/auth/refresh");
+
+    if (response.status === 401 && !isAuthEndpoint) {
       if (typeof window !== "undefined") { // Ensure this runs only in the browser
         const refreshToken = localStorage.getItem("refreshToken");
         if (refreshToken) {

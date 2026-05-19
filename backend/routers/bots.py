@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Bot, BotSettings, Integration, Message, Lead, User, UserTemplate 
+from models import Bot, BotSettings, Integration, Message, Lead, User, UserTemplate
 from schemas.bot import (
     BotResponse, BotSettingsUpdate, BotModeUpdate, BotStatusUpdate, SettingsResponse,
     TestChatRequest, TestChatResponse
@@ -11,10 +11,11 @@ from services import decode_token
 from services.encryption import encrypt_value, decrypt_value
 from services.bot_engine import handle_message
 from services.ai_service import AVAILABLE_MODELS
+from services.plan_enforcement import PlanEnforcementService
 from config import get_settings as get_app_settings
 from pydantic import BaseModel
 import logging
-import json 
+import json
 
 from services.universal_website_fetcher import UniversalWebsiteFetcher
 from services.default_bot import clear_cache_for_bot
@@ -24,24 +25,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/bots", tags=["bots"])
 
 def get_plan_limits(plan: str) -> dict:
-    """Get plan limits with backward compatibility.
-
-    New plans: essentials, growth, scale
-    Old plans: free -> essentials, starter -> growth
-    """
+    """Get plan limits for users."""
     normalized_plan = plan.lower()
-    if normalized_plan == "free":
-        normalized_plan = "essentials"
-    elif normalized_plan == "starter":
-        normalized_plan = "growth"
 
-    if normalized_plan == "essentials":
-        return {"custom_responses": 10, "custom_products": 20, "custom_templates": 3}
-    elif normalized_plan == "growth":
-        return {"custom_responses": -1, "custom_products": -1, "custom_templates": 10}
-    elif normalized_plan == "scale":
-        return {"custom_responses": -1, "custom_products": -1, "custom_templates": 15}
-    return {"custom_responses": 10, "custom_products": 20, "custom_templates": 3}
+    if normalized_plan == "free":
+        return {"custom_responses": 3, "custom_products": 3, "custom_templates": 3}
+    elif normalized_plan == "starter":
+        return {"custom_responses": 10, "custom_products": 20, "custom_templates": 10}
+    elif normalized_plan == "premium":
+        return {"custom_responses": -1, "custom_products": -1, "custom_templates": -1}
+    return {"custom_responses": 3, "custom_products": 3, "custom_templates": 3}
 
 def get_user_plan(user_id: int, db: Session) -> str:
     user = db.query(User).filter(User.id == user_id).first()
@@ -197,32 +190,61 @@ def update_settings(data: BotSettingsUpdate, user_id: int = Depends(get_current_
     bot = db.query(Bot).filter(Bot.user_id == user_id).first()
     if not bot or not bot.settings:
         raise HTTPException(404, "Settings not found")
+
+    # Initialize plan enforcement service
+    plan_service = PlanEnforcementService(db)
+
     s = bot.settings
     if data.prompt is not None: s.prompt = data.prompt
     if data.model_name is not None: s.model_name = data.model_name
     if data.specific_model_name is not None: s.specific_model_name = data.specific_model_name
-    if data.api_key is not None: s.api_key = encrypt_value(data.api_key)
+    if data.api_key is not None:
+        logger.info(f"Received API key update - Length: {len(data.api_key)}, First 10 chars: {data.api_key[:10]}...")
+        s.api_key = encrypt_value(data.api_key)
+        logger.info(f"API key encrypted and saved - Encrypted length: {len(s.api_key) if s.api_key else 0}")
     if data.temperature is not None: s.temperature = data.temperature
     if data.language is not None: s.language = data.language
-    if data.templates is not None:
-        s.templates = data.templates
-        # Log size of templates if available
-        if data.templates and isinstance(data.templates, dict):
-            # Estimate size by converting to JSON string and getting bytes
-            templates_size = len(json.dumps(data.templates, ensure_ascii=False).encode('utf-8'))
-            logger.debug(f"Received templates payload size: {templates_size} bytes")
-        elif data.templates:
-            logger.debug(f"Received templates payload (non-dict): {data.templates}")
 
-    # Update custom_responses if provided (can be empty dict to clear rules)
+    # Enforce template limits
+    if data.templates is not None:
+        if data.templates and isinstance(data.templates, dict):
+            # Count customized templates (non-empty values)
+            new_template_count = sum(1 for k, v in data.templates.items()
+                                    if k.startswith('template_') and not k.endswith('_enabled')
+                                    and v is not None and v != "")
+
+            # Get plan and check limits
+            user_plan = plan_service.get_user_plan(user_id)
+            if user_plan and user_plan.max_templates > 0:  # 0 means unlimited
+                if new_template_count > user_plan.max_templates:
+                    raise HTTPException(
+                        403,
+                        f"Template limit exceeded. Your {user_plan.display_name} plan allows {user_plan.max_templates} templates. You're trying to save {new_template_count}. Upgrade to add more."
+                    )
+
+            templates_size = len(json.dumps(data.templates, ensure_ascii=False).encode('utf-8'))
+            logger.debug(f"Received templates payload size: {templates_size} bytes, count: {new_template_count}")
+
+        s.templates = data.templates
+
+    # Enforce rule message limits
     if data.custom_responses is not None:
-        s.custom_responses = data.custom_responses
-        # Log size of custom_responses if available
         if data.custom_responses and isinstance(data.custom_responses, dict):
+            new_rule_count = len(data.custom_responses)
+
+            # Get plan and check limits
+            user_plan = plan_service.get_user_plan(user_id)
+            if user_plan and user_plan.max_rule_based_messages > 0:  # 0 means unlimited
+                if new_rule_count > user_plan.max_rule_based_messages:
+                    raise HTTPException(
+                        403,
+                        f"Rule message limit exceeded. Your {user_plan.display_name} plan allows {user_plan.max_rule_based_messages} rule messages. You're trying to save {new_rule_count}. Upgrade to add more."
+                    )
+
             custom_responses_size = len(json.dumps(data.custom_responses, ensure_ascii=False).encode('utf-8'))
-            logger.debug(f"Received custom_responses payload size: {custom_responses_size} bytes")
-        elif data.custom_responses:
-            logger.debug(f"Received custom_responses payload (non-dict): {data.custom_responses}")
+            logger.debug(f"Received custom_responses payload size: {custom_responses_size} bytes, count: {new_rule_count}")
+
+        s.custom_responses = data.custom_responses
         logger.info(f"Updated custom_responses: {data.custom_responses}")
     if data.template_enabled is not None: s.template_enabled = data.template_enabled
 
@@ -239,10 +261,22 @@ def update_settings(data: BotSettingsUpdate, user_id: int = Depends(get_current_
         s.response_delay = data.response_delay
         logger.info(f"Updated response_delay: {data.response_delay}")
 
+    # Update custom messages
+    if data.fallback_message is not None:
+        s.fallback_message = data.fallback_message
+        logger.info(f"Updated fallback_message")
+    if data.order_error_message is not None:
+        s.order_error_message = data.order_error_message
+        logger.info(f"Updated order_error_message")
+    if data.error_message is not None:
+        s.error_message = data.error_message
+        logger.info(f"Updated error_message")
+
     # Measure commit time
     import time
     commit_start_time = time.time()
     db.commit()
+    db.expire_all()  # Expire all objects to force fresh reads
     commit_end_time = time.time()
     commit_duration = commit_end_time - commit_start_time
     logger.info(f"Settings saved for bot {bot.id} after commit took {commit_duration:.4f} seconds.")
@@ -256,12 +290,17 @@ async def upload_json_settings(request: Request, user_id: int = Depends(get_curr
     bot = db.query(Bot).filter(Bot.user_id == user_id).first()
     if not bot or not bot.settings:
         raise HTTPException(404, "Bot not found")
+
+    # Initialize plan enforcement service
+    plan_service = PlanEnforcementService(db)
+    user_plan = plan_service.get_user_plan(user_id)
+
     try:
         data = await request.json()
-        
+
         new_custom_responses = bot.settings.custom_responses or {}
         new_templates = bot.settings.templates or {}
-        
+
         # Populate from explicit custom_responses in data
         if isinstance(data.get("custom_responses"), dict):
             new_custom_responses.update(data["custom_responses"])
@@ -269,16 +308,36 @@ async def upload_json_settings(request: Request, user_id: int = Depends(get_curr
             for item in data["custom_responses"]:
                 if isinstance(item, dict) and "keyword" in item and "response" in item:
                     new_custom_responses[item["keyword"].lower()] = item["response"]
-        
+
         # Populate from explicit templates in data
         if isinstance(data.get("templates"), dict):
             new_templates.update(data["templates"])
-            
+
         # Fallback logic: If root is dict and no explicit keys, use root keys as keywords for custom responses
         if not (data.get("custom_responses") or data.get("templates")) and isinstance(data, dict):
             for k, v in data.items():
                 if isinstance(v, str): # Assuming values are strings for custom responses
                     new_custom_responses[k.lower()] = v
+
+        # Enforce rule message limits
+        if user_plan and user_plan.max_rule_based_messages > 0:
+            rule_count = len(new_custom_responses)
+            if rule_count > user_plan.max_rule_based_messages:
+                raise HTTPException(
+                    403,
+                    f"Rule message limit exceeded. Your {user_plan.display_name} plan allows {user_plan.max_rule_based_messages} rule messages. Upload contains {rule_count}. Upgrade to add more."
+                )
+
+        # Enforce template limits
+        if user_plan and user_plan.max_templates > 0:
+            template_count = sum(1 for k, v in new_templates.items()
+                               if k.startswith('template_') and not k.endswith('_enabled')
+                               and v is not None and v != "")
+            if template_count > user_plan.max_templates:
+                raise HTTPException(
+                    403,
+                    f"Template limit exceeded. Your {user_plan.display_name} plan allows {user_plan.max_templates} templates. Upload contains {template_count}. Upgrade to add more."
+                )
 
         bot.settings.custom_responses = new_custom_responses
         bot.settings.templates = new_templates
@@ -288,6 +347,8 @@ async def upload_json_settings(request: Request, user_id: int = Depends(get_curr
         # Count the number of items added to both
         count = len(new_custom_responses) + len(new_templates)
         return {"status": "ok", "count": count}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Upload failed: {e}")
         raise HTTPException(400, f"Upload failed: {e}")
@@ -363,6 +424,10 @@ def test_chat(data: TestChatRequest, user_id: int = Depends(get_current_user_id)
             "order_form_template": bot.settings.order_form_template if bot.settings else None,
             "order_confirmation_message": bot.settings.order_confirmation_message if bot.settings else None,
             "order_form_enabled": getattr(bot.settings, 'order_form_enabled', True) if bot.settings else True,
+            "form_menu_label": getattr(bot.settings, 'form_menu_label', None) if bot.settings else None,
+            "fallback_message": getattr(bot.settings, 'fallback_message', None) if bot.settings else None,
+            "order_error_message": getattr(bot.settings, 'order_error_message', None) if bot.settings else None,
+            "error_message": getattr(bot.settings, 'error_message', None) if bot.settings else None,
             "_bot_id": bot.id
         }
 
@@ -567,6 +632,10 @@ class OrderFormSettings(BaseModel):
     order_form_template: Optional[str] = None
     order_confirmation_message: Optional[str] = None
     order_form_enabled: Optional[bool] = None
+    form_menu_label: Optional[str] = None
+    fallback_message: Optional[str] = None
+    order_error_message: Optional[str] = None
+    error_message: Optional[str] = None
 
 @router.get("/order-form/settings")
 def get_order_form_settings(user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
@@ -595,7 +664,11 @@ Our team will contact you shortly to confirm."""
     return {
         "order_form_template": s.order_form_template or default_form_template,
         "order_confirmation_message": s.order_confirmation_message or default_confirmation,
-        "order_form_enabled": s.order_form_enabled if s.order_form_enabled is not None else True
+        "order_form_enabled": s.order_form_enabled if s.order_form_enabled is not None else True,
+        "form_menu_label": s.form_menu_label or "",
+        "fallback_message": getattr(s, 'fallback_message', None) or "",
+        "order_error_message": getattr(s, 'order_error_message', None) or "",
+        "error_message": getattr(s, 'error_message', None) or ""
     }
 
 @router.put("/order-form/settings")
@@ -630,7 +703,25 @@ def update_order_form_settings(data: OrderFormSettings, user_id: int = Depends(g
             raise HTTPException(400, "Order confirmation message must be 500 characters or less")
         s.order_confirmation_message = data.order_confirmation_message.strip() if data.order_confirmation_message.strip() else None
 
+    # Update form menu label
+    if data.form_menu_label is not None:
+        if data.form_menu_label.strip() and len(data.form_menu_label) > 30:
+            raise HTTPException(400, "Form menu label must be 30 characters or less")
+        s.form_menu_label = data.form_menu_label.strip() if data.form_menu_label.strip() else None
+
+    # Update custom messages
+    if data.fallback_message is not None:
+        s.fallback_message = data.fallback_message.strip() if data.fallback_message.strip() else None
+
+    if data.order_error_message is not None:
+        s.order_error_message = data.order_error_message.strip() if data.order_error_message.strip() else None
+
+    if data.error_message is not None:
+        s.error_message = data.error_message.strip() if data.error_message.strip() else None
+
     db.commit()
+    db.expire_all()  # Expire all objects in session to force fresh reads
     clear_cache_for_bot(bot.id)
 
     return {"status": "ok", "message": "Order form settings saved successfully"}
+

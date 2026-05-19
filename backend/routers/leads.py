@@ -24,7 +24,8 @@ def get_leads(
     limit: Optional[int] = 100,
     db: Session = Depends(get_db)
 ):
-    """Get all leads for the current user's bot."""
+    """Get all leads for the current user's bot, excluding customers who have placed orders."""
+    from models import Order
     user_id = get_current_user_id(request)
 
     # Get user's bot
@@ -32,10 +33,18 @@ def get_leads(
     if not bot:
         return []
 
-    # Get all leads for this bot, ordered by most recent first
-    leads = db.query(Lead).filter(
-        Lead.bot_id == bot.id
-    ).order_by(Lead.updated_at.desc()).limit(limit).all()
+    # Get phone numbers that have placed orders
+    order_phones = db.query(Order.phone).filter(Order.user_id == user_id).distinct().all()
+    order_phone_list = [phone[0] for phone in order_phones]
+
+    # Get all leads for this bot, excluding those who have placed orders
+    leads_query = db.query(Lead).filter(Lead.bot_id == bot.id)
+
+    # Exclude leads whose phone numbers appear in orders
+    if order_phone_list:
+        leads_query = leads_query.filter(~Lead.phone.in_(order_phone_list))
+
+    leads = leads_query.order_by(Lead.updated_at.desc()).limit(limit).all()
 
     # Format leads with interest level
     result = []

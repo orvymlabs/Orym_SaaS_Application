@@ -125,31 +125,31 @@ class UniversalWebsiteFetcher:
 
         try:
             logger.info(f"🌐 Fetching site info for: {base_url}")
-            resp = requests.get(base_url, timeout=12, verify=False, headers={
+            resp = requests.get(base_url, timeout=8, verify=False, headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             })
             logger.info(f"Fetching site info for {base_url}: Status code {resp.status_code}")
             if resp.status_code == 200:
                 html = resp.text
                 soup = BeautifulSoup(html, 'html.parser')
-                
+
                 title_tag = soup.find('title')
                 if title_tag:
                     info["site_name"] = title_tag.get_text().strip()
                     logger.info(f"Extracted site name: {info['site_name']}")
-                
+
                 meta_desc = soup.find('meta', attrs={'name': re.compile(r'description', re.I)})
                 if meta_desc:
                     info["site_description"] = meta_desc.get('content', '').strip()
                     logger.info(f"Extracted site description (truncated): {info['site_description'][:50]}...")
-                
+
                 info["contact"] = UniversalWebsiteFetcher._extract_contact_info(html, soup)
                 logger.info(f"Extracted contact info: {info['contact']}")
                 info["about"] = UniversalWebsiteFetcher._extract_about_info(html, soup)
                 logger.info(f"Extracted about info (truncated): {info['about'][:50]}...")
                 info["services"] = UniversalWebsiteFetcher._extract_services(html, soup)
                 logger.info(f"Extracted {len(info['services'])} services.")
-                
+
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to fetch site info for {base_url} due to network error: {e}")
         except Exception as e:
@@ -327,12 +327,9 @@ class UniversalWebsiteFetcher:
         try:
             logger.info(f"🔍 Scraping products from: {base_url} (limit: {limit})")
             headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-            
-            # Try home page first
-            urls_to_try = [base_url.rstrip("/")]
-            # Also try /shop and /products if they exist
-            for path in ["/shop", "/products", "/collections/all"]:
-                urls_to_try.append(base_url.rstrip("/") + path)
+
+            # Try home page first, then only /shop (most common for products)
+            urls_to_try = [base_url.rstrip("/"), base_url.rstrip("/") + "/shop"]
 
             extracted_products = []
             seen_names = set()
@@ -341,20 +338,20 @@ class UniversalWebsiteFetcher:
                 if len(extracted_products) >= limit: break
                 try:
                     logger.debug(f"Scraping URL: {url}")
-                    resp = requests.get(url, timeout=12, verify=False, headers=headers)
+                    resp = requests.get(url, timeout=8, verify=False, headers=headers)
                     if resp.status_code != 200:
                         continue
-                    
+
                     html = resp.text
                     soup = BeautifulSoup(html, 'html.parser')
-                    
+
                     # 1. Try Schema.org Product markup
                     schema_products = soup.find_all(itemtype=re.compile(r'Product', re.I))
                     for item in schema_products:
                         if len(extracted_products) >= limit: break
                         name_elem = item.find(itemprop="name")
                         price_elem = item.find(itemprop="price") or item.find(class_=re.compile(r'price', re.I))
-                        
+
                         if name_elem:
                             name = name_elem.get_text(strip=True)
                             if name and name not in seen_names:
@@ -364,17 +361,15 @@ class UniversalWebsiteFetcher:
 
                     # 2. Broadly look for product-like containers
                     patterns = [
-                        re.compile(r'product', re.I), re.compile(r'item', re.I), 
-                        re.compile(r'card', re.I), re.compile(r'entry', re.I),
-                        re.compile(r'shop', re.I), re.compile(r'grid', re.I),
-                        re.compile(r'listing', re.I), re.compile(r'detail', re.I)
+                        re.compile(r'product', re.I), re.compile(r'item', re.I),
+                        re.compile(r'card', re.I), re.compile(r'shop', re.I)
                     ]
-                    
+
                     found_items = []
                     for pattern in patterns:
                         found_items.extend(soup.find_all(class_=pattern))
                         found_items.extend(soup.find_all(id=pattern))
-                    
+
                     for item in found_items:
                         if len(extracted_products) >= limit: break
                         if len(item.get_text()) < 10 or item.name in ['body', 'html']:
@@ -383,7 +378,7 @@ class UniversalWebsiteFetcher:
                         name_tag = item.find(['h1', 'h2', 'h3', 'h4', 'a', 'strong', 'span'], class_=re.compile(r'(name|title|heading|caption)', re.I))
                         if not name_tag and item.name in ['h2', 'h3', 'h4']:
                             name_tag = item
-                        
+
                         if name_tag:
                             name = name_tag.get_text(strip=True)
                             if name and 3 < len(name) < 150 and not name.isnumeric() and len(re.findall(r'[a-zA-Z]', name)) > 1:
@@ -391,13 +386,13 @@ class UniversalWebsiteFetcher:
                                     price = "Contact us"
                                     price_patterns = [r'price', r'amount', r'cost', r'value', r'sale']
                                     price_tag = item.find(['span', 'div', 'p', 'b'], class_=re.compile('|'.join(price_patterns), re.I))
-                                    
+
                                     if price_tag:
                                         price_text = price_tag.get_text(strip=True)
                                         price_match = re.search(r'([R|r][s|S]?\.?\s?\d+[\d,.]*|[P|p][K|K][R|R]\s?\d+[\d,.]*|\$\s?\d+[\d,.]*|€\s?\d+[\d,.]*|£\s?\d+[\d,.]*)', price_text)
                                         if price_match:
                                             price = price_match.group()
-                                    
+
                                     if price == "Contact us":
                                         all_text = item.get_text(separator=' ', strip=True)
                                         price_match = re.search(r'([R|r][s|S]?\.?\s?\d+[\d,.]*|[P|p][K|K][R|R]\s?\d+[\d,.]*|\$\s?\d+[\d,.]*|€\s?\d+[\d,.]*|£\s?\d+[\d,.]*)', all_text)

@@ -115,6 +115,17 @@ export default function IntegrationsPage() {
     }).catch(console.error);
   }, []);
 
+  // Sync form when integration type changes
+  useEffect(() => {
+    if (integ) {
+      setEcommerceForm({
+        website_url: integrationType === "product" ? integ.woocommerce_url || "" : integ.wp_base_url || "",
+        consumer_key: "",
+        consumer_secret: "",
+      });
+    }
+  }, [integrationType, integ]);
+
   const handleSaveWhatsApp = async () => {
     if (!whatsappForm.verify_token || !whatsappForm.phone_number_id || !whatsappForm.whatsapp_token || !whatsappForm.whatsapp_number) {
       showToast("All WhatsApp fields are required", "warning");
@@ -139,23 +150,137 @@ export default function IntegrationsPage() {
 
   const handleConfigureBase = async () => {
     if (!ecommerceForm.website_url) {
-      showToast("URL required", "warning");
+      showToast("Website URL is required", "warning");
       return;
     }
+
+    // Validate URL format
+    try {
+      new URL(ecommerceForm.website_url);
+    } catch {
+      showToast("Please enter a valid URL (e.g., https://example.com)", "error");
+      return;
+    }
+
+    // For product type, validate credentials if provided
+    if (integrationType === "product" && (ecommerceForm.consumer_key || ecommerceForm.consumer_secret)) {
+      if (!ecommerceForm.consumer_key || !ecommerceForm.consumer_secret) {
+        showToast("Both Consumer Key and Consumer Secret are required for WooCommerce", "warning");
+        return;
+      }
+    }
+
     setSavingEcommerce(true);
     try {
-      await apiPost("/api/integrations/me/configure-base", {
-        integration_type: integrationType,
-        website_url: ecommerceForm.website_url,
-        consumer_key: ecommerceForm.consumer_key,
-        consumer_secret: ecommerceForm.consumer_secret,
+      // Save using the PATCH endpoint for better control
+      await apiPatch("/api/integrations/me", {
+        business_type: integrationType,
+        woocommerce_url: integrationType === "product" ? ecommerceForm.website_url : undefined,
+        wp_base_url: integrationType === "service" ? ecommerceForm.website_url : undefined,
+        woo_consumer_key: ecommerceForm.consumer_key || undefined,
+        woo_consumer_secret: ecommerceForm.consumer_secret || undefined,
       });
-      showToast("Website configured", "success");
-      apiGet<IntegrationData>("/api/integrations/me").then(setInteg).catch(console.error);
+
+      showToast("Platform settings saved successfully!", "success");
+
+      // Refresh integration data
+      const updatedInteg = await apiGet<IntegrationData>("/api/integrations/me");
+      setInteg(updatedInteg);
+
+      // Update form with saved values
+      setEcommerceForm({
+        website_url: integrationType === "product" ? updatedInteg.woocommerce_url || "" : updatedInteg.wp_base_url || "",
+        consumer_key: "",
+        consumer_secret: "",
+      });
     } catch (err: any) {
-      showToast("Error: " + err.message, "error");
+      showToast("Error saving settings: " + err.message, "error");
     } finally {
       setSavingEcommerce(false);
+    }
+  };
+
+  const handleFetchWebsiteInfo = async () => {
+    // Check if URL exists in form
+    const formUrl = ecommerceForm.website_url.trim();
+    const savedUrl = integrationType === "product" ? integ?.woocommerce_url : integ?.wp_base_url;
+
+    if (!formUrl) {
+      showToast("Please enter a website URL first", "warning");
+      return;
+    }
+
+    // Validate URL format
+    try {
+      new URL(formUrl);
+    } catch {
+      showToast("Please enter a valid URL (e.g., https://example.com)", "error");
+      return;
+    }
+
+    // If URL in form is different from saved URL, save it first
+    if (formUrl !== savedUrl) {
+      showToast("Saving new URL before fetching...", "info");
+      try {
+        await apiPatch("/api/integrations/me", {
+          business_type: integrationType,
+          woocommerce_url: integrationType === "product" ? formUrl : undefined,
+          wp_base_url: integrationType === "service" ? formUrl : undefined,
+        });
+
+        // Refresh integration data
+        const updatedInteg = await apiGet<IntegrationData>("/api/integrations/me");
+        setInteg(updatedInteg);
+      } catch (err: any) {
+        showToast("Error saving URL: " + err.message, "error");
+        return;
+      }
+    }
+
+    // Fetch website info with extended timeout
+    setFetchingProducts(true);
+    try {
+      // Use custom fetch with 90-second timeout for this operation
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 90000); // 90 seconds
+
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://orym-saas-application.onrender.com';
+
+      const response = await fetch(`${apiUrl}/api/integrations/me/fetch-website-content`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { "Authorization": `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({}),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.detail || errorData?.message || `HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      if (result.success) {
+        showToast(result.message || "Website info fetched and cached successfully!", "success");
+        // Refresh integration data
+        apiGet<IntegrationData>("/api/integrations/me").then(setInteg).catch(console.error);
+      } else {
+        showToast(result.message || "Failed to fetch website info", "error");
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        showToast("Request timed out. Your website may be too large or slow to respond. Please try again.", "error");
+      } else {
+        showToast("Error fetching website info: " + err.message, "error");
+      }
+    } finally {
+      setFetchingProducts(false);
     }
   };
 
@@ -273,7 +398,15 @@ export default function IntegrationsPage() {
 
             <div className="space-y-8">
               <div className="space-y-3">
-                <label className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} ml-1`}>Base URL</label>
+                <div className="flex items-center justify-between">
+                  <label className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} ml-1`}>Base URL</label>
+                  {(integrationType === "product" ? integ?.woocommerce_url : integ?.wp_base_url) && (
+                    <span className={`text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 ${isDark ? "text-emerald-400" : "text-emerald-600"}`}>
+                      <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
+                      Saved
+                    </span>
+                  )}
+                </div>
                 <input type="text" value={ecommerceForm.website_url} onChange={e => setEcommerceForm({...ecommerceForm, website_url: e.target.value})}
                   className="input-field" placeholder="https://your-store-address.com" />
               </div>
@@ -318,10 +451,21 @@ export default function IntegrationsPage() {
               )}
             </div>
 
-            <div className="flex justify-end pt-6">
+            <div className="flex justify-end gap-4 pt-6">
+              <button
+                onClick={handleFetchWebsiteInfo}
+                disabled={fetchingProducts || !ecommerceForm.website_url.trim()}
+                className="btn-secondary min-w-[240px] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {fetchingProducts ? <div className="w-4 h-4 border-2 border-slate-600/30 border-t-slate-600 rounded-full animate-spin" /> : "Fetch Website Info"}
+              </button>
               <button onClick={handleConfigureBase} disabled={savingEcommerce} className="btn-primary min-w-[240px]">
                 {savingEcommerce ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : "Save Platform Settings"}
               </button>
+            </div>
+
+            <div className={`p-4 rounded-2xl border ${isDark ? "bg-blue-950/20 border-blue-900/30 text-blue-400" : "bg-blue-50 border-blue-200 text-blue-700"}`}>
+              <p className="text-xs font-medium">💡 Enter your website URL and click "Fetch Website Info" to automatically cache your site content for AI responses. The URL will be saved automatically.</p>
             </div>
           </div>
         )}

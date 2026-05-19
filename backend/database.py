@@ -114,7 +114,7 @@ def init_db():
     """
     try:
         # Import all models here to ensure they are registered with Base.metadata
-        from models import User, Bot, BotSettings, Integration, Message, Lead, Usage, SiteInfoCache, Announcement, Order, UserTemplate
+        from models import User, Plan, Subscription, Bot, BotSettings, Integration, Message, Lead, Usage, SiteInfoCache, Announcement, Order, UserTemplate, AuditLog, SystemSetting, Notification
         
         db_type = "PostgreSQL" if "postgresql" in str(engine.url) else "SQLite"
         logger.info(f"Initializing {db_type} database tables...")

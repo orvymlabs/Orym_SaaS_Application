@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useToast } from "@/components/ui";
 import { useTheme } from "@/lib/useTheme";
+import { LockedFeature } from "@/components/LockedFeature";
+import { usePlanLimits } from "@/hooks/usePlanLimits";
 
 const PROVIDER_INFO: Record<string, {label: string}> = {
   openrouter: { label: "OpenRouter" },
@@ -104,8 +106,10 @@ export default function SettingsPage() {
   const [orderFormTemplate, setOrderFormTemplate] = useState("");
   const [orderConfirmationMessage, setOrderConfirmationMessage] = useState("");
   const [orderFormEnabled, setOrderFormEnabled] = useState(true);
+  const [formMenuLabel, setFormMenuLabel] = useState("");
   const [modelName, setModelName] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [hasApiKey, setHasApiKey] = useState(false);
   const [temperature, setTemperature] = useState(70);
   const [language, setLanguage] = useState("english");
   const [saving, setSaving] = useState(false);
@@ -119,6 +123,9 @@ export default function SettingsPage() {
   const { showToast, ToastContainer } = useToast();
   const { isDark } = useTheme();
   const templateConfigs = ALL_TEMPLATES;
+
+  // Plan limits hook
+  const { planLimits, canUseOrderForm, canAddTemplate, canAddRuleMessage, isFreePlan } = usePlanLimits();
 
   useEffect(() => {
     Promise.all([
@@ -144,6 +151,7 @@ export default function SettingsPage() {
         setOrderFormTemplate(orderFormData.order_form_template || "");
         setOrderConfirmationMessage(orderFormData.order_confirmation_message || "");
         setOrderFormEnabled(orderFormData.order_form_enabled ?? true);
+        setFormMenuLabel(orderFormData.form_menu_label || "");
       }
 
       const defaultProvider = "openrouter";
@@ -159,6 +167,7 @@ export default function SettingsPage() {
         setModelName(settingsData.specific_model_name || (availableModels.length > 0 ? availableModels[0].value : defaultModel));
         setTemperature(settingsData.temperature === undefined ? 70 : settingsData.temperature);
         setLanguage(settingsData.language || "english");
+        setHasApiKey(settingsData.has_api_key || false);
 
         const defaultStatuses: Record<string, boolean> = {};
         ALL_TEMPLATES.forEach(t => {
@@ -252,6 +261,7 @@ export default function SettingsPage() {
         setModelName(settingsData.specific_model_name || (availableModels.length > 0 ? availableModels[0].value : ""));
         setTemperature(settingsData.temperature === undefined ? 70 : settingsData.temperature);
         setLanguage(settingsData.language || "english");
+        setHasApiKey(settingsData.has_api_key || false);
 
         const defaultStatuses: Record<string, boolean> = {};
         ALL_TEMPLATES.forEach(t => {
@@ -319,6 +329,7 @@ export default function SettingsPage() {
         setOrderFormTemplate(orderFormData.order_form_template || "");
         setOrderConfirmationMessage(orderFormData.order_confirmation_message || "");
         setOrderFormEnabled(orderFormData.order_form_enabled ?? true);
+        setFormMenuLabel(orderFormData.form_menu_label || "");
       }
     }).catch(() => {});
   }, [mode]); // Trigger when mode changes
@@ -327,6 +338,32 @@ export default function SettingsPage() {
     console.log("Saving settings initiated...");
     setSaving(true);
     try {
+      // Validate custom templates if in default mode
+      if (mode === "default") {
+        for (const template of customTemplates) {
+          if (template.template_name && !template.template_name.trim()) {
+            showToast("All templates must have a name", "error");
+            setSaving(false);
+            return;
+          }
+          if (template.template_name && template.template_name.length > 50) {
+            showToast("Template names must be 50 characters or less", "error");
+            setSaving(false);
+            return;
+          }
+          if (template.content && !template.content.trim()) {
+            showToast("All templates must have content", "error");
+            setSaving(false);
+            return;
+          }
+          if (template.content && template.content.length > 1000) {
+            showToast("Template content must be 1000 characters or less", "error");
+            setSaving(false);
+            return;
+          }
+        }
+      }
+
       // Convert custom responses array to object/dictionary for backend
       const customResponsesPayload = customResponses
         .filter(cr => cr.keyword.trim()) // Ensure keyword is not empty
@@ -348,33 +385,87 @@ export default function SettingsPage() {
         welcome_message: welcomeMessage,
         response_delay: responseDelay,
       };
-      if (apiKey) {
+      // Only send API key if user entered a new one
+      if (apiKey && apiKey.trim()) {
         payload.api_key = apiKey;
       }
       console.log("Payload before sending:", JSON.stringify(payload, null, 2));
 
-      console.log("Sending API requests to /api/bots/mode, /api/bots/settings, and /api/bots/order-form/settings...");
-      await Promise.all([
-        api("/api/bots/mode", { method: "PATCH", body: JSON.stringify({ mode }) }),
-        api("/api/bots/settings", {
-          method: "PATCH",
-          body: JSON.stringify(payload),
-        }),
-        api("/api/bots/order-form/settings", {
-          method: "PUT",
-          body: JSON.stringify({
-            order_form_template: orderFormTemplate,
-            order_confirmation_message: orderConfirmationMessage,
-            order_form_enabled: orderFormEnabled
-          })
-        }),
-      ]);
-      console.log("API requests completed.");
+      // Save custom templates if in default mode
+      if (mode === "default") {
+        for (const template of customTemplates) {
+          if (template.id) {
+            // Update existing template
+            await api(`/api/bots/custom-templates/${template.id}`, {
+              method: "PUT",
+              body: JSON.stringify({
+                template_name: template.template_name,
+                content: template.content
+              })
+            });
+          } else if (template.template_name && template.content) {
+            // Create new template only if both name and content exist
+            const result = await api("/api/bots/custom-templates", {
+              method: "POST",
+              body: JSON.stringify({
+                template_name: template.template_name,
+                content: template.content
+              })
+            });
+            // Update local state with new ID
+            template.id = result.id;
+          }
+        }
+      }
 
-      console.log("Fetching updated settings...");
-      const updatedSettings = await api("/api/bots/settings");
+      console.log("Sending API requests to /api/bots/mode, /api/bots/settings, and /api/bots/order-form/settings...");
+
+      // Save all settings sequentially to ensure proper order
+      await api("/api/bots/mode", { method: "PATCH", body: JSON.stringify({ mode }) });
+      console.log("✓ Bot mode saved");
+
+      await api("/api/bots/settings", {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      console.log("✓ Bot settings saved");
+
+      await api("/api/bots/order-form/settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          order_form_template: orderFormTemplate,
+          order_confirmation_message: orderConfirmationMessage,
+          order_form_enabled: orderFormEnabled,
+          form_menu_label: formMenuLabel
+        })
+      });
+      console.log("✓ Order form settings saved");
+
+      // Wait a moment to ensure database commits
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Dispatch custom event to notify other pages about bot mode change
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('botModeChanged', { detail: { mode } }));
+      }
+
+      console.log("Fetching updated settings and bot data...");
+      const [updatedSettings, updatedBot] = await Promise.all([
+        api("/api/bots/settings"),
+        api("/api/bots/me")
+      ]);
       setSettings(updatedSettings);
-      console.log("Updated settings fetched.");
+      setBot(updatedBot);
+
+      // Update hasApiKey flag and clear the input field
+      if (apiKey && apiKey.trim()) {
+        setHasApiKey(true);
+        setApiKey(""); // Clear the field after successful save
+      } else {
+        setHasApiKey(updatedSettings.has_api_key || false);
+      }
+
+      console.log("Updated settings and bot data fetched.");
 
       let reloadedResponses: Array<{keyword: string, response: string}> = [];
       if (updatedSettings.custom_responses && typeof updatedSettings.custom_responses === "object") {
@@ -393,12 +484,13 @@ export default function SettingsPage() {
           }));
       }
       setCustomResponses(reloadedResponses);
+      setHasUnsavedChanges(false);
       console.log("Custom responses reloaded.");
-      showToast("Settings saved successfully!", "success");
+      showToast("All settings saved successfully! ✓", "success");
       console.log("Settings saved successfully!");
     } catch (err: any) {
       console.error("Error during save operation:", err.message || "Failed to save settings", err);
-      showToast(err.message || "Failed to save settings", "error");
+      showToast("Error: " + (err.message || "Failed to save settings"), "error");
     } finally {
       setSaving(false);
       console.log("Saving operation finished.");
@@ -505,8 +597,38 @@ export default function SettingsPage() {
     setModelName(availableModels.length > 0 ? availableModels[0].value : "");
   };
 
+  // Get plan limits based on user plan
   const handleAddTemplate = () => {
+    const limit = planLimits?.limits.max_templates || 0;
+
+    // Check current UI state count against limit
+    // 0 means unlimited (premium plan)
+    if (limit > 0 && customTemplates.length >= limit) {
+      showToast(
+        `Template limit reached (${customTemplates.length}/${limit}). Upgrade to add more.`,
+        "warning"
+      );
+      return;
+    }
+
     setCustomTemplates([...customTemplates, { template_name: "", content: "" }]);
+    setHasUnsavedChanges(true);
+  };
+
+  const handleAddCustomResponse = () => {
+    const limit = planLimits?.limits.max_rule_based_messages || 0;
+
+    // Check current UI state count against limit
+    // 0 means unlimited (premium plan)
+    if (limit > 0 && customResponses.length >= limit) {
+      showToast(
+        `Rule limit reached (${customResponses.length}/${limit}). Upgrade to add more.`,
+        "warning"
+      );
+      return;
+    }
+
+    setCustomResponses([...customResponses, { keyword: "", response: "" }]);
     setHasUnsavedChanges(true);
   };
 
@@ -540,76 +662,6 @@ export default function SettingsPage() {
     setHasUnsavedChanges(true);
   };
 
-  const handleSaveTemplates = async () => {
-    setSaving(true);
-    try {
-      // Validate all templates
-      for (const template of customTemplates) {
-        if (!template.template_name || !template.template_name.trim()) {
-          showToast("All templates must have a name", "error");
-          setSaving(false);
-          return;
-        }
-        if (template.template_name.length > 50) {
-          showToast("Template names must be 50 characters or less", "error");
-          setSaving(false);
-          return;
-        }
-        if (!template.content || !template.content.trim()) {
-          showToast("All templates must have content", "error");
-          setSaving(false);
-          return;
-        }
-        if (template.content.length > 1000) {
-          showToast("Template content must be 1000 characters or less", "error");
-          setSaving(false);
-          return;
-        }
-      }
-
-      // Save or update each template
-      for (const template of customTemplates) {
-        if (template.id) {
-          // Update existing template
-          await api(`/api/bots/custom-templates/${template.id}`, {
-            method: "PUT",
-            body: JSON.stringify({
-              template_name: template.template_name,
-              content: template.content
-            })
-          });
-        } else {
-          // Create new template
-          const result = await api("/api/bots/custom-templates", {
-            method: "POST",
-            body: JSON.stringify({
-              template_name: template.template_name,
-              content: template.content
-            })
-          });
-          // Update local state with new ID
-          template.id = result.id;
-        }
-      }
-
-      // Save order form settings
-      await api("/api/bots/order-form/settings", {
-        method: "PUT",
-        body: JSON.stringify({
-          order_form_template: orderFormTemplate,
-          order_confirmation_message: orderConfirmationMessage,
-          order_form_enabled: orderFormEnabled
-        })
-      });
-
-      setHasUnsavedChanges(false);
-      showToast("Settings saved successfully!", "success");
-    } catch (err: any) {
-      showToast(err.message || "Failed to save settings", "error");
-    } finally {
-      setSaving(false);
-    }
-  };
 
   return (
     <div className="max-w-5xl mx-auto pb-32 animate-in fade-in duration-700">
@@ -694,7 +746,18 @@ export default function SettingsPage() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase tracking-wide text-zinc-600 ml-1">API Key</label>
-                  <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="Enter your API key here..." className="input-field" />
+                  <input
+                    type="password"
+                    value={apiKey}
+                    onChange={e => setApiKey(e.target.value)}
+                    placeholder={hasApiKey ? "••••••••••••••••••••••••••••" : "Enter your API key here..."}
+                    className="input-field"
+                  />
+                  {hasApiKey && (
+                    <p className="text-[9px] font-medium text-green-600 px-1">
+                      ✓ API key is saved. Leave blank to keep current key, or enter a new one to update.
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-4 pt-4">
                   <div className="flex justify-between text-[10px] font-bold uppercase tracking-wide text-zinc-500 px-1">
@@ -717,15 +780,107 @@ export default function SettingsPage() {
             </div>
 
             <div className={`rounded-[3rem] border p-12 ${isDark ? "bg-[#090909] border-zinc-800" : "bg-white border-slate-200"}`}>
-              <h3 className={`text-xl font-bold tracking-tight mb-4 ${isDark ? "text-white" : "text-slate-900"}`}>Greeting Message</h3>
-              <p className={`text-sm font-medium mb-6 ${isDark ? "text-zinc-600" : "text-slate-500"}`}>The first message customers see when they contact you.</p>
-              <textarea
-                value={templates["template_greeting"] || ""}
-                placeholder="Hi {user_name}! Welcome to {site_name}. Type *menu* to see how I can help you today!"
-                onChange={(e) => setTemplates({ ...templates, "template_greeting": e.target.value })}
-                rows={4}
-                className="textarea-field"
-              />
+              <h3 className={`text-2xl font-bold tracking-tight mb-8 ${isDark ? "text-white" : "text-slate-900"}`}>Greeting & Submission Templates</h3>
+
+              <div className="space-y-10">
+                <div className="space-y-4">
+                  <h4 className={`text-lg font-bold tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>Greeting Message</h4>
+                  <p className={`text-sm font-medium ${isDark ? "text-zinc-600" : "text-slate-500"}`}>The first message customers see when they contact you.</p>
+                  <textarea
+                    value={templates["template_greeting"] || ""}
+                    placeholder="Hi {user_name}! Welcome to {site_name}. Type *menu* to see how I can help you today!"
+                    onChange={(e) => setTemplates({ ...templates, "template_greeting": e.target.value })}
+                    rows={4}
+                    className="textarea-field"
+                  />
+                </div>
+
+                <div className={`h-px ${isDark ? "bg-zinc-800" : "bg-slate-200"}`}></div>
+
+                <LockedFeature
+                  isLocked={!canUseOrderForm()}
+                  featureName="Order Form"
+                  requiredPlan="STARTER or PREMIUM"
+                  className="space-y-6"
+                >
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h4 className={`text-lg font-bold tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>Form Submission</h4>
+                      <p className={`text-sm font-medium mt-1 ${isDark ? "text-zinc-600" : "text-slate-500"}`}>Edit the form your customers receive on WhatsApp. Customers fill and reply with their details in one message.</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (!canUseOrderForm()) {
+                          showToast("Order Form is locked on FREE plan. Upgrade to unlock.", "error");
+                          return;
+                        }
+                        setOrderFormEnabled(!orderFormEnabled);
+                        setHasUnsavedChanges(true);
+                      }}
+                      className={`w-12 h-6 rounded-full transition-all relative ${orderFormEnabled ? (isDark ? 'bg-white' : 'bg-[#6c4ef2]') : (isDark ? 'bg-zinc-800' : 'bg-slate-300')}`}
+                    >
+                      <div className={`absolute top-0.5 w-5 h-5 rounded-full transition-all shadow-sm ${orderFormEnabled ? (isDark ? 'left-6 bg-black' : 'left-6 bg-white') : 'left-0.5 bg-zinc-600'}`} />
+                    </button>
+                  </div>
+
+                  <div className="space-y-3 mt-6">
+                    <label className={`text-[10px] font-bold uppercase tracking-wide px-1 ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Submission Form Name</label>
+                    <input
+                      type="text"
+                      value={formMenuLabel}
+                      onChange={(e) => {
+                        setFormMenuLabel(e.target.value);
+                        setHasUnsavedChanges(true);
+                      }}
+                      placeholder="e.g. Order, Appointment, Request, Booking..."
+                      maxLength={30}
+                      className="input-field"
+                      disabled={!canUseOrderForm()}
+                    />
+                    <p className={`text-[9px] font-medium px-1 ${isDark ? "text-zinc-700" : "text-slate-400"}`}>
+                      This is how this option appears in your WhatsApp menu. {formMenuLabel.length}/30 characters
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className={`text-[10px] font-bold uppercase tracking-wide px-1 ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Form Submission Template</label>
+                    <textarea
+                      value={orderFormTemplate}
+                      onChange={(e) => {
+                        setOrderFormTemplate(e.target.value);
+                        setHasUnsavedChanges(true);
+                      }}
+                      placeholder="🛍️ Order Form&#10;&#10;Please fill in the details below and reply:&#10;&#10;Full Name:&#10;Phone Number:&#10;Delivery Address:&#10;Product / Item:&#10;Quantity:&#10;Special Instructions (optional):"
+                      maxLength={1000}
+                      rows={12}
+                      className="textarea-field"
+                      disabled={!canUseOrderForm()}
+                    />
+                    <p className={`text-[9px] font-medium px-1 ${isDark ? "text-zinc-700" : "text-slate-400"}`}>
+                      {orderFormTemplate.length}/1000 characters
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className={`text-[10px] font-bold uppercase tracking-wide px-1 ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Submission Confirmation Message</label>
+                    <textarea
+                      value={orderConfirmationMessage}
+                      onChange={(e) => {
+                        setOrderConfirmationMessage(e.target.value);
+                        setHasUnsavedChanges(true);
+                      }}
+                      placeholder="✅ Thank you! Your order has been received.&#10;Our team will contact you shortly to confirm."
+                      maxLength={500}
+                      rows={4}
+                      className="textarea-field"
+                      disabled={!canUseOrderForm()}
+                    />
+                    <p className={`text-[9px] font-medium px-1 ${isDark ? "text-zinc-700" : "text-slate-400"}`}>
+                      {orderConfirmationMessage.length}/500 characters
+                    </p>
+                  </div>
+                </LockedFeature>
+              </div>
             </div>
 
             <div className={`rounded-[3rem] border p-12 ${isDark ? "bg-[#090909] border-zinc-800" : "bg-white border-slate-200"}`}>
@@ -795,72 +950,6 @@ export default function SettingsPage() {
                   <button onClick={handleAddTemplate} className="btn-secondary py-2">+ Add New Template</button>
                 </div>
               )}
-
-              <div className="mt-12 flex justify-end">
-                <button
-                  onClick={handleSaveTemplates}
-                  disabled={!hasUnsavedChanges || saving}
-                  className={`btn-primary min-w-[220px] ${!hasUnsavedChanges ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                  {saving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : "Save Settings"}
-                </button>
-              </div>
-            </div>
-
-            <div className={`rounded-[3rem] border p-12 ${isDark ? "bg-[#090909] border-zinc-800" : "bg-white border-slate-200"}`}>
-              <div className="flex justify-between items-center mb-8">
-                <div>
-                  <h3 className={`text-xl font-bold tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>Order Form</h3>
-                  <p className={`text-sm font-medium mt-1 ${isDark ? "text-zinc-600" : "text-slate-500"}`}>Edit the order form your customers receive on WhatsApp. Customers fill and reply with their details in one message.</p>
-                </div>
-                <button
-                  onClick={() => {
-                    setOrderFormEnabled(!orderFormEnabled);
-                    setHasUnsavedChanges(true);
-                  }}
-                  className={`w-12 h-6 rounded-full transition-all relative ${orderFormEnabled ? (isDark ? 'bg-white' : 'bg-[#6c4ef2]') : (isDark ? 'bg-zinc-800' : 'bg-slate-300')}`}
-                >
-                  <div className={`absolute top-0.5 w-5 h-5 rounded-full transition-all shadow-sm ${orderFormEnabled ? (isDark ? 'left-6 bg-black' : 'left-6 bg-white') : 'left-0.5 bg-zinc-600'}`} />
-                </button>
-              </div>
-
-              <div className="space-y-8">
-                <div className="space-y-3">
-                  <label className={`text-[10px] font-bold uppercase tracking-wide px-1 ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Order Form Template</label>
-                  <textarea
-                    value={orderFormTemplate}
-                    onChange={(e) => {
-                      setOrderFormTemplate(e.target.value);
-                      setHasUnsavedChanges(true);
-                    }}
-                    placeholder="🛍️ Order Form&#10;&#10;Please fill in the details below and reply:&#10;&#10;Full Name:&#10;Phone Number:&#10;Delivery Address:&#10;Product / Item:&#10;Quantity:&#10;Special Instructions (optional):"
-                    maxLength={1000}
-                    rows={12}
-                    className="textarea-field"
-                  />
-                  <p className={`text-[9px] font-medium px-1 ${isDark ? "text-zinc-700" : "text-slate-400"}`}>
-                    {orderFormTemplate.length}/1000 characters
-                  </p>
-                </div>
-
-                <div className="space-y-3">
-                  <label className={`text-[10px] font-bold uppercase tracking-wide px-1 ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Order Confirmation Message</label>
-                  <textarea
-                    value={orderConfirmationMessage}
-                    onChange={(e) => {
-                      setOrderConfirmationMessage(e.target.value);
-                      setHasUnsavedChanges(true);
-                    }}
-                    placeholder="✅ Thank you! Your order has been received.&#10;Our team will contact you shortly to confirm."
-                    maxLength={500}
-                    rows={4}
-                    className="textarea-field"
-                  />
-                  <p className={`text-[9px] font-medium px-1 ${isDark ? "text-zinc-700" : "text-slate-400"}`}>
-                    {orderConfirmationMessage.length}/500 characters
-                  </p>
-                </div>
-              </div>
             </div>
           </div>
         )}
@@ -880,7 +969,7 @@ export default function SettingsPage() {
                   Upload JSON
                   <input type="file" accept=".json" onChange={handleUploadJSON} className="hidden" />
                 </label>
-                <button onClick={() => setCustomResponses([...customResponses, { keyword: "", response: "" }])} className="btn-success py-2">+ New Rule</button>
+                <button onClick={handleAddCustomResponse} className="btn-success py-2">+ New Rule</button>
               </div>
             </div>
 

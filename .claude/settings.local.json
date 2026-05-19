@@ -19,7 +19,10 @@
       "Bash(bash test_routes.sh)",
       "Bash(python -c \"import os; print\\('DATABASE_URL:', os.getenv\\('DATABASE_URL', 'NOT SET'\\)[:50]\\)\")",
       "Bash(python -c \"from routers import webhook; print\\('Webhook router imports successfully'\\)\")",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(npx tsc *)",
+      "Bash(python -m uvicorn main:app --reload --host 0.0.0.0 --port 8001)",
+      "Bash(python -m json.tool)"
     ]
   }
 }
