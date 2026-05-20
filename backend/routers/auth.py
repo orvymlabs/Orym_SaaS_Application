@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from database import get_db
-from models import User, Plan, Bot, BotSettings, Integration, Usage, Announcement
+from models import User, Plan, Subscription, Bot, BotSettings, Integration, Usage, Announcement
 from schemas.auth import UserCreate, UserLogin, TokenResponse, UserOut
 from services import hash_password, verify_password, create_access_token, create_refresh_token, decode_token
 from typing import Optional, List
@@ -74,6 +74,21 @@ async def signup(data: UserCreate, request: Request, db: Session = Depends(get_d
         bs = BotSettings(bot_id=bot.id)
         integ = Integration(bot_id=bot.id)
         usage = Usage(user_id=user.id)
+        
+        # Add default subscription
+        free_plan = db.query(Plan).filter(Plan.plan_name == "free").first()
+        if free_plan:
+            from datetime import timedelta
+            sub = Subscription(
+                user_id=user.id,
+                plan_id=free_plan.id,
+                status="active",
+                billing_cycle="monthly",
+                current_period_start=datetime.now(timezone.utc),
+                current_period_end=datetime.now(timezone.utc) + timedelta(days=365)
+            )
+            db.add(sub)
+            
         db.add(bs)
         db.add(integ)
         db.add(usage)
@@ -226,7 +241,7 @@ async def get_all_users(admin: User = Depends(admin_required), db: Session = Dep
 
 
 class PlanUpdateRequest(BaseModel):
-    plan: str  # "starter" or "growth"
+    plan: str  # "starter" or "premium"
 
 
 class PlanChangeRequest(BaseModel):
@@ -482,8 +497,8 @@ async def create_user_admin(
 
     # Validate plan
     target_plan = data.plan.lower()
-    if target_plan not in ("essentials", "growth", "scale", "free", "starter"):
-        raise HTTPException(400, "Invalid plan. Must be 'essentials', 'growth', or 'scale'")
+    if target_plan not in ("essentials", "premium", "scale", "free", "starter"):
+        raise HTTPException(400, "Invalid plan. Must be 'essentials', 'premium', or 'scale'")
 
     # Create user
     user = User(
@@ -561,7 +576,7 @@ async def update_user_admin(
         user.role = data.role
 
     if data.plan is not None:
-        if data.plan.lower() not in ("essentials", "growth", "scale", "free", "starter"):
+        if data.plan.lower() not in ("essentials", "premium", "scale", "free", "starter"):
             raise HTTPException(400, "Invalid plan")
         user.plan = data.plan.lower()
 

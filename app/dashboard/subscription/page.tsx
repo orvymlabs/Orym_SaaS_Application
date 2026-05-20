@@ -22,67 +22,61 @@ const PLANS = {
     color: "zinc",
     features: [
       { text: "WhatsApp Bot Access", included: true },
-      { text: "Service-based Flows Only", included: true },
+      { text: "3 Custom Templates", included: true },
+      { text: "3 Rule-Based Messages", included: true },
+      { text: "5 AI Responses / session", included: true },
       { text: "Basic Website Content Fetch", included: true },
-      { text: "Limited Predefined Templates", included: true },
-      { text: "AI Bot Integration (Your API Key)", included: true },
       { text: "Up to 200 Conversations/Month", included: true },
       { text: "Basic Lead Capture", included: true },
-      { text: "Test Mode (Sandbox)", included: true },
       { text: "Basic Dashboard", included: true },
       { text: "Email Support", included: true },
       { text: "Product-based Flows", included: false },
+      { text: "Order Form", included: false },
       { text: "WooCommerce Integration", included: false },
       { text: "Product Listing / Search", included: false },
       { text: "Live Chat Takeover", included: false },
       { text: "Multi-language Support", included: false },
       { text: "Advanced Analytics", included: false },
-      { text: "Unlimited Templates", included: false },
       { text: "User Tagging", included: false },
       { text: "Broadcast Campaigns", included: false },
     ],
   },
   starter: {
     name: "Starter",
-    price: "$1",
+    price: "$9.99",
     period: "/month",
     color: "amber",
     features: [
       { text: "Everything in Free Plan", included: true },
+      { text: "10 Custom Templates", included: true },
+      { text: "10 Rule-Based Messages", included: true },
+      { text: "Unlimited AI Responses", included: true },
+      { text: "Order Form Enabled", included: true },
       { text: "Product + Service Flows (Both)", included: true },
-      { text: "WooCommerce Integration (10 Products)", included: true },
+      { text: "WooCommerce (100 Products)", included: true },
       { text: "Product Listing + Search", included: true },
-      { text: "Advanced Website Learning", included: true },
-      { text: "Unlimited Templates", included: true },
-      { text: "Smart AI Responses", included: true },
-      { text: "Up to 500 Conversations/Month", included: true },
-      { text: "Basic Automation Funnel", included: true },
+      { text: "Up to 1000 Conversations/Month", included: true },
+      { text: "Multi-AI (Gemini, Claude)", included: true },
       { text: "User Tagging", included: true },
-      { text: "Basic Broadcast Campaigns", included: true },
-      { text: "Multi-language Support", included: false },
-      { text: "Live Chat Takeover", included: false },
       { text: "Advanced Dashboard", included: false },
       { text: "Priority Support", included: false },
     ],
   },
-  growth: {
-    name: "Growth",
-    price: "$3",
-    period: "/month",
+  premium: {
+    name: "Premium",
+    price: "Contact",
+    period: "Sales",
     color: "emerald",
     popular: true,
     features: [
       { text: "Everything in Starter", included: true },
-      { text: "Product + Service Flows (Full Access)", included: true },
-      { text: "WooCommerce Integration (Unlimited)", included: true },
-      { text: "Product Listing + Search (Unlimited)", included: true },
-      { text: "Advanced Website Learning", included: true },
       { text: "Unlimited Templates", included: true },
-      { text: "Smart AI Responses", included: true },
-      { text: "Up to 1500 Conversations/Month", included: true },
-      { text: "Full Automation Funnel", included: true },
-      { text: "User Tagging", included: true },
-      { text: "Broadcast Campaigns", included: true },
+      { text: "Unlimited Rule Messages", included: true },
+      { text: "Product + Service Flows (Full)", included: true },
+      { text: "WooCommerce (Unlimited)", included: true },
+      { text: "Product Listing (Unlimited)", included: true },
+      { text: "Full Website Content Fetch", included: true },
+      { text: "Up to 5000 Conversations/Month", included: true },
       { text: "Advanced Dashboard", included: true },
       { text: "Multi-language Support", included: true },
       { text: "Live Chat Takeover", included: true },
@@ -111,7 +105,7 @@ export default function SubscriptionPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handleUpgrade = async (targetPlan: "starter" | "growth") => {
+  const handleUpgrade = async (targetPlan: "starter" | "premium") => {
     setUpgrading(true);
     try {
       await apiPost("/api/auth/upgrade-plan", { plan: targetPlan });
@@ -265,7 +259,7 @@ export default function SubscriptionPage() {
                   <div className={`w-full py-4 text-center text-[10px] font-black uppercase tracking-[0.2em] rounded-2xl ${isDark ? "bg-zinc-900 text-zinc-700" : "bg-slate-50 text-slate-400"}`}>
                     Active Plan
                   </div>
-                ) : key === 'growth' || (key === 'starter' && currentPlan === 'free') ? (
+                ) : key === 'premium' || (key === 'starter' && currentPlan === 'free') ? (
                 <button
                   onClick={() => handleUpgrade(key as any)}
                   disabled={upgrading}

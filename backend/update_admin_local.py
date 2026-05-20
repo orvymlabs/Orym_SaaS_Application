@@ -47,7 +47,7 @@ def update_admin_credentials():
             existing.role = "super_admin"
             existing.password_hash = hash_password(admin_password)
             existing.full_name = "ORVYM Admin"
-            existing.plan = "growth"
+            existing.plan = "premium"
             db.commit()
             logger.info(f"✅ Admin credentials updated successfully!")
         else:
@@ -58,7 +58,7 @@ def update_admin_credentials():
                 password_hash=hash_password(admin_password),
                 role="super_admin",
                 full_name="ORVYM Admin",
-                plan="growth"
+                plan="premium"
             )
             db.add(user)
             db.flush()
@@ -81,7 +81,7 @@ def update_admin_credentials():
         logger.info(f"Email: {admin_email}")
         logger.info(f"Password: {admin_password}")
         logger.info(f"Role: super_admin")
-        logger.info(f"Plan: growth")
+        logger.info(f"Plan: premium")
         logger.info(f"{'='*50}\n")
 
         return True

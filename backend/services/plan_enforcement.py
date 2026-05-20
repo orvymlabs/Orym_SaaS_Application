@@ -22,7 +22,7 @@ class PlanLimits:
         "max_templates": 3,
         "max_rule_based_messages": 3,
         "max_ai_responses_per_session": 5,
-        "max_products": 3,
+        "max_products": 10,
         "website_fetch_scope": "homepage",
         "order_form_enabled": False,
         "multi_ai_support": False,  # ChatGPT only
@@ -37,7 +37,7 @@ class PlanLimits:
         "max_templates": 10,
         "max_rule_based_messages": 10,
         "max_ai_responses_per_session": 0,  # 0 = unlimited
-        "max_products": 0,  # 0 = unlimited
+        "max_products": 100,
         "website_fetch_scope": "homepage",
         "order_form_enabled": True,
         "multi_ai_support": True,  # ChatGPT, Gemini, Claude

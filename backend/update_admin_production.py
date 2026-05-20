@@ -18,7 +18,7 @@ UPDATE users
 SET
     password_hash = '$2b$12$YourHashedPasswordHere',  -- You'll need to generate this
     role = 'super_admin',
-    plan = 'growth',
+    plan = 'premium',
     full_name = 'ORVYM Admin'
 WHERE email = 'admin@orvym.com';
 
@@ -67,7 +67,7 @@ def update_production_admin():
             existing.role = "super_admin"
             existing.password_hash = hash_password(admin_password)
             existing.full_name = "ORVYM Admin"
-            existing.plan = "growth"
+            existing.plan = "premium"
             db.commit()
             logger.info(f"✅ Admin credentials updated successfully in PRODUCTION!")
         else:
@@ -78,7 +78,7 @@ def update_production_admin():
                 password_hash=hash_password(admin_password),
                 role="super_admin",
                 full_name="ORVYM Admin",
-                plan="growth"
+                plan="premium"
             )
             db.add(user)
             db.flush()
@@ -101,7 +101,7 @@ def update_production_admin():
         logger.info(f"Email: {admin_email}")
         logger.info(f"Password: {admin_password}")
         logger.info(f"Role: super_admin")
-        logger.info(f"Plan: growth")
+        logger.info(f"Plan: premium")
         logger.info(f"Login URL: https://apps.orvym.com/login")
         logger.info(f"{'='*60}\n")
 

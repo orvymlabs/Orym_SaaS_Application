@@ -56,7 +56,7 @@ function PlanBadge() {
   };
 
   const colors = getPlanColor(plan);
-  const displayName = plan;
+  const displayName = plan.charAt(0).toUpperCase() + plan.slice(1);
 
   return (
     <div className="px-4 pb-6">

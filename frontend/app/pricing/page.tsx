@@ -49,7 +49,7 @@ export default function PricingPage() {
       <div className="plans">
         {/* FREE PLAN */}
         <div className="card">
-          <div className="badge badge-free">Starter</div>
+          <div className="badge badge-free">Free</div>
           <div className="plan-name">FREE</div>
           <p className="plan-desc">
             Explore NEXUS with zero risk. Your API, your rules.
@@ -108,7 +108,7 @@ export default function PricingPage() {
             <li>
               <span className="icon icon-check">✓</span>
               <span>
-                <span className="feat-value">3</span> Products Fetched
+                <span className="feat-value">10</span> Products Fetched
               </span>
             </li>
             <li>

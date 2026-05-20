@@ -9,7 +9,7 @@ interface User {
   email: string;
   full_name: string;
   role: "user" | "admin" | "super_admin";
-  plan: "starter" | "growth";
+  plan: "starter" | "premium";
   created_at: string;
   bot?: { status: boolean; mode: string };
 }
@@ -45,9 +45,9 @@ export default function UserProfilePage() {
       setUser(userData);
       setUsage({
         whatsapp_messages_sent: Math.floor(Math.random() * 500),
-        whatsapp_limit: userData.plan === "growth" ? 1500 : 200,
+        whatsapp_limit: userData.plan === "premium" ? 1500 : 200,
         ai_requests_made: Math.floor(Math.random() * 300),
-        ai_limit: userData.plan === "growth" ? 1500 : 200,
+        ai_limit: userData.plan === "premium" ? 1500 : 200,
       });
     } catch (err: any) {
       showToast(err.message || "Failed to fetch user data", "error");
@@ -67,7 +67,7 @@ export default function UserProfilePage() {
     }
   };
 
-  const updatePlan = async (newPlan: "starter" | "growth") => {
+  const updatePlan = async (newPlan: "starter" | "premium") => {
     try {
       await apiPatch(`/api/auth/admin/users/${user?.id}/plan`, { plan: newPlan });
       showToast(`Plan updated to ${newPlan}`, "success");
@@ -118,7 +118,7 @@ export default function UserProfilePage() {
               <h1 className="text-3xl font-black text-white tracking-tighter">{user.full_name || "Unnamed User"}</h1>
               <p className="text-zinc-500 font-medium mt-1">{user.email}</p>
               <div className="flex items-center justify-center md:justify-start gap-3 mt-4">
-                <span className={`btn-pill py-1 !text-[9px] ${user.plan === 'growth' ? 'btn-pill-active' : 'btn-pill-inactive border-zinc-800'}`}>
+                <span className={`btn-pill py-1 !text-[9px] ${user.plan === 'premium' ? 'btn-pill-active' : 'btn-pill-inactive border-zinc-800'}`}>
                   {user.plan.toUpperCase()} TIER
                 </span>
                 <span className={`btn-pill py-1 !text-[9px] border-none ${
@@ -250,11 +250,11 @@ export default function UserProfilePage() {
               <h3 className="text-sm font-black uppercase tracking-widest text-zinc-600 mb-10">Administrative Commands</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                 <button
-                  onClick={() => updatePlan(user.plan === "starter" ? "growth" : "starter")}
+                  onClick={() => updatePlan(user.plan === "starter" ? "premium" : "starter")}
                   className="p-8 rounded-[2rem] border border-zinc-900 bg-black hover:border-[#6c4ef2] hover:bg-[#6c4ef2]/5 transition-all duration-300 text-center group"
                 >
                   <p className="text-[#8b6ff5] font-black uppercase tracking-widest text-[10px] transition-transform group-hover:scale-105">
-                    {user.plan === "starter" ? "ACTIVATE GROWTH" : "DOWNGRADE TIER"}
+                    {user.plan === "starter" ? "ACTIVATE PREMIUM" : "DOWNGRADE TIER"}
                   </p>
                 </button>
                 <button className="p-8 rounded-[2rem] border border-zinc-900 bg-black hover:border-emerald-500 hover:bg-emerald-500/5 transition-all duration-300 text-center group">

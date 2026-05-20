@@ -65,5 +65,5 @@ class AdminStats(BaseModel):
 class BroadcastCreate(BaseModel):
     title: str
     message: str
-    recipients: str  # all, free, starter, growth, or specific user email
+    recipients: str  # all, free, starter, premium, or specific user email
     priority: str = "normal"

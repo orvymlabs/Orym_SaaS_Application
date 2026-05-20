@@ -173,6 +173,16 @@ def handle_message(bot_mode: str, bot_id: int, text: str, phone: str, name: str,
     _capture_lead(bot_id, phone, name, text)
 
     tl = text.lower().strip()
+    
+    # Enforce plan limits for bot engine
+    # FREE: 3 templates, 3 rules
+    # STARTER: 10 templates, 10 rules
+    # PREMIUM: Unlimited
+    
+    plan_name = (user_plan or "free").lower()
+    max_templates = 3 if plan_name == "free" else (10 if plan_name == "starter" else 0)
+    max_rules = 3 if plan_name == "free" else (10 if plan_name == "starter" else 0)
+    
     lang = bot_settings.get("language", "english")
     api_key = bot_settings.get("api_key", "")
     provider = bot_settings.get("model_name", "openrouter")

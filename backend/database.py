@@ -176,27 +176,33 @@ def seed_default_data():
                     monthly_price=0.0,
                     max_products=10,
                     max_templates=3,
-                    max_rule_based_messages=100
+                    max_rule_based_messages=3
                 ),
                 Plan(
                     plan_name="starter", 
                     display_name="Starter Bot", 
-                    monthly_price=29.0,
+                    monthly_price=9.99,
                     max_products=100,
-                    max_templates=20,
-                    max_rule_based_messages=1000,
+                    max_templates=10,
+                    max_rule_based_messages=10,
                     order_form_enabled=True
                 ),
                 Plan(
-                    plan_name="growth", 
-                    display_name="Growth Business", 
-                    monthly_price=79.0,
-                    max_products=1000,
-                    max_templates=100,
-                    max_rule_based_messages=5000,
+                    plan_name="premium",
+                    display_name="Premium",
+                    monthly_price=0.0,
+                    max_products=0,  # 0 means unlimited
+                    max_templates=0,  # 0 means unlimited
+                    max_rule_based_messages=0, # 0 means unlimited
+                    max_ai_responses_per_session=0,  # 0 means unlimited
+                    website_fetch_scope="full",
                     order_form_enabled=True,
                     multi_ai_support=True,
-                    analytics_dashboard=True
+                    setup_support=True,
+                    team_collaboration=True,
+                    analytics_dashboard=True,
+                    crm_integrations=True,
+                    managed_api=True
                 )
             ]
             db.add_all(plans)

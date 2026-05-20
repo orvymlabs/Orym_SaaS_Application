@@ -49,7 +49,7 @@ def _get_greeting(name, site_name, bot_settings):
     # No default fallback - return None if no custom greeting
     return None
 
-def _get_menu(business_type, bot_settings, site_name, user_id=None):
+def _get_menu(business_type, bot_settings, site_name, user_id=None, user_plan="free"):
     """Get menu template with dynamic options based on custom templates."""
     from models import UserTemplate
     from database import SessionLocal
@@ -70,16 +70,29 @@ def _get_menu(business_type, bot_settings, site_name, user_id=None):
     if user_id:
         db = SessionLocal()
         try:
-            custom_templates = db.query(UserTemplate).filter(
+            # Enforce plan limits for menu
+            plan_name = (user_plan or "free").lower()
+            max_templates = 3 if plan_name == "free" else (10 if plan_name == "starter" else 0)
+            
+            query = db.query(UserTemplate).filter(
                 UserTemplate.user_id == user_id
-            ).order_by(UserTemplate.position).all()
+            ).order_by(UserTemplate.position)
+            
+            if max_templates > 0:
+                query = query.limit(max_templates)
+                
+            custom_templates = query.all()
 
             if custom_templates:
                 # Build menu from custom templates (no numbers, just names)
                 menu_items = [f"• {t.template_name}" for t in custom_templates]
 
                 # Check if order form is enabled and add it to menu
+                # Note: Order form is locked on FREE plan
                 order_form_enabled = bot_settings.get("order_form_enabled", True)
+                if plan_name == "free":
+                    order_form_enabled = False
+                    
                 form_label = bot_settings.get("form_menu_label")
 
                 # Only add form to menu if both enabled AND custom label is set
@@ -94,7 +107,12 @@ def _get_menu(business_type, bot_settings, site_name, user_id=None):
             db.close()
 
     # If no custom templates, show simple menu only if order form is enabled
+    # Note: Order form is locked on FREE plan
+    plan_name = (user_plan or "free").lower()
     order_form_enabled = bot_settings.get("order_form_enabled", True)
+    if plan_name == "free":
+        order_form_enabled = False
+        
     if order_form_enabled:
         # Use custom label - no fallback
         form_label = bot_settings.get("form_menu_label")
@@ -369,7 +387,7 @@ def process(bot_id: int, text: str, phone: str, name: str, business_type: str = 
             if greeting:
                 return greeting
 
-            menu = _get_menu(business_type, bot_settings, site_name, user_id)
+            menu = _get_menu(business_type, bot_settings, site_name, user_id, user_plan)
             if menu:
                 return menu
             return ""
@@ -388,17 +406,17 @@ def process(bot_id: int, text: str, phone: str, name: str, business_type: str = 
             if tl in ["hi", "hello"]:
                 resp = _get_greeting(name, site_name, bot_settings)
                 if resp:
-                    menu = _get_menu(business_type, bot_settings, site_name, user_id)
+                    menu = _get_menu(business_type, bot_settings, site_name, user_id, user_plan)
                     if menu:
                         return resp + "\n\n" + menu
                     return resp
                 # No greeting configured, show menu
-                menu = _get_menu(business_type, bot_settings, site_name, user_id)
+                menu = _get_menu(business_type, bot_settings, site_name, user_id, user_plan)
                 if menu:
                     return menu
                 return ""
 
-            menu = _get_menu(business_type, bot_settings, site_name, user_id)
+            menu = _get_menu(business_type, bot_settings, site_name, user_id, user_plan)
             if menu:
                 return menu
             return ""

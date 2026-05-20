@@ -88,7 +88,7 @@ def ai_reply(text: str, lang: str, api_key: str, provider: str,
         temperature: 0.0 to 1.0
         model_name: Specific model to use (optional, uses provider default if not set)
         business_type: "product" or "service"
-        user_plan: "starter" or "growth" - affects what info AI can share
+        user_plan: "starter" or "premium" - affects what info AI can share
     """
     if not api_key or not api_key.strip():
         logger.error("AI mode: API key is empty or None")
@@ -229,7 +229,7 @@ def ai_reply(text: str, lang: str, api_key: str, provider: str,
 - Tone: Warm, helpful, professional, and conversational - like a friendly shop assistant.
 - Never Say "Go to Website": Share the info directly. If they need more, offer human follow-up.
 - Order Flow: If they want to order/hire, ask: Item → Quantity → Name → Phone → Address.
-- Plan Features: Free plan = service info only. Starter/Growth = full product catalog access.
+- Plan Features: Free plan = service info only. Starter/Premium = full product catalog access.
 {lang_instruction}"""
 
     logger.info(f"AI ({provider}) system prompt built - total length: {len(system)} chars")

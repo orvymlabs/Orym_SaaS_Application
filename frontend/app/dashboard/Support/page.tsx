@@ -228,7 +228,7 @@ const helpSections = [
       },
       {
         heading: "Usage Limits",
-        text: "Starter plan: 200 messages/month, 200 AI messages/month. Growth plan: 1500 messages/month, 1500 AI messages/month. When limits are reached, bot switches to keyword-based responses. Upgrade plan for higher limits."
+        text: "Starter plan: 200 messages/month, 200 AI messages/month. Premium plan: 1500 messages/month, 1500 AI messages/month. When limits are reached, bot switches to keyword-based responses. Upgrade plan for higher limits."
       }
     ]
   },

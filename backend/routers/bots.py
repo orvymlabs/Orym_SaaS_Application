@@ -29,12 +29,12 @@ def get_plan_limits(plan: str) -> dict:
     normalized_plan = plan.lower()
 
     if normalized_plan == "free":
-        return {"custom_responses": 3, "custom_products": 3, "custom_templates": 3}
+        return {"custom_responses": 3, "custom_products": 10, "custom_templates": 3}
     elif normalized_plan == "starter":
-        return {"custom_responses": 10, "custom_products": 20, "custom_templates": 10}
+        return {"custom_responses": 10, "custom_products": 100, "custom_templates": 10}
     elif normalized_plan == "premium":
-        return {"custom_responses": -1, "custom_products": -1, "custom_templates": -1}
-    return {"custom_responses": 3, "custom_products": 3, "custom_templates": 3}
+        return {"custom_responses": 0, "custom_products": 0, "custom_templates": 0}
+    return {"custom_responses": 3, "custom_products": 10, "custom_templates": 3}
 
 def get_user_plan(user_id: int, db: Session) -> str:
     user = db.query(User).filter(User.id == user_id).first()
@@ -523,14 +523,11 @@ def create_custom_template(data: CustomTemplateCreate, user_id: int = Depends(ge
     if len(data.content) > 1000:
         raise HTTPException(400, "Template content must be 1000 characters or less")
 
-    # Check plan limits
-    user_plan = get_user_plan(user_id, db)
-    limits = get_plan_limits(user_plan)
-    existing_count = db.query(UserTemplate).filter(UserTemplate.user_id == user_id).count()
-
-    max_templates = limits.get("custom_templates", 3)
-    if max_templates != -1 and existing_count >= max_templates:
-        raise HTTPException(403, f"Template limit reached. Your {user_plan} plan allows {max_templates} templates.")
+    # Check plan limits using PlanEnforcementService
+    plan_service = PlanEnforcementService(db)
+    can_add, message = plan_service.can_add_template(user_id)
+    if not can_add:
+        raise HTTPException(403, message)
 
     # Get the highest position and increment
     max_position = db.query(UserTemplate).filter(UserTemplate.user_id == user_id).count()

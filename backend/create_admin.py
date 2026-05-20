@@ -5,8 +5,9 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from database import SessionLocal, init_db
-from models import User, Bot, BotSettings, Integration, Usage
+from models import User, Plan, Subscription, Bot, BotSettings, Integration, Usage
 from services import hash_password
+from datetime import datetime, timedelta
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -15,12 +16,32 @@ logger = logging.getLogger(__name__)
 def create_super_admin(email, password, full_name="Super Admin"):
     db = SessionLocal()
     try:
+        # Seed plans first
+        from database import seed_default_data
+        seed_default_data()
+        
         # Check if user already exists
         existing = db.query(User).filter(User.email == email).first()
         if existing:
             logger.info(f"User {email} already exists. Updating role to super_admin.")
             existing.role = "super_admin"
             existing.password_hash = hash_password(password)
+            
+            # Ensure admin has a subscription
+            sub = db.query(Subscription).filter(Subscription.user_id == existing.id).first()
+            if not sub:
+                premium_plan = db.query(Plan).filter(Plan.plan_name == "premium").first()
+                if premium_plan:
+                    sub = Subscription(
+                        user_id=existing.id,
+                        plan_id=premium_plan.id,
+                        status="active",
+                        billing_cycle="yearly",
+                        current_period_start=datetime.utcnow(),
+                        current_period_end=datetime.utcnow() + timedelta(days=365)
+                    )
+                    db.add(sub)
+            
             db.commit()
             logger.info(f"Super Admin updated successfully!")
             return
@@ -31,7 +52,7 @@ def create_super_admin(email, password, full_name="Super Admin"):
             password_hash=hash_password(password),
             role="super_admin",
             full_name=full_name,
-            plan="growth" # Give super admin the highest plan
+            plan="premium" # Give super admin the highest plan
         )
         db.add(user)
         db.flush()
@@ -45,6 +66,19 @@ def create_super_admin(email, password, full_name="Super Admin"):
         db.add(BotSettings(bot_id=bot.id))
         db.add(Integration(bot_id=bot.id))
         db.add(Usage(user_id=user.id))
+        
+        # Add subscription for admin
+        premium_plan = db.query(Plan).filter(Plan.plan_name == "premium").first()
+        if premium_plan:
+            sub = Subscription(
+                user_id=user.id,
+                plan_id=premium_plan.id,
+                status="active",
+                billing_cycle="yearly",
+                current_period_start=datetime.utcnow(),
+                current_period_end=datetime.utcnow() + timedelta(days=365)
+            )
+            db.add(sub)
         
         db.commit()
         logger.info(f"Super Admin created successfully!")

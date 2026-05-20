@@ -103,16 +103,38 @@ async def get_current_subscription(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get user's current subscription"""
+    """Get user's current subscription. Creates a default free one if missing."""
     subscription = db.query(Subscription).filter(
         Subscription.user_id == current_user.id
     ).first()
 
     if not subscription:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No subscription found"
-        )
+        logger.info(f"Subscription not found for user {current_user.id}. Creating default free subscription.")
+        # Find the free plan
+        free_plan = db.query(Plan).filter(Plan.plan_name == "free").first()
+        if not free_plan:
+            # If still missing, we might need to seed plans
+            from database import seed_default_data
+            seed_default_data()
+            free_plan = db.query(Plan).filter(Plan.plan_name == "free").first()
+            
+        if free_plan:
+            subscription = Subscription(
+                user_id=current_user.id,
+                plan_id=free_plan.id,
+                status="active",
+                billing_cycle="monthly",
+                current_period_start=datetime.utcnow(),
+                current_period_end=datetime.utcnow() + timedelta(days=365)
+            )
+            db.add(subscription)
+            db.commit()
+            db.refresh(subscription)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Subscription not found and free plan is missing"
+            )
 
     # Build response with usage data
     response_data = {

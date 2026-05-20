@@ -183,11 +183,11 @@ export default function AdminAnnouncementsPage() {
                   <option value="all">All Users</option>
                   <option value="free">Free Plan Users</option>
                   <option value="starter">Starter Plan Users</option>
-                  <option value="growth">Growth Plan Users</option>
+                  <option value="premium">Premium Plan Users</option>
                   <option value="specific">Specific User (Email)</option>
                 </select>
               </div>
-              {formData.recipients !== "all" && !["free", "starter", "growth"].includes(formData.recipients) && (
+              {formData.recipients !== "all" && !["free", "starter", "premium"].includes(formData.recipients) && (
                 <div className="space-y-3">
                   <label className="text-[10px] font-black uppercase tracking-widest text-zinc-600 ml-1">Recipient Email</label>
                   <input

@@ -364,6 +364,38 @@ export default function SettingsPage() {
         }
       }
 
+      // Enforce plan limits before saving
+      if (planLimits) {
+        // Check template limit
+        const templateLimit = planLimits.limits.max_templates;
+        if (templateLimit > 0) { // 0 means unlimited
+          // templates object has 'template_ID' keys. Count those that have content and are not '_enabled'
+          const customizedTemplatesCount = Object.entries(templates).filter(([k, v]) => 
+            k.startsWith('template_') && !k.endsWith('_enabled') && v && v.trim() !== ""
+          ).length;
+
+          // Also add custom templates count
+          const totalTemplates = customizedTemplatesCount + customTemplates.length;
+
+          if (totalTemplates > templateLimit) {
+            showToast(`Template limit reached (${totalTemplates}/${templateLimit}). Upgrade to add more.`, "error");
+            setSaving(false);
+            return;
+          }
+        }
+
+        // Check rule message limit
+        const ruleLimit = planLimits.limits.max_rule_based_messages;
+        if (ruleLimit > 0) {
+          const ruleCount = customResponses.filter(cr => cr.keyword.trim()).length;
+          if (ruleCount > ruleLimit) {
+            showToast(`Rule limit reached (${ruleCount}/${ruleLimit}). Upgrade to add more.`, "error");
+            setSaving(false);
+            return;
+          }
+        }
+      }
+
       // Convert custom responses array to object/dictionary for backend
       const customResponsesPayload = customResponses
         .filter(cr => cr.keyword.trim()) // Ensure keyword is not empty

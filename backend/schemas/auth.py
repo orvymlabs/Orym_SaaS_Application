@@ -23,7 +23,7 @@ class UserOut(BaseModel):
     id: int
     email: str
     role: str = "user"
-    plan: str = "starter"  # starter, growth
+    plan: str = "starter"  # starter, premium
     full_name: Optional[str] = None
 
     class Config:
