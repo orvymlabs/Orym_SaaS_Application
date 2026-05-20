@@ -15,6 +15,9 @@
   RewriteRule ^ - [L]
 
   # Otherwise, serve index.html for client-side routing
+  # But EXCLUDE static assets to avoid SyntaxError: Unexpected token '<'
+  RewriteCond %{REQUEST_URI} !^/_next/static/.*$
+  RewriteCond %{REQUEST_URI} !^/.*\.(js|css|png|jpg|jpeg|gif|ico|svg|json)$
   RewriteRule ^ index.html [L]
 </IfModule>
 

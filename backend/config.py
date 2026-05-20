@@ -84,16 +84,29 @@ class Settings(BaseSettings):
         Set default database URL with PostgreSQL priority.
 
         Precedence:
-        1. POSTGRES_URL if set
-        2. DATABASE_URL if set
-        3. SQLite fallback for development
+        1. POSTGRES_URL if set (env or info.data)
+        2. DATABASE_URL if set (env or info.data)
+        3. SQLite fallback for development ONLY
         """
-        postgres_url = info.data.get("POSTGRES_URL")
-        db_url = postgres_url or v
+        env_postgres = os.environ.get("POSTGRES_URL")
+        data_postgres = info.data.get("POSTGRES_URL")
+        
+        env_db = os.environ.get("DATABASE_URL")
+        data_db = v or data_postgres or env_postgres or env_db
+        
+        db_url = data_postgres or env_postgres or env_db or data_db
 
         if not db_url or db_url.strip() == "":
+            if info.data.get("ENVIRONMENT") == "production":
+                # Do NOT default to SQLite in production. 
+                # Return empty string and let database.py raise the error.
+                return ""
             # SQLite fallback for development
             return f"sqlite:///{DATA_DIR / 'saas_bot.db'}"
+
+        # SQLAlchemy requires postgresql:// instead of postgres://
+        if db_url.startswith("postgres://"):
+            db_url = db_url.replace("postgres://", "postgresql://", 1)
 
         return db_url
 

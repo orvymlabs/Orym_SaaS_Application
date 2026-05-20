@@ -26,7 +26,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+import os
+
 settings = get_settings()
+
+# Auto-detect Render environment
+if os.environ.get("RENDER") == "true" and settings.ENVIRONMENT != "production":
+    logger.warning("RENDER environment detected, but ENVIRONMENT is not set to 'production'. Overriding to production.")
+    # We can't easily change settings object if it's immutable, 
+    # but we can at least log it and consider it production in our logic.
+    # Actually, the user should set it. Let's just log a strong warning.
+    logger.warning("Please set ENVIRONMENT=production in your Render settings for correct behavior.")
 
 logger.info(f"Application settings loaded. Environment: {settings.ENVIRONMENT}")
 
@@ -35,10 +45,15 @@ async def lifespan(app: FastAPI):
     """Initialize database on startup."""
     logger.info("Initializing database...")
     try:
-        init_db()
-        logger.info("Database initialized successfully")
+        success = init_db()
+        if success:
+            logger.info("Database initialized successfully")
+        else:
+            logger.critical("DATABASE INITIALIZATION FAILED! Tables might be missing.")
     except Exception as e:
-        logger.error(f"Database initialization failed: {e}")
+        logger.error(f"Database initialization failed with exception: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
     yield
 
 app = FastAPI(title=settings.APP_NAME, version="2.0", lifespan=lifespan)

@@ -63,28 +63,38 @@ try:
 
 except Exception as e:
     logger.error(f"DATABASE CONNECTION FAILED: {e}")
+    
+    if not IS_SQLITE:
+        logger.error(f"PostgreSQL connection details: {settings.DATABASE_URL.split('@')[-1] if '@' in settings.DATABASE_URL else 'HIDDEN'}")
+    
+    # Check if we should really fall back or just fail
+    if settings.ENVIRONMENT == "production":
+        logger.critical("PRODUCTION DATABASE CONNECTION FAILED! STOPPING TO PREVENT DATA LOSS.")
+        # In production, we do NOT fall back to SQLite. We want the app to fail 
+        # so the user knows the database connection is broken.
+        raise RuntimeError(f"Could not connect to production database: {e}")
+    
     logger.warning("FALLING BACK TO IN-MEMORY SQLITE DATABASE. All data will be lost on restart!")
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False}
     )
+
 # Session factory - MUST be bound to the finalized engine
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
 # Enable foreign keys for SQLite (both explicit and fallback)
-if engine.dialect.name == "sqlite":
-    @event.listens_for(engine, "connect")
-    def set_sqlite_pragma(dbapi_connection, connection_record):
+@event.listens_for(engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    if engine.dialect.name == "sqlite":
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
-        if not IS_SQLITE: # If it's the in-memory fallback
-            pass # WAL mode might not be needed for in-memory
-        else:
+        if IS_SQLITE and ":memory:" not in str(engine.url):
             cursor.execute("PRAGMA journal_mode=WAL")
         cursor.close()
-    logger.info("SQLite pragmas configured")
+        logger.debug("SQLite pragmas configured")
 
 
 def get_db():
@@ -114,14 +124,86 @@ def init_db():
     """
     try:
         # Import all models here to ensure they are registered with Base.metadata
+        # This is CRITICAL for Base.metadata.create_all to work.
         from models import User, Plan, Subscription, Bot, BotSettings, Integration, Message, Lead, Usage, SiteInfoCache, Announcement, Order, UserTemplate, AuditLog, SystemSetting, Notification
         
         db_type = "PostgreSQL" if "postgresql" in str(engine.url) else "SQLite"
+        if ":memory:" in str(engine.url):
+            db_type = "In-Memory SQLite"
+            
         logger.info(f"Initializing {db_type} database tables...")
         
+        # Log which models are registered
+        registered_tables = list(Base.metadata.tables.keys())
+        logger.debug(f"Registered tables in metadata: {registered_tables}")
+        
+        # Actually create the tables
         Base.metadata.create_all(bind=engine)
-        logger.info(f"Database tables verified/created successfully on {db_type}")
+        
+        # Verify tables after creation using an inspector
+        inspector = sqlalchemy.inspect(engine)
+        actual_tables = inspector.get_table_names()
+        logger.info(f"Database tables verified/created successfully on {db_type}. Total tables: {len(actual_tables)}")
+        
+        if len(actual_tables) < 5:
+            logger.error(f"CRITICAL: Only {len(actual_tables)} tables found after initialization! This is likely incomplete.")
+            logger.error(f"Tables found: {actual_tables}")
+            return False
+            
+        # Seed default plans if they don't exist
+        seed_default_data()
+        
         return True
     except Exception as e:
-        logger.error(f"Failed to initialize database tables: {e}")
+        logger.error(f"FAILED TO INITIALIZE DATABASE TABLES: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return False
+
+def seed_default_data():
+    """Seed initial data like default plans if the table is empty."""
+    db = SessionLocal()
+    try:
+        from models import Plan
+        
+        # Check if plans exist
+        if db.query(Plan).count() == 0:
+            logger.info("Seeding default plans...")
+            plans = [
+                Plan(
+                    plan_name="free", 
+                    display_name="Free Starter", 
+                    monthly_price=0.0,
+                    max_products=10,
+                    max_templates=3,
+                    max_rule_based_messages=100
+                ),
+                Plan(
+                    plan_name="starter", 
+                    display_name="Starter Bot", 
+                    monthly_price=29.0,
+                    max_products=100,
+                    max_templates=20,
+                    max_rule_based_messages=1000,
+                    order_form_enabled=True
+                ),
+                Plan(
+                    plan_name="growth", 
+                    display_name="Growth Business", 
+                    monthly_price=79.0,
+                    max_products=1000,
+                    max_templates=100,
+                    max_rule_based_messages=5000,
+                    order_form_enabled=True,
+                    multi_ai_support=True,
+                    analytics_dashboard=True
+                )
+            ]
+            db.add_all(plans)
+            db.commit()
+            logger.info("Default plans seeded successfully.")
+    except Exception as e:
+        logger.error(f"Failed to seed default data: {e}")
+        db.rollback()
+    finally:
+        db.close()
