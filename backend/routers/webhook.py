@@ -105,19 +105,30 @@ def process_whatsapp_message_background(
                 
                 # Populate contact_info_data from cache
                 contact_info_data = {
-                    "site_name": cache.site_name,
-                    "site_description": cache.site_description,
-                    "about": cache.about,
+                    "site_name": cache.site_name or website_url,
+                    "site_description": cache.site_description or "",
+                    "about": cache.about or "",
                     "services": cache.services or [],
-                    "phone": cache.phone,
-                    "email": cache.email,
-                    "address": cache.address,
-                    "hours": cache.hours
+                    "phone": cache.phone or "",
+                    "email": cache.email or "",
+                    "address": cache.address or "",
+                    "hours": cache.hours or ""
                 }
+                logger.info(f"[{webhook_id}] Contact info data prepared: site_name={contact_info_data['site_name']}, services_count={len(contact_info_data['services'])}, has_phone={bool(contact_info_data['phone'])}, has_email={bool(contact_info_data['email'])}")
             except Exception as e:
-                logger.error(f"[{webhook_id}] Website data cache/fetch error: {e}")
+                logger.error(f"[{webhook_id}] Website data cache/fetch error: {e}", exc_info=True)
                 # Fallback to empty info if everything fails
-                contact_info_data = {"site_name": website_url or "our business"}
+                contact_info_data = {
+                    "site_name": website_url or "our business",
+                    "site_description": "",
+                    "about": "",
+                    "services": [],
+                    "phone": "",
+                    "email": "",
+                    "address": "",
+                    "hours": ""
+                }
+                logger.warning(f"[{webhook_id}] Using fallback contact_info_data with minimal info")
 
         # Bot settings (includes bot_id for lead capture)
         # FORCE REFRESH from database to get latest saved settings
@@ -151,6 +162,10 @@ def process_whatsapp_message_background(
         user_plan = user.plan if user else "starter"
         user_id = user.id if user else None
 
+        # Log what we're passing to the bot engine
+        logger.info(f"[{webhook_id}] Calling bot engine - Mode: {bot.mode}, Business Type: {integ.business_type or 'product'}, Products: {len(products)}, User Plan: {user_plan}")
+        logger.debug(f"[{webhook_id}] Contact info being passed to bot engine: {contact_info_data}")
+
         # Call bot engine with user_id for AI limit checking
         reply = handle_message(
             bot_mode=bot.mode,
@@ -167,6 +182,8 @@ def process_whatsapp_message_background(
             user_plan=user_plan,
             user_id=user_id
         )
+
+        logger.info(f"[{webhook_id}] Bot engine returned reply length: {len(reply) if reply else 0}")
 
         # Send reply and save to database with WhatsApp message ID
         if reply and wa_token and phone_number_id:

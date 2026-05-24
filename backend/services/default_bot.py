@@ -458,15 +458,15 @@ def process(bot_id: int, text: str, phone: str, name: str, business_type: str = 
                 confirmation = _get_order_confirmation_template(bot_settings)
                 if confirmation:
                     return confirmation
-                # No custom confirmation - return empty
-                return ""
+                # Default confirmation message if no custom one is set
+                return "✅ Thank you! Your order has been received successfully. We'll get back to you soon!"
             else:
                 # Get custom error message
                 error_message = bot_settings.get("order_error_message")
                 if error_message:
                     return error_message
-                # No custom error message - return empty
-                return ""
+                # Default error message if no custom one is set
+                return "❌ Sorry, there was an error processing your order. Please try again or contact us directly."
 
         # Start order flow
         if is_order_trigger:

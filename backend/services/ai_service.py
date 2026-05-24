@@ -146,6 +146,23 @@ def ai_reply(text: str, lang: str, api_key: str, provider: str,
     contact_address = contact.get('address', '')
     contact_hours = contact.get('hours', '')
 
+    # Log what data we received for debugging
+    logger.info(f"AI Context Data - Site: {site_name}, Services: {len(services)}, Phone: {bool(contact_phone)}, Email: {bool(contact_email)}, About length: {len(about)}")
+    logger.debug(f"Full contact data received: {contact}")
+
+    # Validate that we have meaningful data to provide to AI
+    has_meaningful_data = (
+        bool(contact_phone) or
+        bool(contact_email) or
+        bool(contact_address) or
+        len(services) > 0 or
+        len(about) > 50 or
+        bool(site_desc)
+    )
+
+    if not has_meaningful_data:
+        logger.warning(f"AI mode: No meaningful website data available for {site_name}. AI may not be able to provide detailed answers.")
+
     # Feature gating: Free plan = service only, Starter/Premium = product access
     # Starter plan: limit to 10 products, Premium: unlimited (up to 30 in AI context)
     normalized_plan = user_plan.lower()
@@ -154,19 +171,41 @@ def ai_reply(text: str, lang: str, api_key: str, provider: str,
     product_limit = 10 if normalized_plan == "starter" else 30
 
     # Build CONTACT section FIRST (most important for service queries)
-    contact_section = f"## 📞 CONTACT INFO for {site_name}:\n"
-    contact_section += f"- Phone: {contact_phone if contact_phone else 'Available on website'}\n"
-    contact_section += f"- Email: {contact_email if contact_email else 'Available on website'}\n"
-    contact_section += f"- Address: {contact_address if contact_address else 'Available on website'}\n"
+    contact_section = f"## 📞 CONTACT INFORMATION for {site_name}:\n"
+    has_contact_info = False
+    if contact_phone:
+        contact_section += f"- Phone: {contact_phone}\n"
+        has_contact_info = True
+    if contact_email:
+        contact_section += f"- Email: {contact_email}\n"
+        has_contact_info = True
+    if contact_address:
+        contact_section += f"- Address: {contact_address}\n"
+        has_contact_info = True
     if contact_hours:
         contact_section += f"- Business Hours: {contact_hours}\n"
+        has_contact_info = True
 
-    website_section = f"## 🌐 WEBSITE INFO ({site_name}):\n"
-    if site_desc: website_section += f"- Description: {site_desc}\n"
-    if about: website_section += f"- About: {about[:800]}\n"
-    if services: website_section += f"- 🛠️ Services: {', '.join(services[:15])}\n"
-    website_section += f"- Business Type: {business_type.upper()} based\n"
-    website_section += f"- User Plan: {user_plan.title()}\n"
+    if not has_contact_info:
+        contact_section += "- Contact information is being updated. Please ask the customer to check the website or we'll have someone reach out.\n"
+
+    # Build ABOUT/WEBSITE section with better structure
+    website_section = f"## 🌐 ABOUT {site_name}:\n"
+    if site_desc:
+        website_section += f"Description: {site_desc}\n\n"
+    if about:
+        website_section += f"About Us: {about[:800]}\n\n"
+
+    # Services section - make it prominent
+    services_section = ""
+    if services and len(services) > 0:
+        services_section = f"## 🛠️ OUR SERVICES:\n"
+        for idx, service in enumerate(services[:15], 1):
+            services_section += f"{idx}. {service}\n"
+        services_section += "\n"
+
+    website_section += f"Business Type: {business_type.upper()} based\n"
+    website_section += f"User Plan: {user_plan.title()}\n"
 
     # Build product catalog section with plan-based limits
     catalog_section = ""
@@ -197,39 +236,60 @@ def ai_reply(text: str, lang: str, api_key: str, provider: str,
     if not user_prompt:
         if business_type == "service":
             services_text = ", ".join(services[:10]) if services else "various professional services"
-            user_prompt = (f"You are a friendly, conversational sales assistant for {site_name}. "
+            user_prompt = (f"You are a helpful customer service assistant for {site_name}. "
+                          f"Your job is to answer customer questions using the information provided below. "
                           f"We offer {services_text}. "
-                          f"Engage customers naturally - ask questions, understand their needs, and help them. "
-                          f"Share contact details when asked or when they show interest. Be helpful, not pushy.")
+                          f"Always use the contact information, services, and business details provided in the sections below.")
         else:
             # Product-based business - all paid plans get product access
-            user_prompt = (f"You are a friendly, conversational sales assistant for {site_name}. "
-                          f"Help customers find products, answer questions, and guide them to purchase. "
-                          f"Be natural and engaging - ask about their needs, make recommendations. "
-                          f"Share contact info when they're interested or ask for it.")
+            user_prompt = (f"You are a helpful customer service assistant for {site_name}. "
+                          f"Your job is to answer customer questions using the information provided below. "
+                          f"Always use the product catalog, contact information, and business details provided in the sections below.")
 
     system = f"""{user_prompt}
 
 {website_section}
 
+{services_section}
+
 {catalog_section}
 
 {contact_section}
 
-## RULES:
-- Source of Truth: ONLY use the info provided above. NEVER make up products, prices, or details.
-- Be Conversational: Talk naturally like a human salesperson. Ask questions. Show interest in helping.
-- CONTACT INFO: When asked about phone, email, address, or hours - share it directly from ## CONTACT INFO.
-- SERVICES: When asked about services - use the ## SERVICES section. List them clearly and helpfully.
-- PRODUCT SEARCH: If user asks for a specific product, SEARCH ## PRODUCT CATALOG. List matches with prices.
-- SERVICE BUSINESS: If business_type is SERVICE, focus on services, contact, address, hours - NO products.
-- Capture Interest: If they ask about pricing, availability, or show buying interest - ask for their name and contact.
-- Help Close Sales: If they're interested, offer: "Would you like me to have someone call you?" or "Can I get your contact to send details?"
-- Short & Sweet: Keep replies under 3-4 lines. This is WhatsApp - be friendly but concise.
-- Tone: Warm, helpful, professional, and conversational - like a friendly shop assistant.
-- Never Say "Go to Website": Share the info directly. If they need more, offer human follow-up.
-- Order Flow: If they want to order/hire, ask: Item → Quantity → Name → Phone → Address.
-- Plan Features: Free plan = service info only. Starter/Premium = full product catalog access.
+## 🎯 HOW TO RESPOND TO CUSTOMERS:
+
+**STEP 1 - READ THE INFORMATION ABOVE FIRST:**
+All the information you need is provided in the sections above (ABOUT, SERVICES, PRODUCTS, CONTACT).
+Before answering ANY question, check these sections for the answer.
+
+**STEP 2 - ANSWER USING THE PROVIDED DATA:**
+
+When customer asks about CONTACT (phone, email, address, hours):
+→ Look at ## CONTACT INFORMATION section and share those details directly
+→ Example: "You can reach us at [phone from above] or email [email from above]"
+
+When customer asks about SERVICES (what you offer, what you do):
+→ Look at ## OUR SERVICES section and list the services shown there
+→ Example: "We offer: [list services from above]"
+
+When customer asks about PRODUCTS (items, prices, availability):
+→ Look at ## PRODUCT CATALOG section and share matching products with prices
+→ Example: "We have [product name] for [price] PKR"
+
+When customer asks ABOUT the business (who you are, what you do):
+→ Look at ## ABOUT section and summarize that information
+→ Example: Use the description and about text provided above
+
+**STEP 3 - IMPORTANT RULES:**
+✓ ALWAYS use information from the sections above - it's there for you to use
+✓ Keep answers SHORT (2-3 lines) - this is WhatsApp
+✓ Be friendly and helpful
+✓ If customer shows interest, offer to connect them with someone: "Would you like me to have someone call you?"
+
+✗ NEVER say "I don't have that information" if it's in the sections above
+✗ NEVER say "visit the website" - share the info directly
+✗ NEVER make up information that's not provided above
+
 {lang_instruction}"""
 
     logger.info(f"AI ({provider}) system prompt built - total length: {len(system)} chars")
