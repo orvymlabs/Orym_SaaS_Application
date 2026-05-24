@@ -406,8 +406,27 @@ def test_chat(data: TestChatRequest, user_id: int = Depends(get_current_user_id)
 
         logger.info(f"Bot mode: {bot.mode}, Bot status: {bot.status}")
 
-        # Skip website fetching for sandbox to speed up response
+        # Fetch cached website data for sandbox testing (so AI uses real data)
+        from models import SiteInfoCache
         products, categories, contact_info_data = [], [], {"site_name": "Test Store"}
+
+        cache = db.query(SiteInfoCache).filter(SiteInfoCache.bot_id == bot.id).first()
+        if cache:
+            # Use cached website data
+            contact_info_data = {
+                "site_name": cache.site_name or "Test Store",
+                "site_description": cache.site_description or "",
+                "about": cache.about or "",
+                "services": cache.services or [],
+                "phone": cache.phone or "",
+                "email": cache.email or "",
+                "address": cache.address or "",
+                "hours": cache.hours or ""
+            }
+            products = cache.products or []
+            logger.info(f"Sandbox using cached data: {cache.site_name}, {len(cache.services or [])} services, {len(products)} products")
+        else:
+            logger.warning(f"No cached data found for bot {bot.id} - sandbox will use minimal test data")
 
         # Ensure all bot settings are included
         bot_settings = {
