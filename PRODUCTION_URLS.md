@@ -22,10 +22,11 @@
 - **Local Development**: http://localhost:8001/webhook
 
 ### Database
-- **Production (PostgreSQL)**: 
+- **Production (PostgreSQL - Neon)**: 
   ```
-  postgresql://orvyn_ut1d_user:LZ7fz2r7JARnJJq4NN6pxOSy10myF4g5@dpg-d7gg8sfavr4c738p4fg0-a.ohio-postgres.render.com/orvyn_ut1d
+  postgresql://neondb_owner:****@ep-lively-frost-ayvbiky3-pooler.c-5.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require
   ```
+- **Previous (Render PostgreSQL - deprecated)**: `postgresql://orvyn_ut1d_user:****@dpg-d7gg8sfavr4c738p4fg0-a.ohio-postgres.render.com/orvyn_ut1d`
 - **Local Development (SQLite)**: `backend/data/saas_bot.db`
 
 ---
@@ -110,9 +111,9 @@ const WEBHOOK_BASE = process.env.NEXT_PUBLIC_WEBHOOK_URL || 'https://orym-saas-a
    - Build command: `npm run build`
    - Output directory: `.next`
 
-3. **Database (Render PostgreSQL)**
-   - Already configured in backend/.env
-   - Connection string in `DATABASE_URL` and `POSTGRES_URL`
+3. **Database (Neon PostgreSQL)**
+   - Configured in backend/.env as DATABASE_URL and POSTGRES_URL
+   - Migrated from Render PostgreSQL on 2026-07-26
 
 ### Local Development
 
@@ -179,7 +180,7 @@ const WEBHOOK_BASE = process.env.NEXT_PUBLIC_WEBHOOK_URL || 'https://orym-saas-a
 
 | Environment | Frontend | Backend | Database | Webhook |
 |-------------|----------|---------|----------|---------|
-| **Production** | https://apps.orvym.com | https://orym-saas-application.onrender.com | PostgreSQL (Render) | https://orym-saas-application.onrender.com/webhook |
+| **Production** | https://apps.orvym.com | https://orym-saas-application.onrender.com | PostgreSQL (Neon) | https://orym-saas-application.onrender.com/webhook |
 | **Local Dev** | http://localhost:3000 | http://localhost:8001 | SQLite | http://localhost:8001/webhook or Ngrok |
 | **Testing** | http://localhost:3000 | http://localhost:8001 | SQLite | Ngrok URL |
 

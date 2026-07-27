@@ -22,7 +22,8 @@
       "Bash(npm run *)",
       "Bash(npx tsc *)",
       "Bash(python -m uvicorn main:app --reload --host 0.0.0.0 --port 8001)",
-      "Bash(python -m json.tool)"
+      "Bash(python -m json.tool)",
+      "Bash(venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload)"
     ]
   }
 }
