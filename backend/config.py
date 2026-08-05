@@ -68,7 +68,9 @@ class Settings(BaseSettings):
     # ===========================================
     # Meta WhatsApp
     # ===========================================
+    META_APP_ID: str = ""  # Your Meta App ID for Embedded Signup
     META_APP_SECRET: str = "" # REQUIRED: Your Meta App Secret for webhook signature verification
+    META_CONFIG_ID: str = ""  # Your Meta Configuration ID for Embedded Signup
 
     # ===========================================
     # Stripe Payment Processing

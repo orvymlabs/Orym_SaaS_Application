@@ -7,6 +7,8 @@ from services import decode_token
 from services.encryption import encrypt_value, decrypt_value
 from services.website_fetcher import fetch_website_content as fetch_website_service
 from services.universal_website_fetcher import UniversalWebsiteFetcher
+from services.meta_oauth import MetaOAuthService
+from config import get_settings
 import logging
 import json
 
@@ -456,3 +458,127 @@ async def configure_integration_base(
     background_tasks.add_task(UniversalWebsiteFetcher.auto_discover_and_fetch, normalized_url)
 
     return {"success": True, "message": "Base configuration saved. Discovery started in background."}
+
+
+@router.get("/meta/config")
+def get_meta_config():
+    """Get Meta App configuration for Embedded Signup."""
+    settings = get_settings()
+
+    if not settings.META_APP_ID or not settings.META_CONFIG_ID:
+        raise HTTPException(500, "Meta Embedded Signup is not configured on the server")
+
+    return {
+        "app_id": settings.META_APP_ID,
+        "config_id": settings.META_CONFIG_ID
+    }
+
+
+@router.post("/meta/oauth/callback")
+async def meta_oauth_callback(
+    code: str = Body(..., embed=True),
+    user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Handle Meta OAuth callback after Embedded Signup.
+    Exchange authorization code for credentials and save to integration.
+    """
+    settings = get_settings()
+
+    if not settings.META_APP_ID or not settings.META_APP_SECRET:
+        raise HTTPException(500, "Meta OAuth is not configured")
+
+    # Get user's bot and integration
+    bot = db.query(Bot).filter(Bot.user_id == user_id).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found")
+
+    integ = db.query(Integration).filter(Integration.bot_id == bot.id).first()
+    if not integ:
+        raise HTTPException(404, "Integration not found")
+
+    # Initialize OAuth service
+    oauth_service = MetaOAuthService(settings.META_APP_ID, settings.META_APP_SECRET)
+
+    # Complete the setup
+    success, integration_data, error = await oauth_service.setup_whatsapp_integration(code)
+
+    if not success:
+        logger.error(f"OAuth setup failed for user {user_id}: {error}")
+        raise HTTPException(400, error or "Failed to connect WhatsApp")
+
+    # Check if phone_number_id is already used by another integration
+    existing = db.query(Integration).filter(
+        Integration.phone_number_id == integration_data["phone_number_id"],
+        Integration.id != integ.id
+    ).first()
+
+    if existing:
+        raise HTTPException(
+            400,
+            f"The WhatsApp number {integration_data['display_phone_number']} is already connected to another account"
+        )
+
+    # Save credentials to integration
+    try:
+        integ.whatsapp_token = encrypt_value(integration_data["access_token"])
+        integ.phone_number_id = integration_data["phone_number_id"]
+        integ.whatsapp_number = integration_data["display_phone_number"]
+
+        # Generate verify token if not exists
+        if not integ.verify_token:
+            import secrets
+            integ.verify_token = secrets.token_urlsafe(16)
+
+        db.commit()
+
+        logger.info(f"Successfully connected WhatsApp for user {user_id}: {integration_data['display_phone_number']}")
+
+        return {
+            "success": True,
+            "message": "WhatsApp connected successfully",
+            "data": {
+                "business_name": integration_data.get("business_name", ""),
+                "phone_number": integration_data["display_phone_number"],
+                "phone_number_id": integration_data["phone_number_id"]
+            }
+        }
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to save integration: {e}")
+        raise HTTPException(500, "Failed to save WhatsApp credentials")
+
+
+@router.post("/whatsapp/disconnect")
+def disconnect_whatsapp(
+    user_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Disconnect WhatsApp integration.
+    Removes WhatsApp credentials but keeps all other data intact.
+    """
+    bot = db.query(Bot).filter(Bot.user_id == user_id).first()
+    if not bot:
+        raise HTTPException(404, "Bot not found")
+
+    integ = db.query(Integration).filter(Integration.bot_id == bot.id).first()
+    if not integ:
+        raise HTTPException(404, "Integration not found")
+
+    # Clear only WhatsApp credentials
+    integ.whatsapp_token = None
+    integ.phone_number_id = None
+    integ.whatsapp_number = None
+
+    try:
+        db.commit()
+        logger.info(f"WhatsApp disconnected for user {user_id}")
+        return {"success": True, "message": "WhatsApp disconnected successfully"}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to disconnect WhatsApp: {e}")
+        raise HTTPException(500, "Failed to disconnect WhatsApp")
+

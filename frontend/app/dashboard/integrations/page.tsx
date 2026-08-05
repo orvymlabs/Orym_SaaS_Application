@@ -31,6 +31,9 @@ export default function IntegrationsPage() {
     whatsapp_number: "",
     verify_token: "",
   });
+  const [metaConfig, setMetaConfig] = useState<{ app_id: string; config_id: string } | null>(null);
+  const [connectingWhatsApp, setConnectingWhatsApp] = useState(false);
+  const [disconnectingWhatsApp, setDisconnectingWhatsApp] = useState(false);
 
   const generateVerifyToken = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -91,12 +94,32 @@ export default function IntegrationsPage() {
   const { isDark } = useTheme();
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? 'https://orym-saas-application.onrender.com' : '');
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : 'https://apps.orvym.com');
 
   useEffect(() => {
+    // Load Meta SDK
+    if (typeof window !== 'undefined' && !window.FB) {
+      const script = document.createElement('script');
+      script.src = 'https://connect.facebook.net/en_US/sdk.js';
+      script.async = true;
+      script.defer = true;
+      script.crossOrigin = 'anonymous';
+      document.body.appendChild(script);
+    }
+
+    // Fetch user plan
     apiGet<any>("/api/auth/usage").then((data) => {
       if (data?.plan) setUserPlan(data.plan);
     }).catch(console.error);
 
+    // Fetch Meta configuration
+    apiGet<{ app_id: string; config_id: string }>("/api/integrations/meta/config")
+      .then(setMetaConfig)
+      .catch(err => {
+        console.warn("Meta Embedded Signup not configured:", err);
+      });
+
+    // Fetch integration data
     apiGet<IntegrationData>("/api/integrations/me").then((data) => {
       setInteg(data);
       const bType = data.business_type || "product";
@@ -114,6 +137,109 @@ export default function IntegrationsPage() {
       });
     }).catch(console.error);
   }, []);
+
+  // Launch Meta Embedded Signup
+  const launchWhatsAppLogin = () => {
+    if (!metaConfig) {
+      showToast("Meta Embedded Signup is not configured", "error");
+      return;
+    }
+
+    setConnectingWhatsApp(true);
+
+    // Initialize Facebook SDK if not already done
+    if (typeof window !== 'undefined' && window.FB) {
+      window.FB.init({
+        appId: metaConfig.app_id,
+        cookie: true,
+        xfbml: true,
+        version: 'v21.0'
+      });
+
+      // Launch the embedded signup flow
+      window.FB.login(
+        (response: any) => {
+          if (response.authResponse) {
+            const code = response.authResponse.code;
+            handleMetaOAuthCallback(code);
+          } else {
+            setConnectingWhatsApp(false);
+            showToast("WhatsApp connection cancelled", "warning");
+          }
+        },
+        {
+          config_id: metaConfig.config_id,
+          response_type: 'code',
+          override_default_response_type: true,
+          extras: {
+            setup: {
+              // Optional: pre-fill business details
+            }
+          }
+        }
+      );
+    } else {
+      setConnectingWhatsApp(false);
+      showToast("Facebook SDK not loaded. Please refresh the page.", "error");
+    }
+  };
+
+  // Handle OAuth callback
+  const handleMetaOAuthCallback = async (code: string) => {
+    try {
+      const result = await apiPost("/api/integrations/meta/oauth/callback", { code });
+
+      if (result.success) {
+        showToast("WhatsApp connected successfully!", "success");
+        // Refresh integration data
+        const updatedInteg = await apiGet<IntegrationData>("/api/integrations/me");
+        setInteg(updatedInteg);
+        setWhatsappForm({
+          whatsapp_token: "",
+          phone_number_id: updatedInteg.phone_number_id || "",
+          whatsapp_number: updatedInteg.whatsapp_number || "",
+          verify_token: updatedInteg.verify_token || "",
+        });
+      } else {
+        showToast(result.message || "Failed to connect WhatsApp", "error");
+      }
+    } catch (err: any) {
+      showToast("Error: " + err.message, "error");
+    } finally {
+      setConnectingWhatsApp(false);
+    }
+  };
+
+  // Disconnect WhatsApp
+  const handleDisconnectWhatsApp = async () => {
+    if (!confirm("Are you sure you want to disconnect WhatsApp? Your bots, flows, and settings will remain intact.")) {
+      return;
+    }
+
+    setDisconnectingWhatsApp(true);
+    try {
+      const result = await apiPost("/api/integrations/whatsapp/disconnect", {});
+
+      if (result.success) {
+        showToast("WhatsApp disconnected successfully", "success");
+        // Refresh integration data
+        const updatedInteg = await apiGet<IntegrationData>("/api/integrations/me");
+        setInteg(updatedInteg);
+        setWhatsappForm({
+          whatsapp_token: "",
+          phone_number_id: "",
+          whatsapp_number: "",
+          verify_token: updatedInteg.verify_token || "",
+        });
+      } else {
+        showToast(result.message || "Failed to disconnect WhatsApp", "error");
+      }
+    } catch (err: any) {
+      showToast("Error: " + err.message, "error");
+    } finally {
+      setDisconnectingWhatsApp(false);
+    }
+  };
 
   // Sync form when integration type changes
   useEffect(() => {
@@ -339,53 +465,185 @@ export default function IntegrationsPage() {
         {activeTab === "whatsapp" && (
           <div className="p-12 space-y-8">
             <div>
-              <h2 className={`text-2xl font-black tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>WhatsApp Integration</h2>
-              <p className={`${isDark ? "text-zinc-500" : "text-slate-500"} mt-1 font-medium`}>Configure your WhatsApp Business API credentials.</p>
+              <h2 className={`text-2xl font-black tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>WhatsApp Business</h2>
+              <p className={`${isDark ? "text-zinc-500" : "text-slate-500"} mt-1 font-medium`}>
+                {integ.has_whatsapp_token ? "Manage your WhatsApp Business connection" : "Connect your WhatsApp Business Account with Meta"}
+              </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="space-y-3">
-                <label className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} ml-1`}>Phone Number ID <span className="text-red-500">*</span></label>
-                <input type="text" value={whatsappForm.phone_number_id} onChange={e => setWhatsappForm({...whatsappForm, phone_number_id: e.target.value})}
-                  className="input-field" placeholder="Enter your Phone Number ID (e.g. 109283...)" required />
-              </div>
-              <div className="space-y-3">
-                <label className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} ml-1`}>Verify Token <span className="text-red-500">*</span></label>
-                <div className="flex gap-3">
-                  <input type="text" readOnly value={whatsappForm.verify_token} className="input-field !bg-zinc-100/50 dark:!bg-zinc-900/50 !cursor-not-allowed" required />
-                  <button onClick={handleGenerateAndSave} className="btn-success whitespace-nowrap">Generate</button>
+            {integ.has_whatsapp_token && integ.phone_number_id && integ.whatsapp_number ? (
+              // Connected State
+              <div className={`p-8 rounded-[2rem] border ${isDark ? "bg-black border-zinc-800" : "bg-slate-50/50 border-slate-100"}`}>
+                <div className="space-y-6">
+                  {/* Status */}
+                  <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-2xl bg-green-500/10 flex items-center justify-center">
+                        <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                      </div>
+                      <div>
+                        <p className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Status</p>
+                        <p className={`text-sm font-bold ${isDark ? "text-green-400" : "text-green-600"}`}>Connected</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Phone Number */}
+                  <div>
+                    <p className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} mb-2`}>Phone</p>
+                    <p className={`text-lg font-mono ${isDark ? "text-white" : "text-slate-900"}`}>{integ.whatsapp_number}</p>
+                  </div>
+
+                  {/* Phone Number ID */}
+                  <div>
+                    <p className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} mb-2`}>Phone Number ID</p>
+                    <p className={`text-sm font-mono ${isDark ? "text-zinc-400" : "text-slate-600"}`}>{integ.phone_number_id}</p>
+                  </div>
+
+                  {/* Webhook URL */}
+                  <div className={`p-6 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-slate-200"}`}>
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div>
+                        <p className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Webhook URL</p>
+                        <p className={`text-xs font-mono mt-2 ${isDark ? "text-white" : "text-slate-600"} break-all`}>{apiUrl}/webhook</p>
+                      </div>
+                      <button
+                        onClick={() => {navigator.clipboard.writeText(`${apiUrl}/webhook`); showToast("Copied","success")}}
+                        className="btn-secondary !py-2 whitespace-nowrap"
+                      >
+                        Copy URL
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Verify Token */}
+                  <div className={`p-6 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-slate-200"}`}>
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div>
+                        <p className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Verify Token</p>
+                        <p className={`text-xs font-mono mt-2 ${isDark ? "text-white" : "text-slate-600"}`}>{integ.verify_token}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {navigator.clipboard.writeText(integ.verify_token); showToast("Copied","success")}}
+                          className="btn-secondary !py-2 whitespace-nowrap"
+                        >
+                          Copy
+                        </button>
+                        <button onClick={handleGenerateAndSave} className="btn-secondary !py-2 whitespace-nowrap">
+                          Regenerate
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex gap-4 pt-4">
+                    {metaConfig && (
+                      <button
+                        onClick={launchWhatsAppLogin}
+                        disabled={connectingWhatsApp}
+                        className="btn-secondary flex-1"
+                      >
+                        {connectingWhatsApp ? <div className="w-4 h-4 border-2 border-slate-600/30 border-t-slate-600 rounded-full animate-spin" /> : "Reconnect"}
+                      </button>
+                    )}
+                    <button
+                      onClick={handleDisconnectWhatsApp}
+                      disabled={disconnectingWhatsApp}
+                      className="btn-secondary flex-1 !bg-red-500/10 !text-red-500 !border-red-500/20 hover:!bg-red-500/20"
+                    >
+                      {disconnectingWhatsApp ? <div className="w-4 h-4 border-2 border-red-500/30 border-t-red-500 rounded-full animate-spin" /> : "Disconnect"}
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              // Not Connected State
+              <div className="space-y-8">
+                {metaConfig ? (
+                  // Show Meta Embedded Signup button
+                  <div className={`p-12 rounded-[2rem] border text-center ${isDark ? "bg-black border-zinc-800" : "bg-slate-50/50 border-slate-100"}`}>
+                    <div className="max-w-md mx-auto space-y-6">
+                      <div className="w-20 h-20 rounded-3xl bg-green-500/10 flex items-center justify-center text-4xl mx-auto">
+                        💬
+                      </div>
+                      <div>
+                        <h3 className={`text-xl font-black ${isDark ? "text-white" : "text-slate-900"}`}>Connect WhatsApp Business</h3>
+                        <p className={`text-sm ${isDark ? "text-zinc-500" : "text-slate-500"} mt-2`}>
+                          Securely connect your WhatsApp Business Account with one click
+                        </p>
+                      </div>
+                      <button
+                        onClick={launchWhatsAppLogin}
+                        disabled={connectingWhatsApp}
+                        className="btn-primary w-full py-4 text-sm"
+                      >
+                        {connectingWhatsApp ? (
+                          <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        ) : (
+                          "Connect WhatsApp"
+                        )}
+                      </button>
+                      <p className={`text-xs ${isDark ? "text-zinc-600" : "text-slate-400"}`}>
+                        You'll be redirected to Meta to authorize access
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  // Fallback: Show manual form if Meta Embedded Signup is not configured
+                  <div className="space-y-8">
+                    <div className={`p-4 rounded-2xl border ${isDark ? "bg-yellow-950/20 border-yellow-900/30 text-yellow-400" : "bg-yellow-50 border-yellow-200 text-yellow-700"}`}>
+                      <p className="text-xs font-medium">⚠️ Meta Embedded Signup is not configured. Using manual setup.</p>
+                    </div>
 
-            <div className={`p-8 rounded-[2rem] border ${isDark ? "bg-black border-zinc-800" : "bg-slate-50/50 border-slate-100"}`}>
-              <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-                <div>
-                  <p className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Webhook Callback URL</p>
-                  <p className={`text-sm font-mono mt-2 ${isDark ? "text-white" : "text-slate-600"} break-all`}>{apiUrl}/webhook</p>
-                </div>
-                <button onClick={() => {navigator.clipboard.writeText(`${apiUrl}/webhook`); showToast("Copied","success")}} className="btn-secondary !py-2.5">Copy URL</button>
-              </div>
-            </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="space-y-3">
+                        <label className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} ml-1`}>Phone Number ID <span className="text-red-500">*</span></label>
+                        <input type="text" value={whatsappForm.phone_number_id} onChange={e => setWhatsappForm({...whatsappForm, phone_number_id: e.target.value})}
+                          className="input-field" placeholder="Enter your Phone Number ID (e.g. 109283...)" required />
+                      </div>
+                      <div className="space-y-3">
+                        <label className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} ml-1`}>Verify Token <span className="text-red-500">*</span></label>
+                        <div className="flex gap-3">
+                          <input type="text" readOnly value={whatsappForm.verify_token} className="input-field !bg-zinc-100/50 dark:!bg-zinc-900/50 !cursor-not-allowed" required />
+                          <button onClick={handleGenerateAndSave} className="btn-success whitespace-nowrap">Generate</button>
+                        </div>
+                      </div>
+                    </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
-              <div className="space-y-3">
-                <label className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} ml-1`}>Business Number <span className="text-red-500">*</span></label>
-                <input type="text" value={whatsappForm.whatsapp_number} onChange={e => setWhatsappForm({...whatsappForm, whatsapp_number: e.target.value})}
-                  className="input-field" placeholder="+1 234 567 8900" required />
-              </div>
-              <div className="space-y-3">
-                <label className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} ml-1`}>Access Token <span className="text-red-500">*</span></label>
-                <input type="password" value={whatsappForm.whatsapp_token} onChange={e => setWhatsappForm({...whatsappForm, whatsapp_token: e.target.value})}
-                  className="input-field" placeholder="Enter your Permanent Access Token..." required />
-              </div>
-            </div>
+                    <div className={`p-8 rounded-[2rem] border ${isDark ? "bg-black border-zinc-800" : "bg-slate-50/50 border-slate-100"}`}>
+                      <div className="flex flex-col md:flex-row justify-between items-center gap-6">
+                        <div>
+                          <p className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Webhook Callback URL</p>
+                          <p className={`text-sm font-mono mt-2 ${isDark ? "text-white" : "text-slate-600"} break-all`}>{apiUrl}/webhook</p>
+                        </div>
+                        <button onClick={() => {navigator.clipboard.writeText(`${apiUrl}/webhook`); showToast("Copied","success")}} className="btn-secondary !py-2.5">Copy URL</button>
+                      </div>
+                    </div>
 
-            <div className="flex justify-end pt-6">
-              <button onClick={handleSaveWhatsApp} disabled={savingWhatsApp} className="btn-primary min-w-[240px]">
-                {savingWhatsApp ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : "Save WhatsApp Settings"}
-              </button>
-            </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
+                      <div className="space-y-3">
+                        <label className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} ml-1`}>Business Number <span className="text-red-500">*</span></label>
+                        <input type="text" value={whatsappForm.whatsapp_number} onChange={e => setWhatsappForm({...whatsappForm, whatsapp_number: e.target.value})}
+                          className="input-field" placeholder="+1 234 567 8900" required />
+                      </div>
+                      <div className="space-y-3">
+                        <label className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} ml-1`}>Access Token <span className="text-red-500">*</span></label>
+                        <input type="password" value={whatsappForm.whatsapp_token} onChange={e => setWhatsappForm({...whatsappForm, whatsapp_token: e.target.value})}
+                          className="input-field" placeholder="Enter your Permanent Access Token..." required />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-6">
+                      <button onClick={handleSaveWhatsApp} disabled={savingWhatsApp} className="btn-primary min-w-[240px]">
+                        {savingWhatsApp ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : "Save WhatsApp Settings"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
