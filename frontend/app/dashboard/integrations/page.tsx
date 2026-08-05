@@ -109,13 +109,15 @@ export default function IntegrationsPage() {
         // Initialize Facebook SDK after config is loaded
         if (typeof window !== 'undefined' && config) {
           (window as any).fbAsyncInit = function() {
-            window.FB.init({
-              appId: config.app_id,
-              cookie: true,
-              xfbml: true,
-              version: 'v21.0'
-            });
-            console.log('Facebook SDK initialized with App ID:', config.app_id);
+            if (window.FB) {
+              window.FB.init({
+                appId: config.app_id,
+                cookie: true,
+                xfbml: true,
+                version: 'v21.0'
+              });
+              console.log('Facebook SDK initialized with App ID:', config.app_id);
+            }
           };
 
           // Load the SDK if not already loaded
