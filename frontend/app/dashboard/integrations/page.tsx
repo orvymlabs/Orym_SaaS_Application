@@ -97,16 +97,6 @@ export default function IntegrationsPage() {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : 'https://apps.orvym.com');
 
   useEffect(() => {
-    // Load Meta SDK
-    if (typeof window !== 'undefined' && !window.FB) {
-      const script = document.createElement('script');
-      script.src = 'https://connect.facebook.net/en_US/sdk.js';
-      script.async = true;
-      script.defer = true;
-      script.crossOrigin = 'anonymous';
-      document.body.appendChild(script);
-    }
-
     // Fetch user plan
     apiGet<any>("/api/auth/usage").then((data) => {
       if (data?.plan) setUserPlan(data.plan);
@@ -114,7 +104,32 @@ export default function IntegrationsPage() {
 
     // Fetch Meta configuration
     apiGet<{ app_id: string; config_id: string }>("/api/integrations/meta/config")
-      .then(setMetaConfig)
+      .then(config => {
+        setMetaConfig(config);
+        // Initialize Facebook SDK after config is loaded
+        if (typeof window !== 'undefined' && config) {
+          (window as any).fbAsyncInit = function() {
+            window.FB.init({
+              appId: config.app_id,
+              cookie: true,
+              xfbml: true,
+              version: 'v21.0'
+            });
+            console.log('Facebook SDK initialized with App ID:', config.app_id);
+          };
+
+          // Load the SDK if not already loaded
+          if (!window.FB) {
+            const script = document.createElement('script');
+            script.id = 'facebook-jssdk';
+            script.src = 'https://connect.facebook.net/en_US/sdk.js';
+            script.async = true;
+            script.defer = true;
+            script.crossOrigin = 'anonymous';
+            document.body.appendChild(script);
+          }
+        }
+      })
       .catch(err => {
         console.warn("Meta Embedded Signup not configured:", err);
       });
@@ -145,43 +160,35 @@ export default function IntegrationsPage() {
       return;
     }
 
+    if (typeof window === 'undefined' || !window.FB) {
+      showToast("Facebook SDK not loaded. Please refresh the page.", "error");
+      return;
+    }
+
     setConnectingWhatsApp(true);
 
-    // Initialize Facebook SDK if not already done
-    if (typeof window !== 'undefined' && window.FB) {
-      window.FB.init({
-        appId: metaConfig.app_id,
-        cookie: true,
-        xfbml: true,
-        version: 'v21.0'
-      });
-
-      // Launch the embedded signup flow
-      window.FB.login(
-        (response: any) => {
-          if (response.authResponse) {
-            const code = response.authResponse.code;
-            handleMetaOAuthCallback(code);
-          } else {
-            setConnectingWhatsApp(false);
-            showToast("WhatsApp connection cancelled", "warning");
-          }
-        },
-        {
-          config_id: metaConfig.config_id,
-          response_type: 'code',
-          override_default_response_type: true,
-          extras: {
-            setup: {
-              // Optional: pre-fill business details
-            }
+    // Launch the embedded signup flow
+    window.FB.login(
+      (response: any) => {
+        if (response.authResponse) {
+          const code = response.authResponse.code;
+          handleMetaOAuthCallback(code);
+        } else {
+          setConnectingWhatsApp(false);
+          showToast("WhatsApp connection cancelled", "warning");
+        }
+      },
+      {
+        config_id: metaConfig.config_id,
+        response_type: 'code',
+        override_default_response_type: true,
+        extras: {
+          setup: {
+            // Optional: pre-fill business details
           }
         }
-      );
-    } else {
-      setConnectingWhatsApp(false);
-      showToast("Facebook SDK not loaded. Please refresh the page.", "error");
-    }
+      }
+    );
   };
 
   // Handle OAuth callback
@@ -559,10 +566,9 @@ export default function IntegrationsPage() {
                 </div>
               </div>
             ) : (
-              // Not Connected State
+              // Not Connected State - Show Meta Embedded Signup Only
               <div className="space-y-8">
                 {metaConfig ? (
-                  // Show Meta Embedded Signup button
                   <div className={`p-12 rounded-[2rem] border text-center ${isDark ? "bg-black border-zinc-800" : "bg-slate-50/50 border-slate-100"}`}>
                     <div className="max-w-md mx-auto space-y-6">
                       <div className="w-20 h-20 rounded-3xl bg-green-500/10 flex items-center justify-center text-4xl mx-auto">
@@ -591,54 +597,17 @@ export default function IntegrationsPage() {
                     </div>
                   </div>
                 ) : (
-                  // Fallback: Show manual form if Meta Embedded Signup is not configured
-                  <div className="space-y-8">
-                    <div className={`p-4 rounded-2xl border ${isDark ? "bg-yellow-950/20 border-yellow-900/30 text-yellow-400" : "bg-yellow-50 border-yellow-200 text-yellow-700"}`}>
-                      <p className="text-xs font-medium">⚠️ Meta Embedded Signup is not configured. Using manual setup.</p>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      <div className="space-y-3">
-                        <label className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} ml-1`}>Phone Number ID <span className="text-red-500">*</span></label>
-                        <input type="text" value={whatsappForm.phone_number_id} onChange={e => setWhatsappForm({...whatsappForm, phone_number_id: e.target.value})}
-                          className="input-field" placeholder="Enter your Phone Number ID (e.g. 109283...)" required />
+                  <div className={`p-12 rounded-[2rem] border text-center ${isDark ? "bg-red-950/20 border-red-900/30" : "bg-red-50 border-red-200"}`}>
+                    <div className="max-w-md mx-auto space-y-4">
+                      <div className="w-16 h-16 rounded-2xl bg-red-500/10 flex items-center justify-center text-3xl mx-auto">
+                        ⚠️
                       </div>
-                      <div className="space-y-3">
-                        <label className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} ml-1`}>Verify Token <span className="text-red-500">*</span></label>
-                        <div className="flex gap-3">
-                          <input type="text" readOnly value={whatsappForm.verify_token} className="input-field !bg-zinc-100/50 dark:!bg-zinc-900/50 !cursor-not-allowed" required />
-                          <button onClick={handleGenerateAndSave} className="btn-success whitespace-nowrap">Generate</button>
-                        </div>
+                      <div>
+                        <h3 className={`text-lg font-black ${isDark ? "text-red-400" : "text-red-700"}`}>Configuration Required</h3>
+                        <p className={`text-sm ${isDark ? "text-red-400/80" : "text-red-600"} mt-2`}>
+                          Meta Embedded Signup is not configured on the server. Please contact support or configure Meta credentials in the backend environment.
+                        </p>
                       </div>
-                    </div>
-
-                    <div className={`p-8 rounded-[2rem] border ${isDark ? "bg-black border-zinc-800" : "bg-slate-50/50 border-slate-100"}`}>
-                      <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-                        <div>
-                          <p className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Webhook Callback URL</p>
-                          <p className={`text-sm font-mono mt-2 ${isDark ? "text-white" : "text-slate-600"} break-all`}>{apiUrl}/webhook</p>
-                        </div>
-                        <button onClick={() => {navigator.clipboard.writeText(`${apiUrl}/webhook`); showToast("Copied","success")}} className="btn-secondary !py-2.5">Copy URL</button>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
-                      <div className="space-y-3">
-                        <label className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} ml-1`}>Business Number <span className="text-red-500">*</span></label>
-                        <input type="text" value={whatsappForm.whatsapp_number} onChange={e => setWhatsappForm({...whatsappForm, whatsapp_number: e.target.value})}
-                          className="input-field" placeholder="+1 234 567 8900" required />
-                      </div>
-                      <div className="space-y-3">
-                        <label className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} ml-1`}>Access Token <span className="text-red-500">*</span></label>
-                        <input type="password" value={whatsappForm.whatsapp_token} onChange={e => setWhatsappForm({...whatsappForm, whatsapp_token: e.target.value})}
-                          className="input-field" placeholder="Enter your Permanent Access Token..." required />
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end pt-6">
-                      <button onClick={handleSaveWhatsApp} disabled={savingWhatsApp} className="btn-primary min-w-[240px]">
-                        {savingWhatsApp ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : "Save WhatsApp Settings"}
-                      </button>
                     </div>
                   </div>
                 )}
