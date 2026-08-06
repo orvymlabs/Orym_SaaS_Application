@@ -169,11 +169,10 @@ export default function IntegrationsPage() {
 
     setConnectingWhatsApp(true);
 
-    // Get the redirect URI for this session
-    const redirect_uri = `${appUrl}/dashboard/integrations`;
-    console.log('Launching WhatsApp login with redirect_uri:', redirect_uri);
+    console.log('Launching WhatsApp login with config_id:', metaConfig.config_id);
 
     // Launch the embedded signup flow
+    // Note: redirect_uri is configured in Meta App settings, not passed here
     window.FB.login(
       (response: any) => {
         if (response.authResponse) {
@@ -190,7 +189,6 @@ export default function IntegrationsPage() {
         config_id: metaConfig.config_id,
         response_type: 'code',
         override_default_response_type: true,
-        redirect_uri: redirect_uri,
         extras: {
           setup: {
             // Optional: pre-fill business details
