@@ -1,50 +1,28 @@
-# Meta OAuth Implementation - Fixed
+## Meta WhatsApp Embedded Signup - OAuth Implementation
 
-## Issue Resolution
+### Issue Resolution
+The OAuth token exchange was failing with "Error validating verification code. Please make sure your redirect_uri is identical..."
 
-**Problem:** Meta OAuth was failing with "Error validating verification code. Please make sure your redirect_uri is identical to the one you used in the OAuth dialog request"
+### Root Cause
+Meta's Embedded Signup with FB.login() + config_id has specific requirements:
+1. Frontend calls `FB.login({config_id, response_type: 'code'})` WITHOUT redirect_uri parameter
+2. Meta uses its default redirect URI for the authorization
+3. Token exchange MUST include `redirect_uri=""` (empty string) to match the implicit default
 
-**Root Cause:** 
-- `FB.login()` with `response_type: 'code'` does NOT include `redirect_uri` in the authorization request
-- The frontend was sending `redirect_uri` during token exchange to the backend
-- Meta OAuth requires exact parameter matching: if authorization omits `redirect_uri`, token exchange must also omit it
+### Fix Applied
+**backend/services/meta_oauth.py**:
+- Changed token exchange to always include `redirect_uri` parameter
+- Set to empty string `""` when not provided by frontend
+- This matches Meta's Embedded Signup flow where FB.login() doesn't use custom redirect_uri
 
-**Solution:**
-1. Frontend: Remove `redirect_uri` from the POST body when calling `/api/integrations/meta/oauth/callback`
-2. Backend: Accept optional `redirect_uri` parameter but only include it in Graph API request if provided
-3. Added comprehensive logging throughout the OAuth flow for debugging
+### Verification Checklist
+✅ Endpoint: `https://graph.facebook.com/v21.0/oauth/access_token` (correct)
+✅ Method: GET (correct for Meta OAuth)
+✅ response_type=code: Compatible with Embedded Signup
+✅ redirect_uri: Now set to "" (empty string) for FB.login() flow
+✅ Full error logging: Includes error_code, error_subcode, fbtrace_id
 
-## OAuth Flow (FB.login with Embedded Signup)
-
-```
-1. Frontend calls FB.login() with:
-   - config_id: Meta Embedded Signup configuration ID
-   - response_type: 'code'
-   - ⚠️ NO redirect_uri parameter
-
-2. Meta popup opens, user authorizes
-
-3. FB.login() callback receives authorization code via JavaScript (not URL redirect)
-
-4. Frontend POSTs to backend with ONLY the code (no redirect_uri)
-
-5. Backend exchanges code for token with Graph API:
-   - URL: https://graph.facebook.com/v21.0/oauth/access_token
-   - Parameters: client_id, client_secret, code
-   - ⚠️ NO redirect_uri parameter
-
-6. Success: Backend receives access_token and saves credentials
-```
-
-## Key Points
-
-- **FB.login() flow:** Code is returned via JavaScript callback, NOT URL redirect
-- **redirect_uri matching:** Must be identical in authorization and token exchange (or omitted in both)
-- **Logging:** Comprehensive logs added to diagnose any future OAuth issues
-- **Security:** client_secret is redacted in all logs
-
-## Files Modified
-
-- `frontend/app/dashboard/integrations/page.tsx` - Removed redirect_uri from callback, enhanced logging
-- `backend/services/meta_oauth.py` - Enhanced logging with full request/response details
-- `backend/routers/integrations.py` - Enhanced endpoint logging
+### Implementation Details
+- **Frontend**: Uses FB.login() with config_id (no redirect_uri)
+- **Backend**: Exchanges code with redirect_uri="" 
+- **Flow**: Embedded Signup JavaScript callback (not server redirect)

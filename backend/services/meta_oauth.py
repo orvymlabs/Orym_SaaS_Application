@@ -1,6 +1,12 @@
 """
 Meta Embedded Signup OAuth Service
 Handles WhatsApp Business API authentication via Meta Embedded Signup
+
+IMPORTANT: For Embedded Signup with FB.login() + config_id:
+- Frontend calls FB.login({config_id, response_type: 'code'}) WITHOUT redirect_uri
+- Meta returns authorization code via JavaScript callback
+- Token exchange MUST include redirect_uri="" (empty string)
+- This is different from standard OAuth which omits redirect_uri entirely
 """
 import httpx
 import logging
@@ -31,39 +37,63 @@ class MetaOAuthService:
         """
         try:
             url = f"{self.GRAPH_API_BASE}/oauth/access_token"
+
+            # CRITICAL: For Embedded Signup with FB.login() and config_id:
+            # Meta expects redirect_uri="" (empty string) in the token exchange
+            # because FB.login() doesn't use a custom redirect_uri
+
+            # If no redirect_uri provided from frontend, use empty string for Embedded Signup
+            if redirect_uri is None:
+                redirect_uri = ""
+
             params = {
                 "client_id": self.app_id,
                 "client_secret": self.app_secret,
-                "code": code
+                "code": code,
+                "redirect_uri": redirect_uri
             }
-
-            # Include redirect_uri if provided (required for some OAuth flows)
-            if redirect_uri:
-                params["redirect_uri"] = redirect_uri
 
             # Log the complete request (excluding secret)
             log_params = {k: (v if k != "client_secret" else "***REDACTED***") for k, v in params.items()}
-            logger.info(f"Meta OAuth Token Exchange Request:")
+            logger.info("=" * 80)
+            logger.info("META OAUTH TOKEN EXCHANGE - Embedded Signup Flow")
+            logger.info("=" * 80)
             logger.info(f"  URL: {url}")
+            logger.info(f"  Method: GET")
             logger.info(f"  Parameters: {log_params}")
-            logger.info(f"  redirect_uri included: {redirect_uri is not None}")
+            logger.info(f"  redirect_uri: '{redirect_uri}' (empty string for FB.login flow)")
             logger.info(f"  Code length: {len(code)}")
+            logger.info("=" * 80)
 
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(url, params=params)
 
-                # Log response details
-                logger.info(f"Meta OAuth Response:")
+                # Log COMPLETE response details
+                logger.info(f"META GRAPH API RESPONSE:")
                 logger.info(f"  Status Code: {response.status_code}")
-                logger.info(f"  Response Body: {response.text[:500]}")
+                logger.info(f"  Response Body (FULL): {response.text}")
 
                 if response.status_code != 200:
                     error_data = response.json() if response.text else {}
-                    error_msg = error_data.get("error", {}).get("message", "Failed to exchange code")
-                    error_code = error_data.get("error", {}).get("code", "unknown")
-                    error_type = error_data.get("error", {}).get("type", "unknown")
-                    full_error = f"[{error_code}/{error_type}] {error_msg}"
-                    logger.error(f"Token exchange failed: {full_error}")
+                    error_obj = error_data.get("error", {})
+                    error_msg = error_obj.get("message", "Failed to exchange code")
+                    error_code = error_obj.get("code", "unknown")
+                    error_type = error_obj.get("type", "unknown")
+                    error_subcode = error_obj.get("error_subcode", "none")
+                    fbtrace_id = error_obj.get("fbtrace_id", "none")
+
+                    logger.error("=" * 80)
+                    logger.error("META GRAPH API ERROR - FULL DETAILS")
+                    logger.error("=" * 80)
+                    logger.error(f"  Error Code: {error_code}")
+                    logger.error(f"  Error Subcode: {error_subcode}")
+                    logger.error(f"  Error Type: {error_type}")
+                    logger.error(f"  Error Message: {error_msg}")
+                    logger.error(f"  FB Trace ID: {fbtrace_id}")
+                    logger.error(f"  Full Error Object: {error_obj}")
+                    logger.error(f"  Full Response: {response.text}")
+                    logger.error("=" * 80)
+
                     return False, None, error_msg
 
                 data = response.json()
