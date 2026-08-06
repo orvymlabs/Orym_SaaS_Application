@@ -3,10 +3,10 @@ Meta Embedded Signup OAuth Service
 Handles WhatsApp Business API authentication via Meta Embedded Signup
 
 IMPORTANT: For Embedded Signup with FB.login() + config_id:
-- Frontend calls FB.login({config_id, response_type: 'code'}) WITHOUT redirect_uri
-- Meta returns authorization code via JavaScript callback
-- Token exchange MUST include redirect_uri="" (empty string)
-- This is different from standard OAuth which omits redirect_uri entirely
+- Frontend calls FB.login({config_id, response_type: 'code'}) WITHOUT explicit redirect_uri
+- Meta uses the current page URL as the implicit redirect_uri during authorization
+- Token exchange MUST include the SAME redirect_uri (current page URL)
+- Frontend sends the page URL to backend for use in token exchange
 """
 import httpx
 import logging
@@ -24,13 +24,13 @@ class MetaOAuthService:
         self.app_id = app_id
         self.app_secret = app_secret
 
-    async def exchange_code_for_token(self, code: str, redirect_uri: Optional[str] = None) -> Tuple[bool, Optional[Dict], Optional[str]]:
+    async def exchange_code_for_token(self, code: str, redirect_uri: str) -> Tuple[bool, Optional[Dict], Optional[str]]:
         """
         Exchange authorization code for access token.
 
         Args:
             code: Authorization code from Meta OAuth
-            redirect_uri: Optional redirect URI (must match the one used in authorization if provided)
+            redirect_uri: The redirect URI that was used during authorization (required)
 
         Returns:
             (success, data, error_message)
@@ -38,99 +38,69 @@ class MetaOAuthService:
         try:
             url = f"{self.GRAPH_API_BASE}/oauth/access_token"
 
-            # CRITICAL: For Embedded Signup with FB.login() and config_id,
-            # the redirect_uri used by FB.login() internally must match the token exchange.
-            # We'll try multiple possibilities to find the correct one.
+            # CRITICAL: redirect_uri must match what FB.login() used implicitly.
+            # When FB.login() is called without explicit redirect_uri, Meta uses
+            # the current page URL. Frontend sends this URL to us.
 
-            redirect_uris_to_try = []
+            params = {
+                "client_id": self.app_id,
+                "client_secret": self.app_secret,
+                "code": code,
+                "redirect_uri": redirect_uri
+            }
 
-            if redirect_uri:
-                # If explicitly provided, try that first
-                redirect_uris_to_try.append(redirect_uri)
+            # Log the request (excluding secret)
+            log_params = {k: (v if k != "client_secret" else "***REDACTED***") for k, v in params.items()}
+            logger.info("=" * 80)
+            logger.info("META OAUTH TOKEN EXCHANGE - Embedded Signup Flow")
+            logger.info("=" * 80)
+            logger.info(f"  URL: {url}")
+            logger.info(f"  Method: GET")
+            logger.info(f"  Parameters: {log_params}")
+            logger.info(f"  redirect_uri: '{redirect_uri}'")
+            logger.info(f"  Code length: {len(code)}")
+            logger.info("=" * 80)
 
-            # Common redirect_uri values for FB.login() with Embedded Signup:
-            redirect_uris_to_try.extend([
-                "https://apps.orvym.com/dashboard/integrations",  # Frontend page URL
-                "https://apps.orvym.com",  # Frontend base URL
-                "",  # Empty string (some implementations use this)
-                "https://www.facebook.com/connect/login_success.html",  # Facebook's default for SDK
-            ])
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url, params=params)
 
-            last_error_msg = None
-            last_error_details = None
+                # Log response
+                logger.info(f"META GRAPH API RESPONSE:")
+                logger.info(f"  Status Code: {response.status_code}")
+                logger.info(f"  Response Body: {response.text}")
 
-            for idx, uri in enumerate(redirect_uris_to_try):
-                params = {
-                    "client_id": self.app_id,
-                    "client_secret": self.app_secret,
-                    "code": code,
-                    "redirect_uri": uri
-                }
+                if response.status_code != 200:
+                    error_data = response.json() if response.text else {}
+                    error_obj = error_data.get("error", {})
+                    error_msg = error_obj.get("message", "Failed to exchange code")
+                    error_code = error_obj.get("code", "unknown")
+                    error_type = error_obj.get("type", "unknown")
+                    error_subcode = error_obj.get("error_subcode", "none")
+                    fbtrace_id = error_obj.get("fbtrace_id", "none")
 
-                # Log the attempt
-                log_params = {k: (v if k != "client_secret" else "***REDACTED***") for k, v in params.items()}
-                logger.info("=" * 80)
-                logger.info(f"META OAUTH TOKEN EXCHANGE - ATTEMPT {idx + 1}/{len(redirect_uris_to_try)}")
-                logger.info("=" * 80)
-                logger.info(f"  URL: {url}")
-                logger.info(f"  Method: GET")
-                logger.info(f"  Parameters: {log_params}")
-                logger.info(f"  redirect_uri: '{uri}'")
-                logger.info(f"  Code length: {len(code)}")
-                logger.info("=" * 80)
+                    logger.error("=" * 80)
+                    logger.error("META GRAPH API ERROR - FULL DETAILS")
+                    logger.error("=" * 80)
+                    logger.error(f"  Error Code: {error_code}")
+                    logger.error(f"  Error Subcode: {error_subcode}")
+                    logger.error(f"  Error Type: {error_type}")
+                    logger.error(f"  Error Message: {error_msg}")
+                    logger.error(f"  FB Trace ID: {fbtrace_id}")
+                    logger.error(f"  Full Error Object: {error_obj}")
+                    logger.error(f"  Full Response: {response.text}")
+                    logger.error("=" * 80)
 
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.get(url, params=params)
+                    return False, None, error_msg
 
-                    logger.info(f"META GRAPH API RESPONSE:")
-                    logger.info(f"  Status Code: {response.status_code}")
-                    logger.info(f"  Response Body (FULL): {response.text}")
+                data = response.json()
+                access_token = data.get("access_token")
 
-                    if response.status_code == 200:
-                        data = response.json()
-                        access_token = data.get("access_token")
+                if not access_token:
+                    logger.error(f"No access token in response: {data}")
+                    return False, None, "No access token returned"
 
-                        if access_token:
-                            logger.info(f"✅ Token exchange successful with redirect_uri: '{uri}'")
-                            return True, data, None
-                        else:
-                            logger.error(f"No access token in response: {data}")
-                            last_error_msg = "No access token returned"
-                            last_error_details = data
-                    else:
-                        # Failed attempt - log and try next
-                        error_data = response.json() if response.text else {}
-                        error_obj = error_data.get("error", {})
-                        error_msg = error_obj.get("message", "Failed to exchange code")
-                        error_code = error_obj.get("code", "unknown")
-                        error_subcode = error_obj.get("error_subcode", "none")
-                        fbtrace_id = error_obj.get("fbtrace_id", "none")
-
-                        logger.warning(f"❌ ATTEMPT {idx + 1} FAILED")
-                        logger.warning(f"  Error Code: {error_code}")
-                        logger.warning(f"  Error Subcode: {error_subcode}")
-                        logger.warning(f"  Error Message: {error_msg}")
-                        logger.warning(f"  FB Trace ID: {fbtrace_id}")
-
-                        last_error_msg = error_msg
-                        last_error_details = error_obj
-
-                        # If this was the last attempt, log full details
-                        if idx == len(redirect_uris_to_try) - 1:
-                            logger.error("=" * 80)
-                            logger.error("ALL ATTEMPTS FAILED - FULL ERROR DETAILS")
-                            logger.error("=" * 80)
-                            logger.error(f"  Error Code: {error_code}")
-                            logger.error(f"  Error Subcode: {error_subcode}")
-                            logger.error(f"  Error Type: {error_obj.get('type', 'unknown')}")
-                            logger.error(f"  Error Message: {error_msg}")
-                            logger.error(f"  FB Trace ID: {fbtrace_id}")
-                            logger.error(f"  Full Error Object: {error_obj}")
-                            logger.error(f"  Full Response: {response.text}")
-                            logger.error("=" * 80)
-
-            # All attempts failed
-            return False, None, last_error_msg or "Failed to exchange code with any redirect_uri"
+                logger.info(f"✅ Token exchange successful with redirect_uri: '{redirect_uri}'")
+                return True, data, None
 
         except httpx.TimeoutException:
             logger.error("Token exchange timed out")

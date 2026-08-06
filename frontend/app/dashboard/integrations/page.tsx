@@ -214,13 +214,17 @@ export default function IntegrationsPage() {
       console.log('🔐 Meta OAuth Callback - Starting token exchange');
       console.log('  Code length:', code.length);
       console.log('  Flow type: FB.login() with response_type=code (JavaScript callback)');
-      console.log('  redirect_uri: NOT INCLUDED (FB.login does not use redirect_uri parameter)');
 
-      // IMPORTANT: For FB.login() with response_type='code', we MUST NOT send redirect_uri
-      // because the authorization request did not include redirect_uri.
-      // Meta requires exact matching: if authorization omits redirect_uri, token exchange must also omit it.
+      // CRITICAL: When FB.login() is called without explicit redirect_uri,
+      // Meta uses the current page URL as the implicit redirect_uri.
+      // We must send this URL to backend so token exchange uses the same redirect_uri.
+      const currentPageUrl = typeof window !== 'undefined' ? window.location.origin + window.location.pathname : '';
+
+      console.log('  redirect_uri (implicit from FB.login):', currentPageUrl);
+
       const result = await apiPost("/api/integrations/meta/oauth/callback", {
-        code
+        code,
+        redirect_uri: currentPageUrl
       });
 
       console.log('✅ OAuth callback response received:', result.success ? 'SUCCESS' : 'FAILED');
