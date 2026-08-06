@@ -169,14 +169,20 @@ export default function IntegrationsPage() {
 
     setConnectingWhatsApp(true);
 
+    // Get the redirect URI for this session
+    const redirect_uri = `${appUrl}/dashboard/integrations`;
+    console.log('Launching WhatsApp login with redirect_uri:', redirect_uri);
+
     // Launch the embedded signup flow
     window.FB.login(
       (response: any) => {
         if (response.authResponse) {
           const code = response.authResponse.code;
+          console.log('OAuth code received, length:', code?.length);
           handleMetaOAuthCallback(code);
         } else {
           setConnectingWhatsApp(false);
+          console.warn('OAuth cancelled or failed:', response);
           showToast("WhatsApp connection cancelled", "warning");
         }
       },
@@ -184,6 +190,7 @@ export default function IntegrationsPage() {
         config_id: metaConfig.config_id,
         response_type: 'code',
         override_default_response_type: true,
+        redirect_uri: redirect_uri,
         extras: {
           setup: {
             // Optional: pre-fill business details
@@ -196,7 +203,15 @@ export default function IntegrationsPage() {
   // Handle OAuth callback
   const handleMetaOAuthCallback = async (code: string) => {
     try {
-      const result = await apiPost("/api/integrations/meta/oauth/callback", { code });
+      // Get the redirect URI that was used for the OAuth flow
+      const redirect_uri = `${appUrl}/dashboard/integrations`;
+
+      console.log('Sending OAuth callback with code and redirect_uri:', redirect_uri);
+
+      const result = await apiPost("/api/integrations/meta/oauth/callback", {
+        code,
+        redirect_uri
+      });
 
       if (result.success) {
         showToast("WhatsApp connected successfully!", "success");
@@ -213,6 +228,7 @@ export default function IntegrationsPage() {
         showToast(result.message || "Failed to connect WhatsApp", "error");
       }
     } catch (err: any) {
+      console.error('OAuth callback error:', err);
       showToast("Error: " + err.message, "error");
     } finally {
       setConnectingWhatsApp(false);

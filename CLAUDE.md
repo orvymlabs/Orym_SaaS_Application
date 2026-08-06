@@ -8,8 +8,6 @@ The application is already connected to a published Meta App and an existing Wha
 
 DO NOT break, remove, reset, or replace the existing WhatsApp bot configuration.
 
-The current task is to make Meta WhatsApp Embedded Signup work correctly during LOCAL DEVELOPMENT.
-
 ---
 
 # Current Architecture
@@ -17,205 +15,217 @@ The current task is to make Meta WhatsApp Embedded Signup work correctly during 
 ## Frontend
 
 - Framework: Next.js
+- Production URL: `https://apps.orvym.com`
 - Local port: `3000`
-- Local URL:
-  `http://localhost:3000`
+- Local URL: `http://localhost:3000`
 
-Important page:
+Important page: `/dashboard/integrations`
 
-`/dashboard/integrations`
-
-Local page:
-
-`http://localhost:3000/dashboard/integrations`
+Production page: `https://apps.orvym.com/dashboard/integrations`
 
 ---
 
 ## Backend
 
-- Backend runs locally on port `8001`
-- Backend is exposed through ngrok for Meta webhooks.
+- Production: `https://orym-saas-application.onrender.com` (Render)
+- Local port: `8001`
+- Local URL: `http://localhost:8001`
+- Backend webhook URL: `https://orym-saas-application.onrender.com/webhook`
 
-Current backend ngrok URL:
-
-`https://expulsive-unoperating-cordie.ngrok-free.dev`
-
-Backend webhook URL depends on the actual route implemented in the code.
-
-DO NOT assume `/webhook` or `/api/webhook`.
-
-Inspect the backend routes and use the actual implemented webhook endpoint.
+For local development, backend is exposed through ngrok for Meta webhooks.
 
 ---
 
-# Meta Embedded Signup Requirement
+# Meta Embedded Signup Implementation
 
-The application needs Meta WhatsApp Embedded Signup.
+## Current Implementation (FB.login Popup Flow)
 
-The OAuth redirect must point to the FRONTEND, not directly to the backend.
+The application uses **Facebook SDK's FB.login()** method with Meta Embedded Signup:
 
-The backend ngrok URL is for Meta webhooks only.
+1. User clicks "Connect WhatsApp Business"
+2. Frontend calls `FB.login()` with `config_id` and `response_type: 'code'`
+3. Meta opens popup/dialog for user to complete signup
+4. Popup closes and returns authorization code via **JavaScript callback**
+5. Frontend sends **POST** request to backend: `/api/integrations/meta/oauth/callback`
+6. Backend exchanges code with Meta Graph API for access token
+7. Backend retrieves WhatsApp Business Account details
+8. Backend saves credentials to database
 
-Do NOT use:
-
-`http://localhost:3000/dashboard/integrations`
-
-as the production OAuth redirect while Meta HTTPS enforcement is enabled.
-
-For local testing, expose the frontend using a second HTTPS ngrok tunnel.
-
-Run:
-
-`ngrok http 3000`
-
-This produces a URL similar to:
-
-`https://example.ngrok-free.dev`
-
-The actual URL is dynamic and MUST NOT be hardcoded permanently.
+**Important:** Meta does NOT redirect to the callback URL in this flow. The callback URL is only used as a reference for Meta's configuration. The code is returned via JavaScript.
 
 ---
 
-# Local Development Architecture
+# Meta OAuth Callback Routes
 
-Expected architecture:
+## POST /api/integrations/meta/oauth/callback
 
-META
-  |
-  | Embedded Signup / OAuth
-  |
-  v
-FRONTEND NGROK
-https://<frontend-ngrok-domain>
-  |
-  v
-Next.js
-localhost:3000
-  |
-  v
-Backend
-localhost:8001
-  |
-  v
-BACKEND NGROK
-https://expulsive-unoperating-cordie.ngrok-free.dev
-  |
-  | Webhook
-  v
-META
+**Purpose:** Handle authorization code from frontend JavaScript (FB.login callback)
+
+**Method:** POST
+
+**Request Body:**
+```json
+{
+  "code": "authorization_code_from_meta",
+  "redirect_uri": "https://apps.orvym.com/dashboard/integrations"
+}
+```
+
+**Response:** Integration details on success
+
+**Used by:** Frontend JavaScript after FB.login() completes
 
 ---
 
-# OAuth Redirect URI
+## GET /api/integrations/meta/oauth/callback
 
-The OAuth redirect URI must be:
+**Purpose:** Fallback for direct Meta redirects (alternative OAuth flows)
 
-`https://<FRONTEND_NGROK_DOMAIN>/dashboard/integrations`
+**Method:** GET
 
-Example:
+**Query Parameters:**
+- `code`: Authorization code
+- `state`: CSRF protection token
+- `error`: Error code if OAuth failed
+- `error_description`: Error details
 
-`https://abc123.ngrok-free.dev/dashboard/integrations`
+**Response:** HTML page with JavaScript to handle popup or redirect
 
-DO NOT use the backend ngrok domain as the OAuth redirect.
-
-DO NOT use:
-
-`http://localhost:3000/dashboard/integrations`
-
-when Meta requires HTTPS.
-
-DO NOT hardcode an example ngrok domain.
+**Used by:** Meta if configured for traditional redirect-based OAuth
 
 ---
 
-# Meta Configuration
+# Meta App Configuration
 
-The following values need to correspond to the actual current frontend ngrok URL.
+## Production Configuration
 
-## App Domains
+**Meta App ID:** `3862862217342382`
+**Meta Config ID:** `2432311603846818`
 
-Add:
+### App Domains
+```
+apps.orvym.com
+orym-saas-application.onrender.com
+```
 
-`<FRONTEND_NGROK_DOMAIN>`
+### Valid OAuth Redirect URIs (Facebook Login → Settings)
+```
+https://apps.orvym.com/dashboard/integrations
+```
 
-Example:
+### Allowed Domains for JavaScript SDK (Advanced → Security)
+```
+apps.orvym.com
+```
 
-`abc123.ngrok-free.dev`
-
-Keep existing required domains if they are already being used by the application.
-
-Do not remove existing production domains.
-
----
-
-## Valid OAuth Redirect URIs
-
-Add:
-
-`https://<FRONTEND_NGROK_DOMAIN>/dashboard/integrations`
-
-Example:
-
-`https://abc123.ngrok-free.dev/dashboard/integrations`
-
-The URI must match the application redirect URI EXACTLY.
-
-Check:
-
-- HTTPS
-- Domain
-- Port
-- Path
-- Trailing slash
-- Case
-
-Do not introduce mismatches.
+### WhatsApp → Configuration → Webhook
+```
+Callback URL: https://orym-saas-application.onrender.com/webhook
+Verify Token: (from database per bot)
+```
 
 ---
 
-## Allowed Domains for the JavaScript SDK
+# Environment Variables
 
-Add:
+## Frontend (Netlify)
+```
+NEXT_PUBLIC_APP_URL=https://apps.orvym.com
+NEXT_PUBLIC_API_URL=https://orym-saas-application.onrender.com
+NEXT_PUBLIC_WS_URL=wss://orym-saas-application.onrender.com
+NEXT_PUBLIC_WEBHOOK_URL=https://orym-saas-application.onrender.com/webhook
+```
 
-`<FRONTEND_NGROK_DOMAIN>`
-
-Example:
-
-`abc123.ngrok-free.dev`
-
-Do not include:
-
-`https://`
-
-in the Allowed Domains value unless Meta specifically requires it.
+## Backend (Render)
+```
+META_APP_ID=3862862217342382
+META_APP_SECRET=4e8c221a2b70d959dfd452ab91a51c06
+META_CONFIG_ID=2432311603846818
+ALLOWED_ORIGINS=https://apps.orvym.com,https://orym-saas-application.onrender.com
+```
 
 ---
 
-# Backend Webhook
+# Recent Error & Fix
 
-The backend ngrok URL is used for Meta webhook communication.
+## Error Description
+```
+Facebook SDK initialized with App ID: 3862862217342382
+orym-saas-application.onrender.com/api/integrations/meta/oauth/callback:1  
+Failed to load resource: the server responded with a status of 400 ()
+```
 
-Current backend ngrok base:
+## Root Cause
 
-`https://expulsive-unoperating-cordie.ngrok-free.dev`
+The Meta OAuth token exchange was failing because:
 
-Before configuring Meta, inspect the backend source code and determine the actual webhook route.
+1. **Missing `redirect_uri` parameter:** Meta's Graph API token exchange requires the `redirect_uri` parameter to match the one used in the authorization request
+2. **Insufficient error logging:** Backend wasn't capturing detailed Meta API error messages
+3. **Frontend not passing redirect_uri:** The frontend wasn't including `redirect_uri` in the FB.login() options or backend request
 
-Possible examples:
+## Changes Made
 
-`/webhook`
+### 1. Backend OAuth Service (`backend/services/meta_oauth.py`)
+- Added `redirect_uri` parameter to `exchange_code_for_token()`
+- Enhanced error logging to capture Meta API error codes and messages
+- Added step-by-step logging for debugging
 
-or:
+### 2. Backend API Routes (`backend/routers/integrations.py`)
+- Added GET endpoint for direct Meta redirects (fallback)
+- Updated POST endpoint to accept and use `redirect_uri`
+- Enhanced logging throughout OAuth flow
 
-`/api/webhook`
+### 3. Frontend (`frontend/app/dashboard/integrations/page.tsx`)
+- Added `redirect_uri` to FB.login() options
+- Send `redirect_uri` in POST request to backend
+- Added console logging for debugging
 
-Do NOT guess the route.
+---
 
-Use the route actually implemented by the backend.
+# Testing OAuth Flow
 
-Final webhook should therefore be:
+## Expected Success Flow
 
-`https://expulsive-unoperating-cordie.ngrok-free.dev/<ACTUAL_WEBHOOK_ROUTE>`
+1. ✅ User clicks "Connect WhatsApp Business"
+2. ✅ Console log: "Launching WhatsApp login with redirect_uri: https://apps.orvym.com/dashboard/integrations"
+3. ✅ Meta popup opens
+4. ✅ User completes signup
+5. ✅ Console log: "OAuth code received, length: [number]"
+6. ✅ Console log: "Sending OAuth callback with code and redirect_uri: ..."
+7. ✅ Backend log: "POST OAuth callback received for user X"
+8. ✅ Backend log: "Token exchange successful"
+9. ✅ Backend log: "Successfully connected WhatsApp for user X"
+10. ✅ Frontend: "WhatsApp connected successfully!"
+
+## Debugging Failed OAuth
+
+If OAuth fails:
+
+1. **Check browser console** for error messages
+2. **Check Render backend logs** for detailed Meta API errors
+3. **Verify redirect_uri** matches Meta App settings exactly
+4. **Confirm Meta App is Live** (not Development mode)
+5. **Check WhatsApp API permissions** in Meta App
+
+---
+
+# Local Development
+
+For local testing with HTTPS (required by Meta):
+
+1. Start frontend: `npm run dev` (port 3000)
+2. Start backend: `uvicorn main:app --reload --port 8001`
+3. Expose frontend with ngrok: `ngrok http 3000`
+4. Expose backend with ngrok: `ngrok http 8001`
+5. Update `.env.local`:
+   ```
+   NEXT_PUBLIC_APP_URL=https://[frontend-ngrok-url]
+   NEXT_PUBLIC_API_URL=http://localhost:8001
+   ```
+6. Add ngrok URLs to Meta App settings:
+   - App Domains: `[frontend-ngrok-domain]`
+   - Valid OAuth Redirect URIs: `https://[frontend-ngrok-domain]/dashboard/integrations`
+   - Allowed Domains for JavaScript SDK: `[frontend-ngrok-domain]`
 
 ---
 
@@ -223,257 +233,51 @@ Final webhook should therefore be:
 
 ## 1. Do not break the existing WhatsApp bot
 
-The existing bot is already working.
+The existing bot is working in production.
 
 DO NOT:
-
 - Create a new Meta App
-- Delete the existing Meta App
-- Unpublish the Meta App
-- Remove the existing WhatsApp phone number
+- Delete or unpublish the Meta App
+- Remove the WhatsApp phone number
 - Reset WhatsApp configuration
-- Replace the existing webhook unnecessarily
 - Change working production credentials
-- Disconnect the current WhatsApp Business Account
-- Modify unrelated WhatsApp settings
+- Disconnect the WhatsApp Business Account
 
-Only make changes required for Embedded Signup/local testing.
+## 2. Do not hardcode temporary URLs
 
----
+Use environment variables for all URLs.
 
-## 2. Do not hardcode temporary ngrok URLs
+## 3. Never commit secrets
 
-Ngrok URLs can change.
-
-Never permanently hardcode:
-
-`https://abc123.ngrok-free.dev`
-
-into application logic.
-
-Use environment variables where appropriate.
-
-Example:
-
-`NEXT_PUBLIC_APP_URL`
-
-or an equivalent existing environment variable.
-
-For local development, the current frontend ngrok URL can be supplied through `.env.local`.
-
-Example:
-
-`NEXT_PUBLIC_APP_URL=https://<CURRENT_FRONTEND_NGROK_DOMAIN>`
-
-Do not commit secrets or temporary environment values to Git.
-
----
-
-# OAuth Flow
-
-Expected flow:
-
-1. User opens the local dashboard.
-2. User goes to `/dashboard/integrations`.
-3. User clicks Connect WhatsApp.
-4. Meta Embedded Signup opens.
-5. User completes Meta onboarding.
-6. Meta redirects to:
-
-`https://<FRONTEND_NGROK_DOMAIN>/dashboard/integrations`
-
-7. Frontend receives/processes the OAuth result according to the existing implementation.
-8. Backend handles required API calls.
-9. Meta sends webhooks to the backend ngrok URL.
-10. Existing bot functionality remains intact.
-
----
-
-# Debugging Instructions
-
-Before changing code, inspect the existing implementation.
-
-Find:
-
-- Embedded Signup initialization
-- Facebook Login / OAuth configuration
-- `redirect_uri`
-- Meta SDK initialization
-- OAuth callback handling
-- WhatsApp Embedded Signup callback
-- Webhook routes
-- Environment variables
-- Existing WhatsApp credentials/configuration
-
-Search the project for:
-
-`redirect_uri`
-
-`facebook`
-
-`oauth`
-
-`embedded signup`
-
-`whatsapp`
-
-`FB.login`
-
-`config_id`
-
-`webhook`
-
-`META`
-
-`WHATSAPP`
-
----
-
-# Important: Do Not Guess
-
-If a configuration value already exists in the project, inspect and reuse it.
-
-Do not invent:
-
-- Meta App ID
-- Meta Config ID
-- OAuth redirect URI
-- Webhook route
-- Verify token
-- Access token
-- Phone Number ID
-- Business Account ID
-
-Use the values already configured in the project/environment.
-
-Never expose secrets in source code.
-
----
-
-# Environment Variables
-
-Check `.env`, `.env.local`, and backend environment configuration before making changes.
-
-Use environment variables for:
-
-- Meta App ID
-- Meta App Secret
-- Facebook Login configuration ID
-- WhatsApp credentials
-- Verify token
-- Backend URL
-- Frontend URL
-- OAuth redirect URI
-
-Never commit secrets.
-
-Never print access tokens or app secrets in logs.
-
----
-
-# Frontend and Backend Separation
-
-Remember:
-
-Frontend:
-
-`localhost:3000`
-
-Frontend public tunnel:
-
-`https://<frontend-ngrok-domain>`
-
-Backend:
-
-`localhost:8001`
-
-Backend public tunnel:
-
-`https://expulsive-unoperating-cordie.ngrok-free.dev`
-
-OAuth Redirect:
-
-`https://<frontend-ngrok-domain>/dashboard/integrations`
-
-Webhook:
-
-`https://expulsive-unoperating-cordie.ngrok-free.dev/<actual-webhook-route>`
-
-OAuth redirect and webhook URL are NOT the same thing.
-
----
-
-# Current Problem To Solve
-
-The current Meta Embedded Signup error says the OAuth redirect URI is invalid.
-
-The problematic URI is:
-
-`http://localhost:3000/dashboard/integrations`
-
-The solution for local HTTPS testing is:
-
-1. Keep Next.js running on port `3000`.
-2. Start a second ngrok tunnel:
-
-`ngrok http 3000`
-
-3. Get the actual frontend HTTPS ngrok URL.
-4. Configure Meta's Valid OAuth Redirect URI using:
-
-`https://<frontend-ngrok-domain>/dashboard/integrations`
-
-5. Configure Allowed Domains using:
-
-`<frontend-ngrok-domain>`
-
-6. Keep the existing backend ngrok tunnel for webhooks.
-7. Test Embedded Signup.
-8. Verify that the existing WhatsApp bot still works.
-
----
-
-# Before Making Changes
-
-First inspect the project and explain:
-
-1. Where Embedded Signup is implemented.
-2. What redirect URI is currently being generated.
-3. What Meta configuration ID is being used.
-4. What backend webhook route actually exists.
-5. Which environment variables control the frontend/backend URLs.
-6. Whether the current implementation already supports a configurable public frontend URL.
-
-Only then modify the minimum required files.
+Keep credentials in environment variables only.
 
 ---
 
 # Success Criteria
 
-The task is successful when:
-
-- Local Next.js app runs on port `3000`.
-- Backend runs on port `8001`.
-- Frontend has an HTTPS ngrok URL.
-- Meta accepts the OAuth redirect URI.
-- Embedded Signup opens successfully.
-- Meta redirects back to `/dashboard/integrations`.
-- Backend receives Meta webhooks through its ngrok URL.
-- Existing WhatsApp bot continues working.
-- No production Meta configuration is unnecessarily changed.
-- No secrets are exposed or committed.
-- Temporary ngrok URLs are not permanently hardcoded.
+- ✅ Production OAuth flow works without errors
+- ✅ Users can connect WhatsApp via Embedded Signup
+- ✅ Backend logs show successful token exchange
+- ✅ WhatsApp credentials saved to database
+- ✅ Existing WhatsApp bot continues working
+- ✅ No 400 errors in browser console
+- ✅ Detailed error logging for troubleshooting
 
 ---
 
-# Final Instruction
+# Files Modified (Recent Fix)
 
-Be conservative with changes.
+- `backend/services/meta_oauth.py` - OAuth service with redirect_uri support
+- `backend/routers/integrations.py` - GET and POST callback endpoints
+- `frontend/app/dashboard/integrations/page.tsx` - Frontend OAuth flow
+- `ERROR_FIX_DOCUMENTATION.md` - Detailed error analysis
 
-This is an existing working WhatsApp SaaS application.
+---
 
-Do not rewrite the WhatsApp integration.
+# Next Steps
 
-Do not replace working code unnecessarily.
-
-Inspect first, identify the exact cause, then make the smallest safe change required to enable Meta Embedded Signup local testing.
+1. Deploy changes to production (Render + Netlify auto-deploy on git push)
+2. Verify Meta App settings match production URLs
+3. Test OAuth flow in production
+4. Monitor Render logs for any errors
+5. Verify existing bot still works after deployment

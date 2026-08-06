@@ -474,35 +474,113 @@ def get_meta_config():
     }
 
 
+@router.get("/meta/oauth/callback")
+async def meta_oauth_callback_get(
+    request: Request,
+    code: str = None,
+    state: str = None,
+    error: str = None,
+    error_description: str = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Handle Meta OAuth callback via GET redirect (traditional OAuth flow).
+    This is called when Meta redirects the browser back to our app.
+    """
+    logger.info(f"GET OAuth callback: code={code[:20] if code else None}..., state={state}, error={error}")
+
+    # If there's an error from Meta
+    if error:
+        logger.error(f"Meta OAuth error: {error} - {error_description}")
+        # Redirect back to integrations page with error
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(
+            url=f"/dashboard/integrations?error={error}&message={error_description or 'OAuth failed'}",
+            status_code=302
+        )
+
+    # Code is required for successful OAuth
+    if not code:
+        logger.error("No code provided in GET callback")
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(
+            url="/dashboard/integrations?error=no_code&message=No authorization code received",
+            status_code=302
+        )
+
+    # TODO: In production, you should use the 'state' parameter to:
+    # 1. Verify CSRF protection
+    # 2. Retrieve user_id from session/state
+    # For now, returning a message that frontend needs to handle this via JavaScript
+
+    logger.warning("GET callback received but requires frontend JavaScript handling (FB.login approach)")
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(
+        content=f"""
+        <html>
+        <head><title>WhatsApp Connection</title></head>
+        <body>
+            <h2>Processing WhatsApp Connection...</h2>
+            <p>Authorization code received. Please complete the process from the dashboard.</p>
+            <p><a href="/dashboard/integrations">Return to Dashboard</a></p>
+            <script>
+                // If this is opened in a popup, close it
+                if (window.opener) {{
+                    window.opener.postMessage({{
+                        type: 'oauth_callback',
+                        code: '{code}',
+                        state: '{state or ""}'
+                    }}, '*');
+                    window.close();
+                }} else {{
+                    // Redirect to dashboard
+                    window.location.href = '/dashboard/integrations';
+                }}
+            </script>
+        </body>
+        </html>
+        """,
+        status_code=200
+    )
+
+
 @router.post("/meta/oauth/callback")
-async def meta_oauth_callback(
+async def meta_oauth_callback_post(
+    request: Request,
     code: str = Body(..., embed=True),
+    redirect_uri: str = Body(None),
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
     """
-    Handle Meta OAuth callback after Embedded Signup.
+    Handle Meta OAuth callback via POST (JavaScript callback from FB.login).
     Exchange authorization code for credentials and save to integration.
     """
     settings = get_settings()
 
+    logger.info(f"POST OAuth callback received for user {user_id}")
+    logger.info(f"Code length: {len(code)}, Redirect URI: {redirect_uri}")
+
     if not settings.META_APP_ID or not settings.META_APP_SECRET:
-        raise HTTPException(500, "Meta OAuth is not configured")
+        logger.error("Meta OAuth not configured - missing APP_ID or APP_SECRET")
+        raise HTTPException(500, "Meta OAuth is not configured on the server")
 
     # Get user's bot and integration
     bot = db.query(Bot).filter(Bot.user_id == user_id).first()
     if not bot:
+        logger.error(f"Bot not found for user {user_id}")
         raise HTTPException(404, "Bot not found")
 
     integ = db.query(Integration).filter(Integration.bot_id == bot.id).first()
     if not integ:
+        logger.error(f"Integration not found for bot {bot.id}")
         raise HTTPException(404, "Integration not found")
 
     # Initialize OAuth service
     oauth_service = MetaOAuthService(settings.META_APP_ID, settings.META_APP_SECRET)
 
-    # Complete the setup
-    success, integration_data, error = await oauth_service.setup_whatsapp_integration(code)
+    # Complete the setup (pass redirect_uri if provided)
+    success, integration_data, error = await oauth_service.setup_whatsapp_integration(code, redirect_uri)
 
     if not success:
         logger.error(f"OAuth setup failed for user {user_id}: {error}")

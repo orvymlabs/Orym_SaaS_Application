@@ -18,9 +18,13 @@ class MetaOAuthService:
         self.app_id = app_id
         self.app_secret = app_secret
 
-    async def exchange_code_for_token(self, code: str) -> Tuple[bool, Optional[Dict], Optional[str]]:
+    async def exchange_code_for_token(self, code: str, redirect_uri: Optional[str] = None) -> Tuple[bool, Optional[Dict], Optional[str]]:
         """
         Exchange authorization code for access token.
+
+        Args:
+            code: Authorization code from Meta OAuth
+            redirect_uri: Optional redirect URI (must match the one used in authorization if provided)
 
         Returns:
             (success, data, error_message)
@@ -33,28 +37,39 @@ class MetaOAuthService:
                 "code": code
             }
 
+            # Include redirect_uri if provided (required for some OAuth flows)
+            if redirect_uri:
+                params["redirect_uri"] = redirect_uri
+
+            logger.info(f"Exchanging code for token (redirect_uri: {redirect_uri})")
+
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(url, params=params)
 
                 if response.status_code != 200:
                     error_data = response.json() if response.text else {}
                     error_msg = error_data.get("error", {}).get("message", "Failed to exchange code")
-                    logger.error(f"Token exchange failed: {error_msg}")
+                    error_code = error_data.get("error", {}).get("code", "unknown")
+                    error_type = error_data.get("error", {}).get("type", "unknown")
+                    full_error = f"[{error_code}/{error_type}] {error_msg}"
+                    logger.error(f"Token exchange failed: {full_error} | Response: {response.text[:500]}")
                     return False, None, error_msg
 
                 data = response.json()
                 access_token = data.get("access_token")
 
                 if not access_token:
+                    logger.error(f"No access token in response: {data}")
                     return False, None, "No access token returned"
 
+                logger.info("Token exchange successful")
                 return True, data, None
 
         except httpx.TimeoutException:
             logger.error("Token exchange timed out")
             return False, None, "Request timed out. Please try again."
         except Exception as e:
-            logger.error(f"Token exchange error: {e}")
+            logger.error(f"Token exchange error: {e}", exc_info=True)
             return False, None, str(e)
 
     async def get_whatsapp_business_account(self, access_token: str) -> Tuple[bool, Optional[Dict], Optional[str]]:
@@ -127,7 +142,7 @@ class MetaOAuthService:
             logger.error(f"Get phone numbers error: {e}")
             return False, None, str(e)
 
-    async def setup_whatsapp_integration(self, code: str) -> Tuple[bool, Optional[Dict], Optional[str]]:
+    async def setup_whatsapp_integration(self, code: str, redirect_uri: Optional[str] = None) -> Tuple[bool, Optional[Dict], Optional[str]]:
         """
         Complete WhatsApp integration setup from authorization code.
 
@@ -135,6 +150,10 @@ class MetaOAuthService:
         1. Exchange code for access token
         2. Get WhatsApp Business Account ID
         3. Get phone number details
+
+        Args:
+            code: Authorization code from Meta OAuth
+            redirect_uri: Optional redirect URI (must match the one used in authorization)
 
         Returns:
             (success, integration_data, error_message)
@@ -148,8 +167,10 @@ class MetaOAuthService:
         """
         try:
             # Step 1: Exchange code for token
-            success, token_data, error = await self.exchange_code_for_token(code)
+            logger.info(f"Starting WhatsApp integration setup (code length: {len(code)})")
+            success, token_data, error = await self.exchange_code_for_token(code, redirect_uri)
             if not success:
+                logger.error(f"Step 1 failed - Token exchange: {error}")
                 return False, None, error or "Failed to exchange authorization code"
 
             access_token = token_data.get("access_token")
