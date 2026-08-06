@@ -4,6 +4,7 @@ interface Window {
     init: (params: {
       appId: string;
       cookie?: boolean;
+      autoLogAppEvents?: boolean;
       xfbml?: boolean;
       version: string;
     }) => void;

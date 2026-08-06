@@ -548,7 +548,7 @@ async def meta_oauth_callback_get(
 async def meta_oauth_callback_post(
     request: Request,
     code: str = Body(..., embed=True),
-    redirect_uri: str = Body(..., embed=True),
+    redirect_uri: str = Body(None, embed=True),
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
@@ -556,9 +556,12 @@ async def meta_oauth_callback_post(
     Handle Meta OAuth callback via POST (JavaScript callback from FB.login).
     Exchange authorization code for credentials and save to integration.
 
-    CRITICAL: redirect_uri must match what FB.login() used implicitly.
-    When FB.login() is called without explicit redirect_uri, Meta uses
-    the current page URL. Frontend sends this URL to us.
+    Meta Embedded Signup: FB.login() with config_id returns the exchangeable
+    code via the JavaScript callback and does NOT use a redirect_uri during
+    authorization. Per Meta's Embedded Signup documentation, the code exchange
+    (GET /oauth/access_token) must therefore NOT include a redirect_uri.
+    The frontend must send ONLY { code } — redirect_uri is accepted here only
+    for backward compatibility and is NOT forwarded to Meta.
     """
     settings = get_settings()
 
@@ -567,9 +570,9 @@ async def meta_oauth_callback_post(
     logger.info("=" * 80)
     logger.info(f"User ID: {user_id}")
     logger.info(f"Code received: Yes (length: {len(code)})")
-    logger.info(f"Redirect URI: {redirect_uri}")
-    logger.info(f"Flow type: FB.login() with config_id and response_type=code")
-    logger.info(f"Explanation: FB.login() uses current page URL as implicit redirect_uri")
+    logger.info(f"Redirect URI provided: {redirect_uri if redirect_uri else 'NO (correct for Embedded Signup)'}")
+    logger.info(f"Flow type: FB.login() with config_id and response_type=code (JavaScript callback)")
+    logger.info(f"Explanation: Embedded Signup does NOT use redirect_uri in authorization or token exchange")
     logger.info("=" * 80)
 
     if not settings.META_APP_ID or not settings.META_APP_SECRET:

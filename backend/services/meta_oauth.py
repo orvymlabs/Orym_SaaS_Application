@@ -3,10 +3,12 @@ Meta Embedded Signup OAuth Service
 Handles WhatsApp Business API authentication via Meta Embedded Signup
 
 IMPORTANT: For Embedded Signup with FB.login() + config_id:
-- Frontend calls FB.login({config_id, response_type: 'code'}) WITHOUT explicit redirect_uri
-- Meta uses the current page URL as the implicit redirect_uri during authorization
-- Token exchange MUST include the SAME redirect_uri (current page URL)
-- Frontend sends the page URL to backend for use in token exchange
+- Frontend calls FB.login({config_id, response_type: 'code', override_default_response_type: true})
+  WITHOUT a redirect_uri. Meta returns the exchangeable code via the JavaScript callback.
+- Meta's Embedded Signup documentation exchanges the code via GET /oauth/access_token
+  WITHOUT a redirect_uri (see "Onboarding business customers as a Tech Provider").
+- Therefore the token exchange MUST NOT include redirect_uri either.
+- The backend sends ONLY: client_id, client_secret, code.
 """
 import httpx
 import logging
@@ -18,19 +20,24 @@ logger = logging.getLogger(__name__)
 class MetaOAuthService:
     """Service for handling Meta OAuth flow for WhatsApp Business API."""
 
-    GRAPH_API_BASE = "https://graph.facebook.com/v21.0"
+    GRAPH_API_BASE = "https://graph.facebook.com/v26.0"
 
     def __init__(self, app_id: str, app_secret: str):
         self.app_id = app_id
         self.app_secret = app_secret
 
-    async def exchange_code_for_token(self, code: str, redirect_uri: str) -> Tuple[bool, Optional[Dict], Optional[str]]:
+    async def exchange_code_for_token(self, code: str, redirect_uri: Optional[str] = None) -> Tuple[bool, Optional[Dict], Optional[str]]:
         """
         Exchange authorization code for access token.
 
+        Meta Embedded Signup (FB.login + config_id) does NOT use a redirect_uri
+        during authorization, so it must NOT be sent during the token exchange.
+        redirect_uri is only included if an explicit non-empty value is supplied
+        (backward compatibility with other OAuth flows).
+
         Args:
             code: Authorization code from Meta OAuth
-            redirect_uri: The redirect URI that was used during authorization (required)
+            redirect_uri: Optional redirect URI (ignored for Embedded Signup)
 
         Returns:
             (success, data, error_message)
@@ -38,16 +45,17 @@ class MetaOAuthService:
         try:
             url = f"{self.GRAPH_API_BASE}/oauth/access_token"
 
-            # CRITICAL: redirect_uri must match what FB.login() used implicitly.
-            # When FB.login() is called without explicit redirect_uri, Meta uses
-            # the current page URL. Frontend sends this URL to us.
-
+            # CRITICAL: For Embedded Signup with FB.login() + config_id, Meta's docs
+            # exchange the code WITHOUT redirect_uri. Passing any redirect_uri value
+            # here causes: "Error validating verification code. Please make sure your
+            # redirect_uri is identical to the one you used in the OAuth dialog request".
             params = {
                 "client_id": self.app_id,
                 "client_secret": self.app_secret,
                 "code": code,
-                "redirect_uri": redirect_uri
             }
+            if redirect_uri:
+                params["redirect_uri"] = redirect_uri
 
             # Log the request (excluding secret)
             log_params = {k: (v if k != "client_secret" else "***REDACTED***") for k, v in params.items()}
@@ -57,7 +65,7 @@ class MetaOAuthService:
             logger.info(f"  URL: {url}")
             logger.info(f"  Method: GET")
             logger.info(f"  Parameters: {log_params}")
-            logger.info(f"  redirect_uri: '{redirect_uri}'")
+            logger.info(f"  redirect_uri included: {bool(redirect_uri)}")
             logger.info(f"  Code length: {len(code)}")
             logger.info("=" * 80)
 
@@ -99,7 +107,7 @@ class MetaOAuthService:
                     logger.error(f"No access token in response: {data}")
                     return False, None, "No access token returned"
 
-                logger.info(f"✅ Token exchange successful with redirect_uri: '{redirect_uri}'")
+                logger.info(f"✅ Token exchange successful (redirect_uri: {'NOT INCLUDED' if not redirect_uri else redirect_uri})")
                 return True, data, None
 
         except httpx.TimeoutException:
@@ -190,7 +198,9 @@ class MetaOAuthService:
 
         Args:
             code: Authorization code from Meta OAuth
-            redirect_uri: Optional redirect URI (must match the one used in authorization)
+            redirect_uri: Optional redirect URI. For Embedded Signup this is ignored
+                (FB.login + config_id does not use redirect_uri, so the code exchange
+                must not include it either).
 
         Returns:
             (success, integration_data, error_message)

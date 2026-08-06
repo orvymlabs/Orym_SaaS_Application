@@ -108,17 +108,71 @@ export default function IntegrationsPage() {
         setMetaConfig(config);
         // Initialize Facebook SDK after config is loaded
         if (typeof window !== 'undefined' && config) {
+          // SDK initialization - Official Meta Code
           (window as any).fbAsyncInit = function() {
             if (window.FB) {
               window.FB.init({
                 appId: config.app_id,
-                cookie: true,
+                autoLogAppEvents: true,
                 xfbml: true,
-                version: 'v21.0'
+                version: 'v26.0' // Latest Graph API version as per Meta docs
               });
               console.log('Facebook SDK initialized with App ID:', config.app_id);
             }
           };
+
+          // Session logging message event listener - Official Meta Code
+          // This captures phone_number_id, waba_id, business_id during the signup flow
+          window.addEventListener('message', (event) => {
+            // Security check: only accept messages from facebook.com
+            if (!event.origin.endsWith('facebook.com')) return;
+
+            try {
+              const data = JSON.parse(event.data);
+              if (data.type === 'WA_EMBEDDED_SIGNUP') {
+                console.log('📨 WhatsApp Embedded Signup Message Event:', data);
+
+                // Handle successful completion
+                if (data.event === 'FINISH' || data.event === 'FINISH_ONLY_WABA' || data.event === 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING') {
+                  console.log('✅ Flow completed successfully');
+                  console.log('  Phone Number ID:', data.data?.phone_number_id);
+                  console.log('  WABA ID:', data.data?.waba_id);
+                  console.log('  Business ID:', data.data?.business_id);
+
+                  // Send session info to backend
+                  if (data.data) {
+                    apiPost("/api/integrations/meta/session-info", {
+                      phone_number_id: data.data.phone_number_id,
+                      waba_id: data.data.waba_id,
+                      business_id: data.data.business_id,
+                      ad_account_ids: data.data.ad_account_ids || [],
+                      page_ids: data.data.page_ids || [],
+                      dataset_ids: data.data.dataset_ids || [],
+                      catalog_ids: data.data.catalog_ids || [],
+                      instagram_account_ids: data.data.instagram_account_ids || [],
+                      waba_ids: data.data.waba_ids || []
+                    }).catch(err => console.error('Failed to save session info:', err));
+                  }
+                }
+
+                // Handle abandoned flow
+                if (data.event === 'CANCEL') {
+                  console.log('⚠️ Flow cancelled or abandoned');
+                  if (data.data?.current_step) {
+                    console.log('  Abandoned at step:', data.data.current_step);
+                  }
+                  if (data.data?.error_message) {
+                    console.log('  Error reported:', data.data.error_message);
+                    console.log('  Error code:', data.data.error_code);
+                    console.log('  Session ID:', data.data.session_id);
+                  }
+                }
+              }
+            } catch (parseError) {
+              // If not JSON, log the raw data
+              console.log('📨 WhatsApp Embedded Signup Message Event (raw):', event.data);
+            }
+          });
 
           // Load the SDK if not already loaded
           if (!window.FB) {
@@ -155,7 +209,21 @@ export default function IntegrationsPage() {
     }).catch(console.error);
   }, []);
 
-  // Launch Meta Embedded Signup
+  // Response callback - Official Meta Code
+  const fbLoginCallback = (response: any) => {
+    if (response.authResponse) {
+      const code = response.authResponse.code;
+      console.log('✅ Exchangeable token code received:', code);
+      // Exchange the code for access token
+      handleMetaOAuthCallback(code);
+    } else {
+      setConnectingWhatsApp(false);
+      console.log('❌ OAuth response (cancelled or failed):', response);
+      showToast("WhatsApp connection cancelled", "warning");
+    }
+  };
+
+  // Launch Meta Embedded Signup - Official Meta Code
   const launchWhatsAppLogin = () => {
     if (!metaConfig) {
       showToast("Meta Embedded Signup is not configured", "error");
@@ -169,65 +237,39 @@ export default function IntegrationsPage() {
 
     setConnectingWhatsApp(true);
 
-    console.log('🚀 Launching Meta WhatsApp Embedded Signup');
+    console.log('🚀 Launching WhatsApp Embedded Signup');
     console.log('  App ID:', metaConfig.app_id);
     console.log('  Config ID:', metaConfig.config_id);
-    console.log('  Flow: FB.login() with Embedded Signup');
-    console.log('  ⚠️ IMPORTANT: redirect_uri is NOT passed in FB.login() options');
-    console.log('  ⚠️ This means token exchange must also OMIT redirect_uri');
 
-    const loginOptions = {
+    // Launch method and callback registration - Official Meta Code
+    window.FB.login(fbLoginCallback, {
       config_id: metaConfig.config_id,
       response_type: 'code',
       override_default_response_type: true,
       extras: {
-        setup: {
-          // Optional: pre-fill business details
-        }
+        setup: {},
       }
-    };
-
-    console.log('  FB.login options:', JSON.stringify(loginOptions, null, 2));
-
-    // Launch the embedded signup flow
-    // CRITICAL: We do NOT pass redirect_uri here, so token exchange must also omit it
-    window.FB.login(
-      (response: any) => {
-        if (response.authResponse) {
-          const code = response.authResponse.code;
-          console.log('✅ OAuth authorization successful');
-          console.log('  Code received, length:', code?.length);
-          handleMetaOAuthCallback(code);
-        } else {
-          setConnectingWhatsApp(false);
-          console.warn('❌ OAuth cancelled or failed:', response);
-          showToast("WhatsApp connection cancelled", "warning");
-        }
-      },
-      loginOptions
-    );
+    });
   };
 
-  // Handle OAuth callback
+  // Handle OAuth callback - Exchange code for access token
   const handleMetaOAuthCallback = async (code: string) => {
     try {
-      console.log('🔐 Meta OAuth Callback - Starting token exchange');
+      console.log('🔐 Exchanging authorization code for access token');
       console.log('  Code length:', code.length);
-      console.log('  Flow type: FB.login() with response_type=code (JavaScript callback)');
+      console.log('  ⚠️ Note: Exchangeable code expires in 30 seconds');
 
-      // CRITICAL: When FB.login() is called without explicit redirect_uri,
-      // Meta uses the current page URL as the implicit redirect_uri.
-      // We must send this URL to backend so token exchange uses the same redirect_uri.
-      const currentPageUrl = typeof window !== 'undefined' ? window.location.origin + window.location.pathname : '';
-
-      console.log('  redirect_uri (implicit from FB.login):', currentPageUrl);
+      // Meta Embedded Signup: FB.login() with config_id returns the exchangeable
+      // code via the JavaScript callback and does NOT use a redirect_uri during
+      // authorization. Per Meta's Embedded Signup documentation, the code exchange
+      // (GET /oauth/access_token) must therefore NOT include a redirect_uri.
+      console.log('  redirect_uri: NOT INCLUDED (correct for Embedded Signup)');
 
       const result = await apiPost("/api/integrations/meta/oauth/callback", {
-        code,
-        redirect_uri: currentPageUrl
+        code
       });
 
-      console.log('✅ OAuth callback response received:', result.success ? 'SUCCESS' : 'FAILED');
+      console.log('✅ Token exchange response:', result.success ? 'SUCCESS' : 'FAILED');
 
       if (result.success) {
         showToast("WhatsApp connected successfully!", "success");
@@ -244,7 +286,7 @@ export default function IntegrationsPage() {
         showToast(result.message || "Failed to connect WhatsApp", "error");
       }
     } catch (err: any) {
-      console.error('OAuth callback error:', err);
+      console.error('❌ OAuth callback error:', err);
       showToast("Error: " + err.message, "error");
     } finally {
       setConnectingWhatsApp(false);

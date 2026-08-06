@@ -1,5 +1,13 @@
 # Meta Embedded Signup - Complete Setup Guide
 
+> ⚠️ NOTE: Meta WhatsApp **Embedded Signup** (FB.login + config_id) does NOT use a
+> `redirect_uri` — neither during authorization nor during the code exchange
+> (`GET /oauth/access_token?client_id&client_secret&code`). Do NOT pass `redirect_uri`.
+> The page domain must be registered in the Meta App (see `PRODUCTION_META_CONFIG.md`).
+> The sections below about "OAuth Redirect URIs" apply to the page/domain registration
+> (adding the page URL as a Valid OAuth Redirect URI), not to passing `redirect_uri`
+> to `FB.login()`.
+
 ## ✅ What's Already Done
 
 1. **Backend Configuration**

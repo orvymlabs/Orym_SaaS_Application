@@ -1,89 +1,93 @@
 # Meta Dashboard Configuration for Production
 
+## How the Embedded Signup redirect_uri actually works
+
+Meta WhatsApp **Embedded Signup** is launched with the JS SDK:
+
+```js
+FB.login(fbLoginCallback, {
+  config_id: "2432311603846818",
+  response_type: "code",
+  override_default_response_type: true,
+  extras: { setup: {} },
+});
+```
+
+The exchangeable code is returned to the page via the JavaScript callback — **not** via a
+URL redirect. Therefore **no redirect_uri is used during authorization**, and per Meta's
+Embedded Signup documentation ("Onboarding business customers as a Tech Provider") the code
+exchange `GET /oauth/access_token` must **also omit `redirect_uri`**.
+
+Sending `redirect_uri` in the token exchange produces:
+
+```
+400 Error validating verification code. Please make sure your redirect_uri is identical
+    to the one you used in the OAuth dialog request
+```
+
+The frontend must send `{ code }` ONLY to the backend callback. The backend must send
+`client_id`, `client_secret`, `code` ONLY to Meta.
+
 ## Required Changes in Meta App Dashboard
 
-### Step 1: Add Production OAuth Redirect URI
+The frontend runs at `https://apps.orvym.com/dashboard/integrations`. Meta validates the
+domain of the page that spawned the flow, so **the ACTUAL domain `apps.orvym.com`** must be
+registered in all three places below. Do NOT add random domains — only the real one.
+
+### Step 1: App Domains (Settings > Basic)
 
 1. Go to: https://developers.facebook.com/apps/3862862217342382/settings/basic/
-
-2. Scroll to **"Valid OAuth Redirect URIs"**
-
-3. Add BOTH URLs (local + production):
+2. In **"App Domains"** add (the domain hosting the frontend):
    ```
-   http://localhost:3000/dashboard/integrations
+   apps.orvym.com
+   ```
+3. Click **"Save Changes"**
+
+### Step 2: Valid OAuth Redirect URIs (Facebook Login > Settings)
+
+1. Go to: https://developers.facebook.com/apps/3862862217342382/fb-login/settings/
+2. In **"Valid OAuth Redirect URIs"** add the page URL(s):
+   ```
+   https://apps.orvym.com/
    https://apps.orvym.com/dashboard/integrations
    ```
+3. Click **"Save Changes"**
 
-4. Click **"Save Changes"**
+### Step 3: Allowed Domains for the JavaScript SDK (Facebook Login > Settings)
 
-### Step 2: Configure App Domains
-
-1. In the same Basic Settings page
-
-2. Find **"App Domains"** section
-
-3. Add BOTH domains:
-   ```
-   localhost
-   apps.orvym.com
-   ```
-
-4. Click **"Save Changes"**
-
-### Step 3: Configure JavaScript SDK Allowed Domains
-
-1. Go to: **WhatsApp > Configuration** in the left sidebar
-
+1. In the same Facebook Login > Settings page
 2. Find **"Allowed Domains for the JavaScript SDK"**
-
-3. Add BOTH domains:
+3. Add:
    ```
-   localhost
    apps.orvym.com
    ```
+4. Click **"Save Changes"**
 
-4. Click **"Save"**
+### Step 4: Login for Business settings (Facebook Login for Business)
 
-### Step 4: Verify Webhook Configuration
+1. Go to **Facebook Login for Business** in the left sidebar
+2. Under **Settings** ensure OAuth is enabled and add the same entries as Step 2/3
+   (`https://apps.orvym.com/`, `https://apps.orvym.com/dashboard/integrations`,
+   `apps.orvym.com`)
 
-1. In WhatsApp > Configuration
+### Step 5: Verify Webhook Configuration (WhatsApp > Configuration)
 
-2. **Webhook URL** should be:
+1. **Webhook URL**:
    ```
    https://orym-saas-application.onrender.com/webhook
    ```
+2. **Verify Token** must match what's in the database
 
-3. **Verify Token** should match what's in your database
+## Troubleshooting
 
-## Important Notes:
+**"Can't load URL: The domain of this URL isn't included in the app's domains."**
+- `apps.orvym.com` is missing from App Domains and/or "Allowed Domains for the JavaScript SDK"
+- Add it (Steps 1 and 3 above)
 
-- ✅ Keep localhost URLs for local development
-- ✅ Add production URLs for live site
-- ⚠️ URLs must match EXACTLY (including https:// and path)
-- ⚠️ No trailing slashes
+**"Error validating verification code... redirect_uri"**
+- The token exchange is sending a redirect_uri. Remove it — Embedded Signup exchange is
+  `client_id + client_secret + code` only (backend `meta_oauth.py` handles this)
 
-## Testing Production Configuration:
-
-After saving all changes:
-
-1. Open: https://apps.orvym.com/dashboard/integrations
-2. Click "Connect WhatsApp"
-3. Meta popup should open
-4. Complete authorization
-5. Should redirect back to: https://apps.orvym.com/dashboard/integrations
-6. WhatsApp should be connected ✅
-
-## Troubleshooting:
-
-**"Redirect URI Mismatch" error:**
-- Meta received a different redirect URI than what's configured
-- Check the URL in Meta Dashboard matches EXACTLY
-- Verify NEXT_PUBLIC_APP_URL is set correctly in frontend
-
-**"App Domain Not Allowed" error:**
-- apps.orvym.com is not in App Domains
-- Add it and save
-
-**SDK won't load:**
-- apps.orvym.com is not in Allowed Domains for JavaScript SDK
-- Add it and save
+**"URL Blocked: This redirect failed because the redirect URI is not whitelisted"**
+- Add `https://apps.orvym.com/` and `https://apps.orvym.com/dashboard/integrations`
+  to Valid OAuth Redirect URIs (Step 2)
