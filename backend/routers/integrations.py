@@ -558,8 +558,14 @@ async def meta_oauth_callback_post(
     """
     settings = get_settings()
 
-    logger.info(f"POST OAuth callback received for user {user_id}")
-    logger.info(f"Code length: {len(code)}, Redirect URI: {redirect_uri}")
+    logger.info("=" * 80)
+    logger.info("📥 META OAUTH CALLBACK - POST REQUEST")
+    logger.info("=" * 80)
+    logger.info(f"User ID: {user_id}")
+    logger.info(f"Code received: Yes (length: {len(code)})")
+    logger.info(f"Redirect URI provided: {redirect_uri if redirect_uri else 'NO (correct for FB.login flow)'}")
+    logger.info(f"Flow type: FB.login() with response_type=code")
+    logger.info("=" * 80)
 
     if not settings.META_APP_ID or not settings.META_APP_SECRET:
         logger.error("Meta OAuth not configured - missing APP_ID or APP_SECRET")

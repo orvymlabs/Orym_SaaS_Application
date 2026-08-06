@@ -41,10 +41,21 @@ class MetaOAuthService:
             if redirect_uri:
                 params["redirect_uri"] = redirect_uri
 
-            logger.info(f"Exchanging code for token (redirect_uri: {redirect_uri})")
+            # Log the complete request (excluding secret)
+            log_params = {k: (v if k != "client_secret" else "***REDACTED***") for k, v in params.items()}
+            logger.info(f"Meta OAuth Token Exchange Request:")
+            logger.info(f"  URL: {url}")
+            logger.info(f"  Parameters: {log_params}")
+            logger.info(f"  redirect_uri included: {redirect_uri is not None}")
+            logger.info(f"  Code length: {len(code)}")
 
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(url, params=params)
+
+                # Log response details
+                logger.info(f"Meta OAuth Response:")
+                logger.info(f"  Status Code: {response.status_code}")
+                logger.info(f"  Response Body: {response.text[:500]}")
 
                 if response.status_code != 200:
                     error_data = response.json() if response.text else {}
@@ -52,7 +63,7 @@ class MetaOAuthService:
                     error_code = error_data.get("error", {}).get("code", "unknown")
                     error_type = error_data.get("error", {}).get("type", "unknown")
                     full_error = f"[{error_code}/{error_type}] {error_msg}"
-                    logger.error(f"Token exchange failed: {full_error} | Response: {response.text[:500]}")
+                    logger.error(f"Token exchange failed: {full_error}")
                     return False, None, error_msg
 
                 data = response.json()
@@ -62,7 +73,7 @@ class MetaOAuthService:
                     logger.error(f"No access token in response: {data}")
                     return False, None, "No access token returned"
 
-                logger.info("Token exchange successful")
+                logger.info("✅ Token exchange successful")
                 return True, data, None
 
         except httpx.TimeoutException:

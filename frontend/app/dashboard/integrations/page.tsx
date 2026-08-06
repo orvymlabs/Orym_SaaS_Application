@@ -169,47 +169,61 @@ export default function IntegrationsPage() {
 
     setConnectingWhatsApp(true);
 
-    console.log('Launching WhatsApp login with config_id:', metaConfig.config_id);
+    console.log('🚀 Launching Meta WhatsApp Embedded Signup');
+    console.log('  App ID:', metaConfig.app_id);
+    console.log('  Config ID:', metaConfig.config_id);
+    console.log('  Flow: FB.login() with Embedded Signup');
+    console.log('  ⚠️ IMPORTANT: redirect_uri is NOT passed in FB.login() options');
+    console.log('  ⚠️ This means token exchange must also OMIT redirect_uri');
+
+    const loginOptions = {
+      config_id: metaConfig.config_id,
+      response_type: 'code',
+      override_default_response_type: true,
+      extras: {
+        setup: {
+          // Optional: pre-fill business details
+        }
+      }
+    };
+
+    console.log('  FB.login options:', JSON.stringify(loginOptions, null, 2));
 
     // Launch the embedded signup flow
-    // Note: redirect_uri is configured in Meta App settings, not passed here
+    // CRITICAL: We do NOT pass redirect_uri here, so token exchange must also omit it
     window.FB.login(
       (response: any) => {
         if (response.authResponse) {
           const code = response.authResponse.code;
-          console.log('OAuth code received, length:', code?.length);
+          console.log('✅ OAuth authorization successful');
+          console.log('  Code received, length:', code?.length);
           handleMetaOAuthCallback(code);
         } else {
           setConnectingWhatsApp(false);
-          console.warn('OAuth cancelled or failed:', response);
+          console.warn('❌ OAuth cancelled or failed:', response);
           showToast("WhatsApp connection cancelled", "warning");
         }
       },
-      {
-        config_id: metaConfig.config_id,
-        response_type: 'code',
-        override_default_response_type: true,
-        extras: {
-          setup: {
-            // Optional: pre-fill business details
-          }
-        }
-      }
+      loginOptions
     );
   };
 
   // Handle OAuth callback
   const handleMetaOAuthCallback = async (code: string) => {
     try {
-      // Get the redirect URI that was used for the OAuth flow
-      const redirect_uri = `${appUrl}/dashboard/integrations`;
+      console.log('🔐 Meta OAuth Callback - Starting token exchange');
+      console.log('  Code length:', code.length);
+      console.log('  Flow type: FB.login() with response_type=code (JavaScript callback)');
+      console.log('  redirect_uri: NOT INCLUDED (FB.login does not use redirect_uri parameter)');
 
-      console.log('Sending OAuth callback with code and redirect_uri:', redirect_uri);
-
+      // IMPORTANT: For FB.login() with response_type='code', we MUST NOT send redirect_uri
+      // because the authorization request did not include redirect_uri.
+      // Meta requires exact matching: if authorization omits redirect_uri, token exchange must also omit it.
       const result = await apiPost("/api/integrations/meta/oauth/callback", {
-        code,
-        redirect_uri
+        code
       });
+
+      console.log('✅ OAuth callback response received:', result.success ? 'SUCCESS' : 'FAILED');
 
       if (result.success) {
         showToast("WhatsApp connected successfully!", "success");
