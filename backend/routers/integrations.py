@@ -558,10 +558,10 @@ async def meta_oauth_callback_post(
 
     Meta Embedded Signup: FB.login() with config_id returns the exchangeable
     code via the JavaScript callback and does NOT use a redirect_uri during
-    authorization. Per Meta's Embedded Signup documentation, the code exchange
-    (GET /oauth/access_token) must therefore NOT include a redirect_uri.
-    The frontend must send ONLY { code } — redirect_uri is accepted here only
-    for backward compatibility and is NOT forwarded to Meta.
+    authorization. Meta records the dialog's redirect_uri as an EMPTY STRING
+    for this flow, so the code exchange (GET /oauth/access_token) sends
+    redirect_uri="" (empty string) - never a real URL. The frontend must send
+    ONLY { code }. redirect_uri is accepted here only for backward compatibility.
     """
     settings = get_settings()
 
@@ -570,9 +570,9 @@ async def meta_oauth_callback_post(
     logger.info("=" * 80)
     logger.info(f"User ID: {user_id}")
     logger.info(f"Code received: Yes (length: {len(code)})")
-    logger.info(f"Redirect URI provided: {redirect_uri if redirect_uri else 'NO (correct for Embedded Signup)'}")
+    logger.info(f"Redirect URI provided: {redirect_uri if redirect_uri else 'NO - empty string will be used for Embedded Signup'}")
     logger.info(f"Flow type: FB.login() with config_id and response_type=code (JavaScript callback)")
-    logger.info(f"Explanation: Embedded Signup does NOT use redirect_uri in authorization or token exchange")
+    logger.info(f"Explanation: Embedded Signup exchange sends redirect_uri='' (empty string), never a real URL")
     logger.info("=" * 80)
 
     if not settings.META_APP_ID or not settings.META_APP_SECRET:
