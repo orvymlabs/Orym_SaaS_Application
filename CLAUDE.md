@@ -1,61 +1,89 @@
-The latest production logs show that the previous redirect_uri fix is NOT actually working.
+The frontend production deployment is now updated and Embedded Signup is working correctly.
 
-Current logs:
+Current production logs:
 
-FB.login options:
-{
-  "config_id": "2432311603846818",
-  "response_type": "code",
-  "override_default_response_type": true,
-  "extras": {
-    "setup": {}
-  }
-}
+✅ WhatsApp Embedded Signup Message Event received
+✅ Exchangeable token code received
+✅ Code length: 451
+✅ Frontend correctly says:
+"redirect_uri: NOT INCLUDED (correct for Embedded Signup)"
 
-The frontend explicitly logs:
-"redirect_uri is NOT passed in FB.login() options"
+Then frontend sends the code to:
 
-Then:
-"redirect_uri: NOT INCLUDED"
+POST https://orym-saas-application.onrender.com/api/integrations/meta/oauth/callback
 
-Then Render returns:
+But Render returns:
+
 400
 "Error validating verification code. Please make sure your redirect_uri is identical to the one you used in the OAuth dialog request"
 
-There is also:
-"Can't load URL: The domain of this URL isn't included in the app's domains."
+This means the frontend Embedded Signup flow is now working, but the BACKEND token exchange with Meta is still incorrect.
 
-IMPORTANT:
-Do not make assumptions about redirect_uri anymore.
+DO NOT change the frontend again.
 
-Please inspect the actual Meta Embedded Signup implementation and determine the correct redirect_uri behavior for FB.login() with:
-config_id = 2432311603846818
-response_type = code
-override_default_response_type = true
+Please inspect the backend implementation completely:
 
-Then:
-
-1. Inspect the exact frontend code currently deployed to production.
-2. Verify whether redirect_uri is actually being passed to FB.login().
-3. Inspect the exact request body sent from frontend to:
+1. Open the actual production backend code for:
    /api/integrations/meta/oauth/callback
-4. Inspect the backend callback implementation.
-5. Inspect the exact parameters sent by backend to Meta's OAuth/token endpoint.
-6. Make sure the redirect_uri behavior is consistent between authorization and code exchange.
-7. Fix the "domain isn't included in app's domains" issue based on the ACTUAL redirect URI being used.
-8. Do not simply add random domains to Meta.
-9. Verify the fix against Meta's current Embedded Signup documentation.
-10. Build the frontend and verify the production bundle actually contains the fix.
 
-Also note:
-Frontend production = https://apps.orvym.com
-Backend production = https://orym-saas-application.onrender.com
+2. Find the exact request sent from the backend to Meta to exchange the Embedded Signup exchangeable code.
 
-Do NOT refer to Netlify. Frontend is hosted on Hostinger.
+3. Show me the exact parameters being sent to Meta's OAuth/token endpoint.
 
-After making changes, tell me:
-- exact redirect_uri used
-- exact Meta callback/token endpoint
-- exact frontend request body
-- exact backend request to Meta
-- which Meta App Domains / OAuth Redirect URI entries are required
+4. Verify whether the backend is sending:
+   - client_id
+   - client_secret
+   - code
+   - redirect_uri
+   - any other required parameters
+
+5. IMPORTANT:
+   The frontend is intentionally NOT sending redirect_uri because this is WhatsApp Embedded Signup using the postMessage exchangeable code flow.
+
+6. Verify Meta's CURRENT WhatsApp Embedded Signup documentation for the exchangeable code flow and determine whether redirect_uri should be omitted or what exact value Meta expects during backend exchange.
+
+7. Check whether the backend is accidentally:
+   - adding a redirect_uri
+   - using an old OAuth flow
+   - using the wrong Meta endpoint
+   - using the wrong App ID
+   - using the wrong App Secret
+   - mixing Facebook Login OAuth with WhatsApp Embedded Signup OAuth
+
+8. Add detailed backend logging BEFORE the Meta request:
+   - Meta endpoint
+   - App ID
+   - whether redirect_uri is included (DO NOT log App Secret)
+   - code length
+   - request parameter names
+   - Meta response status
+   - Meta error code
+   - Meta error subcode
+   - Meta fbtrace_id
+
+9. DO NOT log access tokens, app secret, or the full authorization code.
+
+10. Verify that the App ID is:
+    3862862217342382
+
+11. Verify that Config ID is:
+    2432311603846818
+
+12. Compare the backend implementation with Meta's current Embedded Signup exchangeable-code flow.
+
+13. Fix ONLY the backend implementation required for this flow.
+
+14. Deploy the backend to Render.
+
+15. After deployment, tell me exactly:
+    - Meta endpoint used
+    - exact parameter names sent
+    - whether redirect_uri is sent or omitted
+    - why
+    - Meta response/error after testing
+
+Production frontend:
+https://apps.orvym.com
+
+Production backend:
+https://orym-saas-application.onrender.com
