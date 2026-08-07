@@ -260,10 +260,10 @@ export default function IntegrationsPage() {
       console.log('  ⚠️ Note: Exchangeable code expires in 30 seconds');
 
       // Meta Embedded Signup: FB.login() with config_id returns the exchangeable
-      // code via the JavaScript callback and does NOT use a redirect_uri during
-      // authorization. Per Meta's Embedded Signup documentation, the code exchange
-      // (GET /oauth/access_token) must therefore NOT include a redirect_uri.
-      console.log('  redirect_uri: NOT INCLUDED (correct for Embedded Signup)');
+      // code via the JavaScript callback. The frontend must NOT send redirect_uri
+      // (Meta records it as an empty string for this flow). The backend exchange
+      // (GET /oauth/access_token) sends redirect_uri='' so no real URL is needed.
+      console.log('  redirect_uri: not sent by frontend (backend uses empty-string redirect_uri for Embedded Signup)');
 
       const result = await apiPost("/api/integrations/meta/oauth/callback", {
         code
