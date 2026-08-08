@@ -2,16 +2,26 @@
 Meta Embedded Signup OAuth Service
 Handles WhatsApp Business API authentication via Meta Embedded Signup
 
-IMPORTANT: For Embedded Signup with FB.login() + config_id:
-- Frontend calls FB.login({config_id, response_type: 'code', override_default_response_type: true})
-  WITHOUT a redirect_uri. Meta returns the exchangeable code via the JavaScript callback.
-- Meta's OAuth servers record the dialog's redirect_uri as an EMPTY STRING for this flow,
-  so the token exchange must send redirect_uri="" (empty string).
-- Omitting redirect_uri entirely (or sending a non-empty value) triggers:
-    "Error validating verification code. Please make sure your redirect_uri is identical
-     to the one you used in the OAuth dialog request"
-- If Meta still rejects with redirect_uri=="" we retry omitting redirect_uri entirely
-  (the variant shown in some Meta documentation).
+IMPORTANT - How redirect_uri works in this flow:
+
+The WhatsApp Embedded Signup is invoked through the OAuth dialog with
+response_type=code + config_id. Meta binds the returned authorization code to
+the exact redirect_uri used in that dialog request. The code exchange
+(GET /oauth/access_token) therefore:
+
+- MUST send redirect_uri = the EXACT value used in the dialog when the dialog
+  was invoked manually (frontend-built dialog URL). Meta's "Manually Build a
+  Login Flow" documentation states redirect_uri is required and must be
+  identical to the one used in the OAuth dialog request.
+- MUST OMIT redirect_uri entirely (never send an empty string) when the flow
+  was invoked via FB.login() / the JS SDK, which per Meta's Facebook Login for
+  Business and WhatsApp Embedded Signup documentation exchanges the code with
+  only client_id + client_secret + code.
+
+NEVER send redirect_uri="" (empty string). An empty-string redirect_uri is not
+identical to any value Meta recorded in the dialog and triggers:
+    "Error validating verification code. Please make sure your redirect_uri is
+     identical to the one you used in the OAuth dialog request"
 """
 import httpx
 import logging
@@ -24,8 +34,6 @@ logger = logging.getLogger(__name__)
 for _lib in ("httpx", "httpcore"):
     logging.getLogger(_lib).setLevel(logging.WARNING)
 
-REDIRECT_URI_ERROR_SUBCODES = (36001, 36008)
-
 
 class MetaOAuthService:
     """Service for handling Meta OAuth flow for WhatsApp Business API."""
@@ -36,7 +44,7 @@ class MetaOAuthService:
         self.app_id = app_id
         self.app_secret = app_secret
 
-    def _log_exchange_request(self, url: str, params: Dict, attempt: int, total: int) -> None:
+    def _log_exchange_request(self, url: str, params: Dict) -> None:
         """Log the exact request being sent to Meta (never the app secret or full code)."""
         log_params = {}
         for k, v in params.items():
@@ -45,12 +53,12 @@ class MetaOAuthService:
             elif k == "code":
                 log_params[k] = f"<{len(v)} chars>"
             elif k == "redirect_uri":
-                log_params[k] = repr(v)  # visible: "", None, or the exact URI
+                log_params[k] = repr(v)  # visible: the exact URI (never empty string)
             else:
                 log_params[k] = v
 
         logger.info("=" * 80)
-        logger.info(f"META OAUTH TOKEN EXCHANGE - Embedded Signup Flow (attempt {attempt}/{total})")
+        logger.info("META OAUTH TOKEN EXCHANGE")
         logger.info("=" * 80)
         logger.info(f"  Meta endpoint: {url}")
         logger.info(f"  Method: GET")
@@ -88,28 +96,29 @@ class MetaOAuthService:
         message = error_obj.get("message", "Failed to exchange code")
         return message, error_obj
 
-    def _is_redirect_uri_error(self, error_obj: Dict) -> bool:
-        """True when Meta rejects the exchange because of redirect_uri validation."""
-        message = (error_obj.get("message") or "").lower()
-        subcode = error_obj.get("error_subcode")
-        return "redirect_uri" in message or subcode in REDIRECT_URI_ERROR_SUBCODES
-
     async def exchange_code_for_token(self, code: str, redirect_uri: Optional[str] = None) -> Tuple[bool, Optional[Dict], Optional[str]]:
         """
         Exchange authorization code for access token.
 
-        Meta Embedded Signup (FB.login + config_id) returns the exchangeable code via
-        the JavaScript callback and does NOT use a redirect_uri during authorization.
-        Meta records the dialog redirect_uri as an EMPTY STRING for this flow, so the
-        exchange must send redirect_uri="" (empty string).
+        The authorization code is bound by Meta to the exact redirect_uri used in
+        the OAuth dialog request. This method therefore sends redirect_uri ONLY
+        when the caller supplies the EXACT dialog redirect_uri (the manual
+        dialog flow: frontend builds the dialog URL with a redirect_uri we
+        control). When no redirect_uri is supplied (JS-SDK / FB.login flow) it
+        is OMITTED entirely - never sent as an empty string.
 
-        Strategy (most likely to succeed first):
-          1. Send redirect_uri="" (empty string) - matches the JS SDK dialog.
-          2. If Meta still rejects on redirect_uri, retry omitting it entirely.
+        Per Meta's "Manually Build a Login Flow" documentation:
+            redirect_uri is required and must be the same as the original
+            redirect_uri used when starting the OAuth login process.
+
+        Per Meta's Facebook Login for Business / WhatsApp Embedded Signup docs
+        (JS SDK + config_id flow):
+            GET /oauth/access_token?client_id&client_secret&code  (no redirect_uri)
 
         Args:
             code: Authorization code from Meta OAuth
-            redirect_uri: Optional explicit redirect URI (used only if supplied)
+            redirect_uri: The EXACT redirect_uri from the OAuth dialog request.
+                If None/empty, redirect_uri is omitted from the exchange.
 
         Returns:
             (success, data, error_message)
@@ -117,67 +126,43 @@ class MetaOAuthService:
         try:
             url = f"{self.GRAPH_API_BASE}/oauth/access_token"
 
-            # Build candidate parameter sets (most likely to succeed first).
+            params = {
+                "client_id": self.app_id,
+                "client_secret": self.app_secret,
+                "code": code,
+            }
+            # Only include redirect_uri when the caller supplies the EXACT value
+            # used in the dialog. Never send an empty string.
             if redirect_uri:
-                candidate_params = [
-                    {
-                        "client_id": self.app_id,
-                        "client_secret": self.app_secret,
-                        "code": code,
-                        "redirect_uri": redirect_uri,
-                    }
-                ]
-            else:
-                # Embedded Signup: empty-string redirect_uri first, omit as fallback.
-                candidate_params = [
-                    {
-                        "client_id": self.app_id,
-                        "client_secret": self.app_secret,
-                        "code": code,
-                        "redirect_uri": "",
-                    },
-                    {
-                        "client_id": self.app_id,
-                        "client_secret": self.app_secret,
-                        "code": code,
-                    },
-                ]
+                params["redirect_uri"] = redirect_uri
 
-            last_error = None
-            total = len(candidate_params)
+            self._log_exchange_request(url, params)
 
-            for index, params in enumerate(candidate_params, start=1):
-                self._log_exchange_request(url, params, attempt=index, total=total)
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url, params=params)
 
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.get(url, params=params)
+            self._log_exchange_response(response)
 
-                self._log_exchange_response(response)
+            if response.status_code == 200:
+                data = response.json()
+                access_token = data.get("access_token")
+                if access_token:
+                    logger.info("✅ Token exchange successful")
+                    return True, data, None
+                logger.error(f"No access token in response: {data}")
+                return False, None, "No access token returned"
 
-                if response.status_code == 200:
-                    data = response.json()
-                    access_token = data.get("access_token")
-                    if access_token:
-                        logger.info(f"✅ Token exchange successful (redirect_uri: {params.get('redirect_uri', 'OMITTED')})")
-                        return True, data, None
-                    logger.error(f"No access token in response: {data}")
-                    return False, None, "No access token returned"
+            last_error, error_obj = self._parse_error(response)
 
-                last_error, error_obj = self._parse_error(response)
-
-                logger.error("=" * 80)
-                logger.error("META GRAPH API ERROR - FULL DETAILS")
-                logger.error("=" * 80)
-                logger.error(f"  Error Code: {error_obj.get('code', 'unknown')}")
-                logger.error(f"  Error Subcode: {error_obj.get('error_subcode', 'none')}")
-                logger.error(f"  Error Type: {error_obj.get('type', 'unknown')}")
-                logger.error(f"  Error Message: {error_obj.get('message', '')}")
-                logger.error(f"  FB Trace ID: {error_obj.get('fbtrace_id', 'none')}")
-                logger.error("=" * 80)
-
-                # Only retry when the failure is a redirect_uri validation issue.
-                if not self._is_redirect_uri_error(error_obj):
-                    return False, None, last_error
+            logger.error("=" * 80)
+            logger.error("META GRAPH API ERROR - FULL DETAILS")
+            logger.error("=" * 80)
+            logger.error(f"  Error Code: {error_obj.get('code', 'unknown')}")
+            logger.error(f"  Error Subcode: {error_obj.get('error_subcode', 'none')}")
+            logger.error(f"  Error Type: {error_obj.get('type', 'unknown')}")
+            logger.error(f"  Error Message: {error_obj.get('message', '')}")
+            logger.error(f"  FB Trace ID: {error_obj.get('fbtrace_id', 'none')}")
+            logger.error("=" * 80)
 
             return False, None, last_error or "Failed to exchange code"
 
@@ -269,9 +254,9 @@ class MetaOAuthService:
 
         Args:
             code: Authorization code from Meta OAuth
-            redirect_uri: Optional redirect URI. For Embedded Signup (FB.login +
-                config_id) Meta records the dialog's redirect_uri as an empty string,
-                so the exchange sends redirect_uri="" (empty string) automatically.
+            redirect_uri: The EXACT redirect_uri used in the OAuth dialog request
+                (manual dialog flow). For the JS SDK / FB.login flow, pass None
+                so redirect_uri is omitted from the exchange - never empty string.
 
         Returns:
             (success, integration_data, error_message)

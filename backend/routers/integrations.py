@@ -553,15 +553,18 @@ async def meta_oauth_callback_post(
     db: Session = Depends(get_db)
 ):
     """
-    Handle Meta OAuth callback via POST (JavaScript callback from FB.login).
-    Exchange authorization code for credentials and save to integration.
+    Handle Meta OAuth callback via POST (exchangeable code from the OAuth dialog).
 
-    Meta Embedded Signup: FB.login() with config_id returns the exchangeable
-    code via the JavaScript callback and does NOT use a redirect_uri during
-    authorization. Meta records the dialog's redirect_uri as an EMPTY STRING
-    for this flow, so the code exchange (GET /oauth/access_token) sends
-    redirect_uri="" (empty string) - never a real URL. The frontend must send
-    ONLY { code }. redirect_uri is accepted here only for backward compatibility.
+    WhatsApp Embedded Signup is invoked with response_type=code + config_id.
+    The authorization code is bound by Meta to the EXACT redirect_uri used in the
+    OAuth dialog request.
+
+    When the dialog was launched manually (frontend-built dialog URL), the
+    frontend sends the SAME redirect_uri here and the backend forwards it verbatim
+    to GET /oauth/access_token so the exchange matches the dialog exactly.
+
+    redirect_uri is optional: if omitted (JS SDK / FB.login flow) the backend
+    exchange omits redirect_uri entirely per Meta's Embedded Signup docs.
     """
     settings = get_settings()
 
@@ -570,9 +573,8 @@ async def meta_oauth_callback_post(
     logger.info("=" * 80)
     logger.info(f"User ID: {user_id}")
     logger.info(f"Code received: Yes (length: {len(code)})")
-    logger.info(f"Redirect URI provided: {redirect_uri if redirect_uri else 'NO - empty string will be used for Embedded Signup'}")
-    logger.info(f"Flow type: FB.login() with config_id and response_type=code (JavaScript callback)")
-    logger.info(f"Explanation: Embedded Signup exchange sends redirect_uri='' (empty string), never a real URL")
+    logger.info(f"Redirect URI provided: {repr(redirect_uri) if redirect_uri else 'NO - redirect_uri will be OMITTED from the exchange (never empty string)'}")
+    logger.info(f"Flow type: WhatsApp Embedded Signup (response_type=code + config_id)")
     logger.info("=" * 80)
 
     if not settings.META_APP_ID or not settings.META_APP_SECRET:
