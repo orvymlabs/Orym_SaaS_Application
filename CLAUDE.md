@@ -281,4 +281,8 @@ Most importantly:
 
 DO NOT TRY ANOTHER REDIRECT_URI EXPERIMENT.
 
-The permanent solution is to use the WABA ID and phone_number_id returned by Meta Embedded Signup and pass them to the backend, rather than trying to discover the WABA blindly after OAuth.
+The permanent solution is to use the WABA ID and phone_number_id returned by Meta Embedded Signup and pass them to the backend, rather than trying to discover the WABA blindly after OAuth. 
+
+
+
+make sure everything working perfect
