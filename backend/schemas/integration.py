@@ -7,12 +7,13 @@ class MetaOAuthCallbackRequest(BaseModel):
 
     All fields are optional at the Pydantic layer so a request that is missing
     Embedded Signup data produces a structured 400 (with a useful detail
-    message) instead of a generic 422. The endpoint explicitly validates each
-    required field (code, waba_id, phone_number_id) before processing.
+    message) instead of a generic 422. The endpoint explicitly validates the
+    required field (code) before processing.
 
-    The WABA ID, phone number ID and business ID returned by Meta Embedded
-    Signup are the source of truth. The authorization code alone must NOT be
-    used to discover the WABA.
+    Only the exchangeable code is required. The WABA ID, phone number ID and
+    business ID are optional: when they are not present (production
+    SDK_QUERY_STRING payload carries only the code) the backend resolves them
+    server-side from the token after the exchange.
     """
     code: Optional[str] = None
     redirect_uri: Optional[str] = None

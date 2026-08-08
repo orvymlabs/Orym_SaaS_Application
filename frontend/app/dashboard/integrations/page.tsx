@@ -101,16 +101,12 @@ export default function IntegrationsPage() {
   // Meta. NEVER change this value.
   const META_OAUTH_REDIRECT_URI = "https://apps.orvym.com/dashboard/integrations/";
 
-  // The exchangeable code and the asset IDs arrive separately:
-  //   - code        : delivered by Meta in the FB.login response callback
-  //                   (response.authResponse.code). It MAY also be present in
-  //                   the WA_EMBEDDED_SIGNUP session message data and in the
-  //                   JS SDK's query-string handshake message (defensive).
-  //   - waba_id / phone_number_id / business_id : delivered in the
-  //                   WA_EMBEDDED_SIGNUP session message (event FINISH) only.
-  //                   They are NEVER present in the query-string SDK message.
-  // These refs combine both sources and guarantee the single-use code is
-  // exchanged exactly once, no matter which one arrives first.
+  // The exchangeable code is the only value REQUIRED from Meta. The asset IDs
+  // (waba_id / phone_number_id / business_id) are NOT present in the
+  // SDK_QUERY_STRING handshake that Meta actually sends - the backend resolves
+  // them server-side after the token exchange. If a WA_EMBEDDED_SIGNUP FINISH
+  // session message does arrive with them, they are forwarded too, but their
+  // absence never blocks the backend call.
   const signupCodeRef = useRef<string | null>(null);
   const signupDataRef = useRef<{ waba_id?: string; phone_number_id?: string; business_id?: string }>({});
   const completingRef = useRef(false);
@@ -119,32 +115,25 @@ export default function IntegrationsPage() {
   // flow finishes, cancels or errors, so reconnect/retry keeps working.
   const launchingRef = useRef(false);
 
-  // Complete the connection only once BOTH the exchangeable code and the asset
-  // IDs are available. The code is single-use, so it is cleared as soon as the
-  // backend callback is started. Because the code and the asset IDs arrive in
-  // two separate Meta messages, retry briefly (up to ~6s) before surfacing an
-  // error that names exactly which value is missing.
+  // Complete the connection as soon as the single-use exchangeable code is
+  // available. The code is cleared as soon as the backend callback is started
+  // so it can never be exchanged twice. Because the code may arrive in either
+  // the FB.login callback or a Meta message a moment later, retry briefly
+  // (up to ~6s) before surfacing an error.
   const completeEmbeddedSignup = (retriesLeft = 12) => {
     if (completingRef.current) return true;
     const code = signupCodeRef.current;
-    const { waba_id, phone_number_id, business_id } = signupDataRef.current;
-    if (code && waba_id && phone_number_id) {
+    if (code) {
       completingRef.current = true;
       signupCodeRef.current = null;
-      handleMetaOAuthCallback(code, META_OAUTH_REDIRECT_URI, { waba_id, phone_number_id, business_id });
+      handleMetaOAuthCallback(code, META_OAUTH_REDIRECT_URI, { ...signupDataRef.current });
       return true;
     }
     if (retriesLeft <= 0) {
       launchingRef.current = false;
       setConnectingWhatsApp(false);
-      const missing: string[] = [];
-      if (!code) missing.push("exchangeable code");
-      if (!waba_id) missing.push("waba_id");
-      if (!phone_number_id) missing.push("phone_number_id");
       showToast(
-        "WhatsApp Embedded Signup finished but the following data was not returned: " +
-          missing.join(", ") +
-          ". Please try again.",
+        "WhatsApp Embedded Signup finished but no exchangeable code was returned. Please try again.",
         "error"
       );
       return false;
@@ -188,13 +177,12 @@ export default function IntegrationsPage() {
           //     data: { phone_number_id, waba_id, business_id, ... },
           //     version: 3
           //   }
-          // The waba_id / phone_number_id / business_id in this event are the
-          // source of truth and are forwarded to the backend together with the
-          // exchangeable code. The backend never guesses the WABA from the code.
-          // A second, query-string style message (cb=...&domain=...&code=...)
-          // is the JS SDK's internal handshake and carries ONLY the code - the
-          // asset IDs are NEVER in it, so we extract the code from it but never
-          // treat it as a source of asset IDs.
+          // In production Meta currently sends ONLY the query-string style
+          // handshake (event SDK_QUERY_STRING, verified keys:
+          // cb, domain, is_canvas, origin, relation, frame, code, base_domain).
+          // It carries ONLY the exchangeable code - the asset IDs are NEVER in
+          // it. The code is forwarded to the backend, which exchanges it and
+          // resolves the WABA / phone / business IDs server-side.
           window.addEventListener('message', (event) => {
             // Security check: only accept messages from facebook.com
             if (!event.origin.endsWith('facebook.com')) return;
@@ -246,19 +234,16 @@ export default function IntegrationsPage() {
               errorCode = dataObj.error_code !== undefined ? String(dataObj.error_code) : undefined;
             } catch {
               try {
-                // Format 2: query-string style JS SDK handshake. It always carries
-                // the exchangeable code. Defensively, it MAY also carry the asset
-                // IDs (waba_id / phone_number_id / business_id) as query params,
-                // so we extract them too when present - never hardcoded values.
+                // Format 2: query-string style JS SDK handshake (event
+                // SDK_QUERY_STRING). Verified in production to contain ONLY:
+                //   cb, domain, is_canvas, origin, relation, frame, code, base_domain
+                // It carries the exchangeable code and NEVER the asset IDs.
                 const params = new URLSearchParams(event.data);
                 if (!params.has('cb') && !params.has('code')) {
                   return; // unrelated message
                 }
                 eventName = 'SDK_QUERY_STRING';
                 code = params.get('code') || undefined;
-                waba_id = params.get('waba_id') || params.get('waba_ids')?.split(',')[0] || undefined;
-                phone_number_id = params.get('phone_number_id') || undefined;
-                business_id = params.get('business_id') || undefined;
               } catch {
                 return; // not parseable at all - ignore
               }
@@ -268,9 +253,9 @@ export default function IntegrationsPage() {
             console.log('[EmbeddedSignup] message event received from', event.origin, '| event:', eventName);
             logPayloadStructure(event.data, eventName);
             console.log('[EmbeddedSignup] code received:', code ? 'yes (length ' + code.length + ')' : 'no');
-            console.log('[EmbeddedSignup] waba_id:', waba_id || 'MISSING');
-            console.log('[EmbeddedSignup] phone_number_id:', phone_number_id || 'MISSING');
-            console.log('[EmbeddedSignup] business_id:', business_id || 'MISSING');
+            console.log('[EmbeddedSignup] waba_id (optional, resolved by backend if missing):', waba_id || 'not in message');
+            console.log('[EmbeddedSignup] phone_number_id (optional, resolved by backend if missing):', phone_number_id || 'not in message');
+            console.log('[EmbeddedSignup] business_id (optional, resolved by backend if missing):', business_id || 'not in message');
 
             if (eventName === 'CANCEL') {
               console.log('[EmbeddedSignup] Flow cancelled or abandoned');
@@ -289,19 +274,9 @@ export default function IntegrationsPage() {
               );
               return;
             }
-            if (eventName === 'FINISH_ONLY_WABA' && !phone_number_id) {
-              console.log('[EmbeddedSignup] FINISH_ONLY_WABA without a phone number');
-              launchingRef.current = false;
-              setConnectingWhatsApp(false);
-              showToast(
-                "WhatsApp Embedded Signup finished without a phone number. " +
-                  "Please complete the flow with a business phone number.",
-                "error"
-              );
-              return;
-            }
 
-            // The asset IDs from the session message are the source of truth.
+            // The asset IDs from a session message are optional - the backend
+            // resolves any that are missing from the token after the exchange.
             // Persist them (covers the popup-closed-early case) and combine
             // them with the exchangeable code.
             if (waba_id || phone_number_id || business_id) {
@@ -358,12 +333,12 @@ export default function IntegrationsPage() {
 
   // Launch WhatsApp Embedded Signup - Standard production flow.
   // JS SDK FB.login with config_id (Meta's current documented invocation).
-  // Meta delivers:
-  //   - the exchangeable code  via the FB.login callback (response.authResponse.code)
-  //   - waba_id / phone_number_id / business_id via the WA_EMBEDDED_SIGNUP
-  //     session message (listener above)
-  // completeEmbeddedSignup() combines both and ensures the single-use code is
-  // exchanged exactly once.
+  // Meta delivers the exchangeable code via the FB.login callback
+  // (response.authResponse.code) and/or the SDK_QUERY_STRING message. The WABA
+  // / phone / business IDs are NOT part of that payload - the backend resolves
+  // them server-side after the token exchange.
+  // completeEmbeddedSignup() ensures the single-use code is exchanged exactly
+  // once.
   const launchWhatsAppLogin = () => {
     if (!metaConfig) {
       showToast("Meta Embedded Signup is not configured", "error");
@@ -393,10 +368,9 @@ export default function IntegrationsPage() {
 
     window.FB.login((response: any) => {
       // The exchangeable code is delivered here via response.authResponse.code
-      // (Meta's documented location for Embedded Signup). The WABA / phone /
-      // business IDs arrive separately via the WA_EMBEDDED_SIGNUP session
-      // message. completeEmbeddedSignup() combines both and ensures the
-      // single-use code is exchanged exactly once.
+      // (Meta's documented location for Embedded Signup) and/or the
+      // SDK_QUERY_STRING message. completeEmbeddedSignup() forwards it to the
+      // backend exactly once; the backend resolves the asset IDs server-side.
       console.log('[EmbeddedSignup] FB.login response status:', response?.status);
       if (response?.authResponse?.code) {
         signupCodeRef.current = response.authResponse.code;
@@ -427,7 +401,10 @@ export default function IntegrationsPage() {
     });
   };
 
-  // Handle Embedded Signup completion - send all required data to the backend.
+  // Handle Embedded Signup completion - send the exchangeable code to the
+  // backend. Any asset IDs that a WA_EMBEDDED_SIGNUP FINISH message returned
+  // are forwarded too, but the backend resolves any missing ones server-side
+  // after the token exchange, so the code alone is always enough.
   const handleMetaOAuthCallback = async (
     code: string,
     oauthRedirectUri?: string,
@@ -439,9 +416,10 @@ export default function IntegrationsPage() {
       // exchange (GET /oauth/access_token) matches the dialog exactly.
       const redirectUri = oauthRedirectUri || META_OAUTH_REDIRECT_URI;
 
-      // The WABA / phone / business IDs come from the WA_EMBEDDED_SIGNUP FINISH
-      // message event and are the source of truth. Fall back to any persisted
-      // value (covers a popup that closed before the listener stored them).
+      // The WABA / phone / business IDs MAY come from a WA_EMBEDDED_SIGNUP
+      // FINISH message event. Fall back to any persisted value (covers a popup
+      // that closed before the listener stored them). They are optional - the
+      // backend discovers any missing ones from the token.
       const stored = sessionStorage.getItem("meta_embedded_signup");
       const parsed = stored ? JSON.parse(stored) : {};
       const wabaId = metaData?.waba_id || parsed.waba_id;
@@ -451,29 +429,16 @@ export default function IntegrationsPage() {
       console.log('[EmbeddedSignup] backend request started');
       console.log('  Code length:', code.length);
       console.log('  redirect_uri:', redirectUri);
-      console.log('  waba_id:', wabaId);
-      console.log('  phone_number_id:', phoneNumberId);
-      console.log('  business_id:', businessId);
+      console.log('  waba_id:', wabaId || 'not provided - backend will resolve');
+      console.log('  phone_number_id:', phoneNumberId || 'not provided - backend will resolve');
+      console.log('  business_id:', businessId || 'not provided - backend will resolve');
       console.log('  Note: Exchangeable code expires in 30 seconds');
-
-      // NEVER send a broken request. The backend requires the asset IDs that
-      // Meta Embedded Signup returns in the FINISH session message. Sending
-      // undefined values produced a 422 in production.
-      const missing: string[] = [];
-      if (!wabaId) missing.push("waba_id");
-      if (!phoneNumberId) missing.push("phone_number_id");
-      if (missing.length > 0) {
-        throw new Error(
-          "Missing " + missing.join(", ") +
-          " from Embedded Signup completion data. Please reconnect WhatsApp."
-        );
-      }
 
       const result = await apiPost("/api/integrations/meta/oauth/callback", {
         code,
         redirect_uri: redirectUri,
-        waba_id: wabaId,
-        phone_number_id: phoneNumberId,
+        waba_id: wabaId || null,
+        phone_number_id: phoneNumberId || null,
         business_id: businessId || null,
       });
 

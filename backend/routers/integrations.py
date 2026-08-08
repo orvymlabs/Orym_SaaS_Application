@@ -553,37 +553,41 @@ async def meta_oauth_callback_post(
     """
     Handle Meta Embedded Signup callback via POST.
 
-    The frontend extracts the following from the WA_EMBEDDED_SIGNUP message
-    event (FINISH) and forwards them here:
-      - code             : exchangeable authorization code
+    The frontend extracts the following from Meta's messages and forwards them
+    here:
+      - code             : exchangeable authorization code (REQUIRED)
       - redirect_uri     : the EXACT dialog redirect URI
-      - waba_id          : WhatsApp Business Account ID (source of truth)
-      - phone_number_id  : business phone number ID (source of truth)
-      - business_id      : business portfolio ID
+      - waba_id          : WhatsApp Business Account ID (optional - the backend
+                           discovers it server-side from the token when absent)
+      - phone_number_id  : business phone number ID (optional - the backend
+                           uses the first phone number on the WABA when absent)
+      - business_id      : business portfolio ID (optional)
+
+    In the current production flow Meta delivers ONLY the exchangeable code
+    (via the SDK_QUERY_STRING handshake and the FB.login callback); the asset
+    IDs are NOT present in that payload. The backend therefore performs the
+    code exchange and then discovers/validates the connected WhatsApp Business
+    information server-side.
 
     The backend then:
       1. Exchanges the code server-side for the customer business token
-      2. Uses the returned WABA ID directly (never "guesses" it)
-      3. Validates the phone number via GET /<WABA_ID>/phone_numbers
-      4. Subscribes the WABA to the app via POST /<WABA_ID>/subscribed_apps
-      5. Saves credentials (never exposes the access token to the frontend)
+      2. Resolves the WABA ID (from Embedded Signup, or discovered from the
+         token's debug_token granular_scopes when not provided)
+      3. Validates the WABA via GET /<WABA_ID>
+      4. Retrieves the phone number via GET /<WABA_ID>/phone_numbers
+      5. Subscribes the WABA to the app via POST /<WABA_ID>/subscribed_apps
+      6. Saves credentials (never exposes the access token to the frontend)
     """
     settings = get_settings()
 
-    # Explicit validation of the Embedded Signup completion data. Each missing
-    # field returns a structured, actionable error (never a generic 422).
+    # The exchangeable code is the only required input. Asset IDs are resolved
+    # server-side after the token exchange when they are not provided.
     if not payload.code or len(str(payload.code).strip()) < 10:
         raise HTTPException(400, "Missing authorization code from Embedded Signup completion data")
 
-    if not payload.waba_id or not str(payload.waba_id).strip():
-        raise HTTPException(400, "Missing WABA ID (waba_id) from Embedded Signup completion data")
-
-    if not payload.phone_number_id or not str(payload.phone_number_id).strip():
-        raise HTTPException(400, "Missing phone number ID (phone_number_id) from Embedded Signup completion data")
-
     code = str(payload.code).strip()
-    waba_id = str(payload.waba_id).strip()
-    phone_number_id = str(payload.phone_number_id).strip()
+    waba_id = (str(payload.waba_id).strip() if payload.waba_id else "") or None
+    phone_number_id = (str(payload.phone_number_id).strip() if payload.phone_number_id else "") or None
     business_id = (str(payload.business_id).strip() if payload.business_id else "") or None
 
     # Mask the code in ALL logs. Never log the full code, access tokens or secrets.
@@ -594,9 +598,9 @@ async def meta_oauth_callback_post(
     logger.info(f"User ID: {user_id}")
     logger.info(f"Code received: {masked_code}")
     logger.info(f"Redirect URI: {payload.redirect_uri or '(not provided - using configured default)'}")
-    logger.info(f"WABA ID: {waba_id}")
-    logger.info(f"Phone Number ID: {phone_number_id}")
-    logger.info(f"Business ID: {business_id or '(not provided)'}")
+    logger.info(f"WABA ID: {waba_id or '(not provided - will be discovered server-side)'}")
+    logger.info(f"Phone Number ID: {phone_number_id or '(not provided - first WABA phone number will be used)'}")
+    logger.info(f"Business ID: {business_id or '(not provided - will be resolved server-side)'}")
     logger.info("=" * 80)
 
     if not settings.META_APP_ID or not settings.META_APP_SECRET:

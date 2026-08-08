@@ -463,34 +463,45 @@ class MetaOAuthService:
         """
         Complete WhatsApp integration setup from the Embedded Signup data.
 
-        The WABA ID and phone number ID returned by Meta Embedded Signup are
-        the source of truth. The authorization code is only used to exchange
-        for the customer-scoped business token - it is NEVER used to discover
-        the WABA.
+        The WABA ID and phone number ID MAY be returned by Meta Embedded Signup
+        in the WA_EMBEDDED_SIGNUP session message. In the current production
+        flow Meta delivers ONLY the exchangeable code (via SDK_QUERY_STRING /
+        the FB.login callback), so when the asset IDs are not provided the
+        backend discovers them server-side from the token:
+        GET /debug_token granular_scopes -> the WABA IDs the token can access
+        (most recently onboarded first). The code is never used to guess the
+        WABA - only to obtain the token, which is then inspected.
 
         Flow:
         1. Exchange code for access token (server-side, exact redirect_uri)
-        2. Validate the WABA ID supplied by Embedded Signup via GET /<WABA_ID>
-           (requests only supported fields: id,name)
-        3. GET /<WABA_ID>/phone_numbers (WABA edge) to retrieve the phone number
-        4. Verify the returned phone number ID matches Embedded Signup's
-        5. POST /<WABA_ID>/subscribed_apps to subscribe the WABA to the app
+        2. If no WABA ID was provided, discover it via debug_token
+           granular_scopes (whatsapp_business_management / _messaging)
+        3. Validate the WABA via GET /<WABA_ID> (only supported fields: id,name)
+        4. GET /<WABA_ID>/phone_numbers (WABA edge) to retrieve the phone number
+        5. Verify the returned phone number ID matches Embedded Signup's (when
+           provided, otherwise use the first phone number on the WABA)
+        6. POST /<WABA_ID>/subscribed_apps to subscribe the WABA to the app
 
         Args:
             code: Authorization code from Meta Embedded Signup
             redirect_uri: The EXACT redirect_uri used in the OAuth dialog request
                 (defaults to the configured production redirect URI).
-            waba_id: WhatsApp Business Account ID returned by Embedded Signup.
-            phone_number_id: Business phone number ID returned by Embedded Signup.
-            business_id: Business portfolio ID returned by Embedded Signup.
+            waba_id: WhatsApp Business Account ID returned by Embedded Signup
+                (optional - discovered server-side when omitted).
+            phone_number_id: Business phone number ID returned by Embedded Signup
+                (optional - first phone number used when omitted).
+            business_id: Business portfolio ID returned by Embedded Signup
+                (optional - falls back to the debug_token user_id when omitted).
 
         Returns:
             (success, integration_data, error_message)
 
         integration_data contains:
         - access_token: Long-lived customer-scoped business token
-        - business_id: Meta business portfolio ID (from Embedded Signup)
-        - waba_id: WhatsApp Business Account ID (from Embedded Signup)
+        - business_id: Meta business / system user ID (from Embedded Signup or
+          the debug_token inspection)
+        - waba_id: WhatsApp Business Account ID (from Embedded Signup or
+          discovered via debug_token granular_scopes)
         - business_name: WABA name (from the WABA node)
         - phone_number_id: Phone Number ID
         - display_phone_number: Display phone number
@@ -506,14 +517,27 @@ class MetaOAuthService:
             logger.info("[EmbeddedSignup] Step 1/5 - Meta token exchange succeeded")
             access_token = token_data.get("access_token")
 
-            # Step 2: Validate the WABA ID returned by Embedded Signup. This is
-            # the source of truth - never guess/discover the WABA from the token.
+            # Step 2: Resolve the WABA ID. When Embedded Signup did not return
+            # one (current production flow delivers only the exchangeable code),
+            # discover it server-side from the token's granular_scopes - the
+            # documented "Get shared WABA ID with access token" approach.
             if not waba_id:
-                logger.error("[EmbeddedSignup] Step 2/5 failed - Missing WABA ID from Embedded Signup")
-                return False, None, (
-                    "Missing WABA ID (waba_id): the WhatsApp Business Account ID was not "
-                    "returned by Embedded Signup. Please complete the Embedded Signup again."
-                )
+                logger.info("[EmbeddedSignup] Step 2/5 - No WABA ID supplied, discovering via debug_token")
+                success, token_info, error = await self.get_waba_ids_from_token(access_token)
+                if not success:
+                    logger.error(f"[EmbeddedSignup] Step 2/5 failed - WABA discovery via debug_token: {error}")
+                    return False, None, error or "Failed to discover the WhatsApp Business Account"
+                discovered_waba_ids = token_info.get("waba_ids") or []
+                if not discovered_waba_ids:
+                    logger.error("[EmbeddedSignup] Step 2/5 failed - debug_token returned no WABA IDs")
+                    return False, None, "No WhatsApp Business Account found. Complete WhatsApp Business setup and try again."
+                waba_id = str(discovered_waba_ids[0])
+                # The debug_token user_id is the genuine Meta business/system user
+                # the token belongs to. Use it as the tenant business ID only when
+                # Embedded Signup did not supply one (never fabricate a value).
+                if not business_id:
+                    business_id = token_info.get("user_id")
+                logger.info(f"[EmbeddedSignup] Step 2/5 - WABA discovered via debug_token: {waba_id}")
 
             logger.info(f"[EmbeddedSignup] Step 2/5 - WABA validation started (waba_id: {waba_id})")
             success, waba_data, error = await self.get_waba_details(waba_id, access_token)
@@ -548,8 +572,16 @@ class MetaOAuthService:
                         "by Embedded Signup was not found in the WhatsApp Business "
                         "Account. Please reconnect WhatsApp."
                     )
-            else:
+            elif phone_numbers:
                 phone_data = phone_numbers[0]
+            else:
+                logger.error(
+                    f"[EmbeddedSignup] Step 4/5 failed - WABA {waba_id} has no phone numbers"
+                )
+                return False, None, (
+                    "No phone number found: the WhatsApp Business Account has no "
+                    "business phone number. Please add one and reconnect WhatsApp."
+                )
 
             phone_number_id_final = phone_data.get("id")
             display_phone_number = phone_data.get("display_phone_number", "")
