@@ -1,6 +1,22 @@
-STOP changing redirect_uri blindly.
+GOOD NEWS: The redirect_uri issue is FIXED.
 
-The latest production test proves that the current implementation is still wrong.
+The latest production log proves that the OAuth exchange is now progressing past the previous redirect_uri error.
+
+Current redirect_uri:
+
+https://apps.orvym.com/dashboard/integrations/
+
+The previous error:
+
+"Error validating verification code. Please make sure your redirect_uri is identical..."
+
+is GONE.
+
+DO NOT CHANGE THE REDIRECT_URI OR FB.login FLOW AGAIN.
+
+NEW ERROR:
+
+(#100) Tried accessing nonexisting field (phone_numbers)
 
 Production:
 
@@ -16,324 +32,228 @@ Meta App ID:
 Config ID:
 2432311603846818
 
-LATEST LOG:
+Latest frontend log:
 
-Facebook SDK initialized with App ID: 3862862217342382
+Exchangeable token code received (length: 451)
 
-Launching WhatsApp Embedded Signup
+redirect_uri:
+https://apps.orvym.com/dashboard/integrations/
 
-Exchangeable token code received
-Code length: 451
-
-IMPORTANT CURRENT LOG:
-"redirect_uri: not sent by frontend (backend uses empty-string redirect_uri for Embedded Signup)"
-
-Then:
-
-POST https://orym-saas-application.onrender.com/api/integrations/meta/oauth/callback
+Backend returns:
 
 HTTP 400
 
 Error:
-"Error validating verification code. Please make sure your redirect_uri is identical to the one you used in the OAuth dialog request"
-
-THIS MEANS THE EMPTY-STRING redirect_uri APPROACH IS NOT WORKING.
-
-DO NOT make another guess.
-
-I want you to inspect the ACTUAL implementation and Meta request flow.
+(#100) Tried accessing nonexisting field (phone_numbers)
 
 ==================================================
-1. INSPECT FRONTEND
+NEW TASK: FIX ONLY THE phone_numbers API ERROR
 ==================================================
 
-Open the currently deployed frontend source.
+DO NOT MODIFY:
 
-Find the WhatsApp Embedded Signup implementation.
+- redirect_uri
+- FB.login()
+- Config ID
+- response_type
+- override_default_response_type
+- OAuth callback flow
 
-Find:
-
-FB.login(...)
-
-and the message event listener receiving:
-
-code=...
-
-Determine exactly how the Embedded Signup authorization is being initiated.
-
-DO NOT assume that redirect_uri is absent simply because it is not visible in our console log.
+Those parts are now working.
 
 ==================================================
-2. CAPTURE ACTUAL META AUTHORIZATION REQUEST
+1. FIND THE EXACT API CALL FAILING
 ==================================================
 
-Use browser DevTools → Network.
-
-Start a completely fresh Embedded Signup.
-
-Find the actual request to Facebook/Meta OAuth/dialog endpoint.
-
-Inspect the complete URL/query parameters.
-
-Find:
-
-redirect_uri
-
-I need the EXACT value Meta receives.
-
-DO NOT infer it from:
-
-window.location
-apps.orvym.com
-base_domain
-origin
-current page URL
-
-The actual authorization request is the source of truth.
-
-==================================================
-3. INSPECT THE EXCHANGEABLE CODE MESSAGE
-==================================================
-
-The message currently contains:
-
-domain=apps.orvym.com
-origin=https://apps.orvym.com/...
-base_domain=apps.orvym.com
-code=...
-
-Parse the complete message.
-
-Determine whether Meta provides any callback/redirect information alongside the code.
-
-Do NOT treat:
-
-domain
-origin
-base_domain
-
-as automatically equal to redirect_uri.
-
-==================================================
-4. INSPECT BACKEND TOKEN EXCHANGE
-==================================================
-
-Open:
+Inspect:
 
 backend/services/meta_oauth.py
 
-and:
-
 backend/routers/integrations.py
 
-Find the exact request sent to Meta to exchange the code.
+and all WhatsApp/Meta Graph API service files.
 
-Show:
+Find where the backend requests:
 
-POST/GET
-endpoint
-grant_type
-client_id
-client_secret
-code
-redirect_uri
+phone_numbers
 
-Determine whether redirect_uri is currently:
+or:
 
-- omitted
-- empty string
-- null
-- frontend URL
-- another callback URL
+fields=phone_numbers
 
-The current implementation says:
+or:
 
-"backend uses empty-string redirect_uri"
+/phone_numbers
 
-This must be investigated and corrected.
+or:
+
+?fields=phone_numbers
+
+Determine the exact Graph API URL that is producing:
+
+(#100) Tried accessing nonexisting field (phone_numbers)
 
 ==================================================
-5. IMPORTANT — DO NOT USE EMPTY STRING
+2. LOG THE EXACT GRAPH API REQUEST
 ==================================================
 
-Do NOT keep:
+Temporarily add safe debugging.
 
-redirect_uri=""
+Log:
 
-as the solution.
+Graph API endpoint
+HTTP method
+API version
+object ID being queried
+fields parameter
 
-If Meta requires redirect_uri during token exchange, use the EXACT redirect_uri associated with the authorization request.
+DO NOT log:
 
-If Meta does NOT require redirect_uri for this exact Embedded Signup flow, prove that from the actual Meta documentation and inspect why Meta is returning:
-
-"redirect_uri is identical to the one used in the OAuth dialog request"
-
-Do not simply remove redirect_uri again.
-
-==================================================
-6. VERIFY META DOCUMENTATION
-==================================================
-
-Use current Meta documentation for:
-
-WhatsApp Embedded Signup
-Facebook Login for Business
-response_type=code
-override_default_response_type=true
-config_id
-
-Determine the correct code exchange flow.
-
-We are NOT implementing generic Facebook Login.
-
-We are implementing WhatsApp Embedded Signup using:
-
-config_id:
-2432311603846818
-
-response_type:
-code
-
-override_default_response_type:
-true
-
-==================================================
-7. CHECK FACEBOOK LOGIN FOR BUSINESS SETTINGS
-==================================================
-
-Inspect the Meta App settings.
-
-Verify:
-
-Facebook Login for Business
-
-Client OAuth Login
-Web OAuth Login
-Enforce HTTPS
-Login with JavaScript SDK
-Use Strict Mode for Redirect URIs
-
-Then inspect:
-
-Valid OAuth Redirect URIs
-App Domains
-Allowed Domains for JavaScript SDK
-
-DO NOT randomly add:
-
-orym-saas-application.onrender.com
-
-unless the actual OAuth redirect URI proves that Render is involved in the browser OAuth callback.
-
-The backend being hosted on Render does NOT automatically make Render the OAuth redirect URI.
-
-==================================================
-8. IMPORTANT DISTINCTION
-==================================================
-
-Do NOT confuse these three things:
-
-A. Frontend:
-https://apps.orvym.com
-
-B. Backend API:
-https://orym-saas-application.onrender.com
-
-C. Meta OAuth redirect_uri
-
-They may be different.
-
-Determine C from the actual authorization request.
-
-==================================================
-9. TEST TOKEN EXCHANGE
-==================================================
-
-Once the actual redirect_uri is identified:
-
-Make the frontend authorization flow and backend token exchange use the same value if Meta requires it.
-
-Then perform a completely fresh Embedded Signup.
-
-The code expires quickly, so do NOT reuse previous codes.
-
-Verify:
-
-FB.login
-→ Meta authorization
-→ exchangeable code
-→ frontend POST
-→ backend
-→ Meta OAuth/token endpoint
-→ access token
-
-==================================================
-10. ADD SAFE LOGGING
-==================================================
-
-Backend should log:
-
-OAuth endpoint
-code length
-redirect_uri
-grant_type
-response status
-Meta error code
-Meta error subcode
-Meta error message
-fbtrace_id
-
-NEVER log:
-
-client_secret
 access_token
-full authorization code
+client_secret
+full OAuth code
+
+Example:
+
+Graph API request:
+GET https://graph.facebook.com/<version>/<OBJECT_ID>
+
+fields:
+...
 
 ==================================================
-11. BUILD AND VERIFY PRODUCTION BUNDLE
+3. IMPORTANT: DO NOT ASSUME phone_numbers IS A FIELD
 ==================================================
 
-After fixing the implementation:
+Determine whether the current code is incorrectly doing something like:
 
-Build the frontend.
+GET /<id>?fields=phone_numbers
 
-Inspect the generated production JS bundle.
+If so, fix it.
 
-Confirm the old message:
+phone_numbers may be a CONNECTION/EDGE rather than a field on the object being queried.
 
-"backend uses empty-string redirect_uri"
+If the correct API structure is:
 
-is removed.
+GET /<whatsapp_business_account_id>/phone_numbers
 
-Confirm the new redirect_uri behavior is actually present in the production bundle.
+then implement it as an edge request.
 
-Do not say "fixed" until the built production bundle has been inspected.
+Do NOT use:
+
+fields=phone_numbers
+
+unless Meta's current API documentation explicitly supports it for that exact object.
 
 ==================================================
-12. FINAL RESPONSE
+4. DETERMINE THE CORRECT OBJECT IDs
 ==================================================
 
-Give me an exact report:
+After Embedded Signup, identify the IDs returned by Meta.
 
-1. Actual redirect_uri used by Meta authorization
-2. Where you found it
-3. Exact Meta OAuth/token endpoint
-4. Exact frontend → backend request body
-5. Exact backend → Meta request parameters
-6. Whether redirect_uri is required
-7. Correct redirect_uri value
-8. Required Meta App Domains
-9. Required Valid OAuth Redirect URI
-10. Required Allowed JavaScript SDK domain
-11. Files changed
-12. Build result
-13. Production deployment result
-14. Fresh Embedded Signup test result
+We need to distinguish:
 
-DO NOT tell me "try adding the domain".
+- Business ID
+- WABA ID
+- Phone Number ID
 
-DO NOT use empty-string redirect_uri.
+Do not confuse them.
 
-DO NOT guess.
+The phone numbers endpoint should be called against the correct WhatsApp Business Account/WABA ID.
 
-TRACE THE ACTUAL REQUEST FIRST AND THEN FIX THE IMPLEMENTATION.
+==================================================
+5. VERIFY CURRENT META GRAPH API DOCUMENTATION
+==================================================
+
+Use current Meta Graph API documentation for WhatsApp Business Accounts.
+
+Verify the correct way to retrieve phone numbers associated with a WABA.
+
+Determine:
+
+GET /<WABA_ID>/phone_numbers
+
+or the currently documented equivalent.
+
+Also determine the required permissions/access token type.
+
+==================================================
+6. FIX THE API CALL
+==================================================
+
+Replace the incorrect API request with the correct Graph API request.
+
+The expected conceptual flow is:
+
+Embedded Signup
+→ exchange code
+→ obtain access token
+→ identify WABA ID
+→ query WABA's phone_numbers edge
+→ retrieve phone number ID
+→ retrieve phone number details if required
+→ save WhatsApp connection in database
+
+Do NOT attempt to retrieve phone_numbers as a field from an object that does not expose that field.
+
+==================================================
+7. CHECK ALL OTHER GRAPH API CALLS
+==================================================
+
+After fixing phone_numbers, inspect the surrounding onboarding code for similar mistakes.
+
+Check:
+
+WABA retrieval
+Phone number retrieval
+Business retrieval
+Business phone number registration
+Webhook subscription
+
+But DO NOT make unrelated changes.
+
+==================================================
+8. TEST WITH FRESH EMBEDDED SIGNUP
+==================================================
+
+Use a fresh Embedded Signup attempt.
+
+The expected flow is:
+
+1. Embedded Signup opens
+2. User completes onboarding
+3. Exchangeable code received
+4. Backend exchanges code
+5. Access token obtained
+6. WABA ID identified
+7. GET WABA/phone_numbers succeeds
+8. Phone Number ID obtained
+9. Connection saved successfully
+
+==================================================
+9. FINAL RESPONSE
+==================================================
+
+Tell me:
+
+1. Exact API endpoint that was failing
+2. Why phone_numbers was being treated incorrectly
+3. Correct Graph API endpoint
+4. WABA ID used
+5. Phone Number ID obtained
+6. Exact code files changed
+7. Whether OAuth/redirect_uri was left untouched
+8. Production build result
+9. Fresh Embedded Signup test result
+
+IMPORTANT:
+
+The redirect_uri is now:
+
+https://apps.orvym.com/dashboard/integrations/
+
+Do NOT change it.
+
+The current issue is ONLY:
+
+(#100) Tried accessing nonexisting field (phone_numbers)

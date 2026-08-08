@@ -126,3 +126,95 @@ See `PRODUCTION_META_CONFIG.md`. The page URL where the flow runs must be regist
 ✅ The code exchange is deterministic: it sends the **exact** dialog `redirect_uri` when
 one is provided and never sends an empty string. The production bundle has been rebuilt
 and verified (the "empty-string" message is gone; the manual dialog flow is present).
+
+---
+
+# Second Fix: (#100) Tried accessing nonexisting field (phone_numbers)
+
+After the `redirect_uri` issue was resolved, the next production failure was:
+
+```
+HTTP 400
+(#100) Tried accessing nonexisting field (phone_numbers)
+```
+
+## Root cause
+
+`setup_whatsapp_integration()` identified the WABA ID with:
+
+```
+GET /me?fields=id,name
+```
+
+and then treated that `id` as the WABA ID:
+
+```
+GET /<id>/phone_numbers
+```
+
+But `GET /me` returns the **token owner** (the business / system user), **not** the
+WhatsApp Business Account (WABA). `phone_numbers` is an **edge/connection of the
+WhatsAppBusinessAccount node** — it is NOT a field on a Business object. Querying
+`/<business_id>/phone_numbers` therefore returns:
+
+```
+(#100) Tried accessing nonexisting field (phone_numbers)
+```
+
+## Correct approach (per Meta docs)
+
+Meta's WhatsApp Embedded Signup docs ("Manage accounts > Get shared WABA ID with
+access token") specify the Debug Token endpoint to identify the WABA from the token:
+
+```
+GET /debug_token?input_token=<SIGNUP_TOKEN>&access_token=<APP_ACCESS_TOKEN>
+```
+
+The response's `data.granular_scopes` entry for `whatsapp_business_management` lists
+the WABA IDs granted to the token (most recently onboarded first). Then query the
+WABA's phone_numbers **edge**:
+
+```
+GET /<WABA_ID>/phone_numbers?access_token=<BUSINESS_TOKEN>
+```
+
+## What changed (`backend/services/meta_oauth.py`)
+
+1. **New `get_waba_ids_from_token(access_token)`** — calls `GET /debug_token`
+   (authorized with the app access token `<APP_ID>|<APP_SECRET>`), extracts WABA IDs
+   from `granular_scopes[whatsapp_business_management/messaging].target_ids` and the
+   business/system-user ID from `data.user_id`.
+2. **New `get_waba_details(waba_id, access_token)`** — `GET /<WABA_ID>?fields=id,name`
+   to read the WABA node's `name` (non-fatal if it fails).
+3. **`get_phone_numbers()` unchanged URL** — it already called `/<waba_id>/phone_numbers`
+   (the correct edge); it was failing only because `waba_id` was wrong. Added safe
+   request logging.
+4. **`setup_whatsapp_integration()`** — now orchestrates:
+   exchange code → debug_token (WABA ID + business ID) → WABA details → phone_numbers edge.
+   `business_id` (from `debug_token.user_id`) and `waba_id` are now correctly distinct.
+5. **Safe request logging** — every Graph API call logs endpoint, HTTP method, API
+   version, object ID/edge and `fields`; tokens/secrets/codes are always redacted.
+
+`/me` is no longer used anywhere in the onboarding flow.
+
+## Flow now
+
+```
+Embedded Signup
+→ exchange code (redirect_uri EXACT)
+→ access token
+→ GET /debug_token  → WABA ID (granular_scopes target_ids) + business/system user ID
+→ GET /<WABA_ID>?fields=id,name
+→ GET /<WABA_ID>/phone_numbers   (EDGE, correct object)
+→ phone number ID + display phone number
+→ save WhatsApp connection
+```
+
+## Tests
+
+- `backend/test_meta_oauth_mock.py` — `test_setup_whatsapp_integration_full_flow`
+  (exchange → debug_token → WABA details → phone_numbers) and
+  `test_phone_numbers_edge_regression` (asserts no `fields=phone_numbers` anywhere and
+  `phone_numbers` is only called against the real WABA ID).
+- All OAuth tests pass: `test_oauth_params.py`, `test_exchange_params.py`,
+  `test_meta_oauth_mock.py`, `test_meta_callback_e2e.py`.

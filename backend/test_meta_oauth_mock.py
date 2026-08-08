@@ -133,15 +133,28 @@ def test_exchange_meta_error_returned():
 
 
 def test_setup_whatsapp_integration_full_flow():
-    """Full flow: exchange -> WABA -> phone numbers -> integration_data."""
+    """Full flow: exchange -> debug_token (WABA ID) -> WABA details -> phone_numbers edge."""
     captured = {}
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
     svc.GRAPH_API_BASE = GRAPH_BASE
     code = "AQ" + ("y" * 449)
-    redirect_uri = "https://apps.orvym.com/dashboard/integrations"
+    redirect_uri = "https://apps.orvym.com/dashboard/integrations/"
 
     responses = [
         FakeResponse(200, {"access_token": "EAA_business_token", "token_type": "bearer", "expires_in": 5184000}),
+        FakeResponse(200, {
+            "data": {
+                "app_id": "3862862217342382",
+                "type": "USER",
+                "is_valid": True,
+                "scopes": ["whatsapp_business_management", "whatsapp_business_messaging", "public_profile"],
+                "granular_scopes": [
+                    {"scope": "whatsapp_business_management", "target_ids": ["123456789"]},
+                    {"scope": "whatsapp_business_messaging", "target_ids": ["123456789"]},
+                ],
+                "user_id": "8888888888888888",
+            }
+        }),
         FakeResponse(200, {"id": "123456789", "name": "My Business"}),
         FakeResponse(200, {"data": [{"id": "987654321", "display_phone_number": "+15551234567"}]}),
     ]
@@ -162,7 +175,11 @@ def test_setup_whatsapp_integration_full_flow():
 
     assert ok is True, err
     assert data["access_token"] == "EAA_business_token"
+    # business_id (from debug_token user_id) MUST differ from the WABA ID
     assert data["waba_id"] == "123456789"
+    assert data["business_id"] == "8888888888888888"
+    assert data["business_id"] != data["waba_id"]
+    assert data["business_name"] == "My Business"
     assert data["phone_number_id"] == "987654321"
     assert data["display_phone_number"] == "+15551234567"
 
@@ -172,10 +189,68 @@ def test_setup_whatsapp_integration_full_flow():
     assert exchange["params"]["redirect_uri"] == redirect_uri
     assert exchange["params"]["code"] == code
 
-    # WABA and phone requests must carry the access token as bearer param
-    assert requests_log[1]["url"] == f"{GRAPH_BASE}/me"
-    assert requests_log[2]["url"] == f"{GRAPH_BASE}/123456789/phone_numbers"
-    print("PASS: full setup flow (exchange -> WABA -> phone numbers)")
+    # WABA ID must come from the debug_token endpoint, NOT from /me
+    debug = requests_log[1]
+    assert debug["url"] == f"{GRAPH_BASE}/debug_token"
+    assert debug["params"]["input_token"] == "EAA_business_token"
+    assert "access_token" in debug["params"]  # app access token authorizes the call
+    assert "input_token" not in debug["params"] or debug["params"]["input_token"] != ""
+
+    # phone_numbers must be called against the REAL WABA ID as an EDGE
+    # and NEVER as a fields=phone_numbers lookup on another object
+    phone_req = requests_log[3]
+    assert phone_req["url"] == f"{GRAPH_BASE}/123456789/phone_numbers"
+    assert "fields" not in phone_req["params"] or phone_req["params"]["fields"] != "phone_numbers"
+    print("PASS: WABA identified via debug_token; phone_numbers queried as WABA edge")
+
+
+def test_phone_numbers_edge_regression():
+    """
+    Regression test: phone_numbers must NEVER be requested as a field and must
+    always be requested against the WABA ID (from debug_token), not a /me id.
+    """
+    captured = {}
+    svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
+    svc.GRAPH_API_BASE = GRAPH_BASE
+
+    code = "AQ" + ("z" * 449)
+    responses = [
+        FakeResponse(200, {"access_token": "EAA_t", "token_type": "bearer"}),
+        FakeResponse(200, {"data": {"granular_scopes": [
+            {"scope": "whatsapp_business_management", "target_ids": ["WABA_A"]},
+            {"scope": "whatsapp_business_management", "target_ids": ["WABA_B"]},
+        ], "user_id": "BIZ_1"}}),
+        FakeResponse(200, {"id": "WABA_A", "name": "WABA A"}),
+        FakeResponse(200, {"data": [{"id": "PN_1", "display_phone_number": "+111"}]}),
+    ]
+    requests_log = []
+
+    client = mock.AsyncMock()
+    client.__aenter__.return_value = client
+    client.__aexit__.return_value = False
+
+    async def fake_get(url, params=None):
+        requests_log.append({"url": url, "params": dict(params or {})})
+        return responses.pop(0)
+
+    client.get.side_effect = fake_get
+
+    with mock.patch("httpx.AsyncClient", return_value=client):
+        ok, data, err = run(svc.setup_whatsapp_integration(code, None))
+
+    assert ok is True, err
+    # First (most recently onboarded) WABA must be selected
+    assert data["waba_id"] == "WABA_A"
+    assert data["business_id"] == "BIZ_1"
+
+    # No request may ever use fields=phone_numbers
+    for req in requests_log:
+        assert req["params"].get("fields") != "phone_numbers", f"fields=phone_numbers used in {req['url']}"
+        assert "/me" != req["url"].replace(GRAPH_BASE, "").strip("/"), "/me must not be used"
+
+    # phone_numbers is called only as an edge on the WABA
+    assert requests_log[3]["url"] == f"{GRAPH_BASE}/WABA_A/phone_numbers"
+    print("PASS: no fields=phone_numbers; phone_numbers edge called on real WABA only")
 
 
 if __name__ == "__main__":

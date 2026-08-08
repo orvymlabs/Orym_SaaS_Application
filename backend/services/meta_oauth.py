@@ -22,6 +22,28 @@ NEVER send redirect_uri="" (empty string). An empty-string redirect_uri is not
 identical to any value Meta recorded in the dialog and triggers:
     "Error validating verification code. Please make sure your redirect_uri is
      identical to the one you used in the OAuth dialog request"
+
+IMPORTANT - How the WABA ID is identified (phone_numbers edge):
+
+The access token obtained from Embedded Signup is a customer-scoped business
+token. GET /me returns the TOKEN OWNER (business / system user), NOT the
+WhatsApp Business Account (WABA). Calling /<owner_id>/phone_numbers therefore
+fails with:
+    (#100) Tried accessing nonexisting field (phone_numbers)
+because phone_numbers is an EDGE of the WhatsAppBusinessAccount node, not a
+field of a Business node.
+
+Per Meta's WhatsApp Embedded Signup docs ("Manage accounts > Get shared WABA
+ID with access token") the correct way to identify the WABA ID from the token
+is the Debug Token endpoint:
+
+    GET /debug_token?input_token=<SIGNUP_TOKEN>&access_token=<APP_ACCESS_TOKEN>
+
+The response's data.granular_scopes entry for whatsapp_business_management
+lists the WABA IDs the token was granted access to (most recently onboarded
+first). Those WABA IDs are then queried through the WABA phone_numbers EDGE:
+
+    GET /<WABA_ID>/phone_numbers?access_token=<BUSINESS_TOKEN>
 """
 import httpx
 import logging
@@ -34,6 +56,10 @@ logger = logging.getLogger(__name__)
 for _lib in ("httpx", "httpcore"):
     logging.getLogger(_lib).setLevel(logging.WARNING)
 
+# Params that must NEVER be logged in plaintext (tokens, secrets, codes).
+_REDACTED_PARAMS = ("access_token", "input_token", "appsecret_proof",
+                    "client_secret", "code")
+
 
 class MetaOAuthService:
     """Service for handling Meta OAuth flow for WhatsApp Business API."""
@@ -44,19 +70,45 @@ class MetaOAuthService:
         self.app_id = app_id
         self.app_secret = app_secret
 
+    # ============================================================
+    # Safe logging helpers
+    # ============================================================
+
+    def _safe_params(self, params: Dict) -> Dict:
+        """Return params with tokens/secrets/codes redacted (safe to log)."""
+        safe = {}
+        for k, v in params.items():
+            if k in _REDACTED_PARAMS:
+                safe[k] = f"<{len(str(v))} chars, REDACTED>"
+            else:
+                safe[k] = v
+        return safe
+
+    def _log_graph_request(self, method: str, url: str, params: Dict) -> None:
+        """Log the exact Graph API request being sent.
+
+        Logs the endpoint, HTTP method, API version, object ID/edge and the
+        fields parameter. NEVER logs access tokens, input tokens or secrets.
+        """
+        # Object ID / edge from the URL path (query string never contains
+        # secrets here because httpx sends params separately).
+        path = url.replace(self.GRAPH_API_BASE, "").strip("/")
+
+        logger.info("=" * 80)
+        logger.info("META GRAPH API REQUEST")
+        logger.info("=" * 80)
+        logger.info(f"  Graph API endpoint: {url}")
+        logger.info(f"  HTTP method: {method}")
+        logger.info(f"  API version: {self.GRAPH_API_BASE.rstrip('/').rsplit('/', 1)[-1]}")
+        logger.info(f"  Object ID / edge: /{path}")
+        logger.info(f"  Parameter names: {list(params.keys())}")
+        logger.info(f"  Fields parameter: {params.get('fields', 'NOT SET')}")
+        logger.info(f"  Safe parameters: {self._safe_params(params)}")
+        logger.info("=" * 80)
+
     def _log_exchange_request(self, url: str, params: Dict) -> None:
         """Log the exact request being sent to Meta (never the app secret or full code)."""
-        log_params = {}
-        for k, v in params.items():
-            if k == "client_secret":
-                log_params[k] = "***REDACTED***"
-            elif k == "code":
-                log_params[k] = f"<{len(v)} chars>"
-            elif k == "redirect_uri":
-                log_params[k] = repr(v)  # visible: the exact URI (never empty string)
-            else:
-                log_params[k] = v
-
+        log_params = self._safe_params(params)
         logger.info("=" * 80)
         logger.info("META OAUTH TOKEN EXCHANGE")
         logger.info("=" * 80)
@@ -95,6 +147,10 @@ class MetaOAuthService:
             error_obj = {}
         message = error_obj.get("message", "Failed to exchange code")
         return message, error_obj
+
+    # ============================================================
+    # Step 1 - Exchange code for access token
+    # ============================================================
 
     async def exchange_code_for_token(self, code: str, redirect_uri: Optional[str] = None) -> Tuple[bool, Optional[Dict], Optional[str]]:
         """
@@ -173,42 +229,141 @@ class MetaOAuthService:
             logger.error(f"Token exchange error: {e}", exc_info=True)
             return False, None, str(e)
 
-    async def get_whatsapp_business_account(self, access_token: str) -> Tuple[bool, Optional[Dict], Optional[str]]:
+    # ============================================================
+    # Step 2 - Identify WABA ID(s) granted to the access token
+    # ============================================================
+
+    async def get_waba_ids_from_token(self, access_token: str) -> Tuple[bool, Optional[Dict], Optional[str]]:
         """
-        Get WhatsApp Business Account details.
+        Identify the WhatsApp Business Account (WABA) ID(s) granted to a token.
+
+        Uses Meta's Debug Token endpoint as documented in WhatsApp Embedded
+        Signup ("Manage accounts > Get shared WABA ID with access token"):
+
+            GET /debug_token?input_token=<SIGNUP_TOKEN>&access_token=<APP_ACCESS_TOKEN>
+
+        The response's data.granular_scopes entry for
+        whatsapp_business_management / whatsapp_business_messaging lists the
+        WABA IDs the token can access, most recently onboarded first.
+        data.user_id is the business / system user the token belongs to.
+
+        NOTE: GET /me is NOT used here - it returns the token owner, not the
+        WABA. Using the /me id as a WABA id produces:
+            (#100) Tried accessing nonexisting field (phone_numbers)
+
+        Args:
+            access_token: The business access token returned by the exchange.
+
+        Returns:
+            (success, {"waba_ids": [str, ...], "user_id": str|None}, error_message)
+        """
+        try:
+            url = f"{self.GRAPH_API_BASE}/debug_token"
+            # Meta docs: "An app access token or an app developer's user access
+            # token for the app associated with the input_token is required."
+            # App access token format is <APP_ID>|<APP_SECRET>.
+            app_access_token = f"{self.app_id}|{self.app_secret}"
+            params = {
+                "input_token": access_token,
+                "access_token": app_access_token,
+            }
+
+            self._log_graph_request("GET", url, params)
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url, params=params)
+
+            if response.status_code != 200:
+                last_error, error_obj = self._parse_error(response)
+                logger.error(f"Debug token failed: {last_error} (code: {error_obj.get('code')})")
+                return False, None, last_error or "Failed to inspect access token"
+
+            data = response.json().get("data", {})
+
+            waba_ids: list = []
+            for gs in data.get("granular_scopes") or []:
+                scope = gs.get("scope")
+                if scope in ("whatsapp_business_management", "whatsapp_business_messaging"):
+                    for target_id in gs.get("target_ids") or []:
+                        sid = str(target_id)
+                        if sid not in waba_ids:
+                            waba_ids.append(sid)
+
+            user_id = data.get("user_id")
+
+            logger.info(f"Debug token OK - granular scopes found, WABA IDs identified: {waba_ids}")
+
+            if not waba_ids:
+                logger.error("No WABA IDs found in debug_token granular_scopes")
+                return False, None, "No WhatsApp Business Account found. Complete WhatsApp Business setup and try again."
+
+            return True, {"waba_ids": waba_ids, "user_id": user_id}, None
+
+        except httpx.TimeoutException:
+            logger.error("Debug token request timed out")
+            return False, None, "Request timed out. Please try again."
+        except Exception as e:
+            logger.error(f"Debug token error: {e}", exc_info=True)
+            return False, None, str(e)
+
+    # ============================================================
+    # Step 3 - Get WABA details (name)
+    # ============================================================
+
+    async def get_waba_details(self, waba_id: str, access_token: str) -> Tuple[bool, Optional[Dict], Optional[str]]:
+        """
+        Get WhatsApp Business Account (WABA) details by querying the WABA node.
+
+        The WABA is a WhatsAppBusinessAccount node. Fields available include
+        id and name. This is a read on the node itself (GET /<WABA_ID>), NOT a
+        phone_numbers field lookup.
 
         Returns:
             (success, waba_data, error_message)
         """
         try:
-            url = f"{self.GRAPH_API_BASE}/me"
+            url = f"{self.GRAPH_API_BASE}/{waba_id}"
             params = {
                 "access_token": access_token,
-                "fields": "id,name"
+                "fields": "id,name",
             }
+
+            self._log_graph_request("GET", url, params)
 
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(url, params=params)
 
-                if response.status_code != 200:
-                    error_data = response.json() if response.text else {}
-                    error_msg = error_data.get("error", {}).get("message", "Failed to get business account")
-                    logger.error(f"Get WABA failed: {error_msg}")
-                    return False, None, error_msg
+            if response.status_code != 200:
+                last_error, _ = self._parse_error(response)
+                logger.error(f"Get WABA details failed: {last_error}")
+                return False, None, last_error or "Failed to get WhatsApp Business Account"
 
-                data = response.json()
-                return True, data, None
+            data = response.json()
+            return True, data, None
 
         except httpx.TimeoutException:
-            logger.error("Get WABA timed out")
+            logger.error("Get WABA details timed out")
             return False, None, "Request timed out. Please try again."
         except Exception as e:
-            logger.error(f"Get WABA error: {e}")
+            logger.error(f"Get WABA details error: {e}")
             return False, None, str(e)
+
+    # ============================================================
+    # Step 4 - Get phone numbers from the WABA's phone_numbers EDGE
+    # ============================================================
 
     async def get_phone_numbers(self, waba_id: str, access_token: str) -> Tuple[bool, Optional[list], Optional[str]]:
         """
         Get phone numbers associated with the WABA.
+
+        phone_numbers is a CONNECTION/EDGE of the WhatsAppBusinessAccount node,
+        so this calls:
+
+            GET /<WABA_ID>/phone_numbers?access_token=<TOKEN>
+
+        It must be called with the WABA ID (see get_waba_ids_from_token), never
+        the business ID or /me id - querying /<wrong_id>/phone_numbers fails
+        with (#100) Tried accessing nonexisting field (phone_numbers).
 
         Returns:
             (success, phone_numbers_list, error_message)
@@ -219,22 +374,23 @@ class MetaOAuthService:
                 "access_token": access_token
             }
 
+            self._log_graph_request("GET", url, params)
+
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(url, params=params)
 
-                if response.status_code != 200:
-                    error_data = response.json() if response.text else {}
-                    error_msg = error_data.get("error", {}).get("message", "Failed to get phone numbers")
-                    logger.error(f"Get phone numbers failed: {error_msg}")
-                    return False, None, error_msg
+            if response.status_code != 200:
+                last_error, _ = self._parse_error(response)
+                logger.error(f"Get phone numbers failed: {last_error}")
+                return False, None, last_error or "Failed to get phone numbers"
 
-                data = response.json()
-                phone_numbers = data.get("data", [])
+            data = response.json()
+            phone_numbers = data.get("data", [])
 
-                if not phone_numbers:
-                    return False, None, "No phone numbers found in this WhatsApp Business Account"
+            if not phone_numbers:
+                return False, None, "No phone numbers found in this WhatsApp Business Account"
 
-                return True, phone_numbers, None
+            return True, phone_numbers, None
 
         except httpx.TimeoutException:
             logger.error("Get phone numbers timed out")
@@ -243,14 +399,20 @@ class MetaOAuthService:
             logger.error(f"Get phone numbers error: {e}")
             return False, None, str(e)
 
+    # ============================================================
+    # Orchestration - full Embedded Signup setup
+    # ============================================================
+
     async def setup_whatsapp_integration(self, code: str, redirect_uri: Optional[str] = None) -> Tuple[bool, Optional[Dict], Optional[str]]:
         """
         Complete WhatsApp integration setup from authorization code.
 
         This method orchestrates the full OAuth flow:
         1. Exchange code for access token
-        2. Get WhatsApp Business Account ID
-        3. Get phone number details
+        2. Identify WABA ID via the Debug Token endpoint (granular_scopes)
+        3. Get WABA details (name)
+        4. Get phone numbers from the WABA's phone_numbers edge
+        5. Return integration data (phone number ID, WABA ID, business ID)
 
         Args:
             code: Authorization code from Meta OAuth
@@ -263,8 +425,9 @@ class MetaOAuthService:
 
         integration_data contains:
         - access_token: Long-lived access token
-        - business_id: Meta Business ID
-        - waba_id: WhatsApp Business Account ID
+        - business_id: Meta business / system user ID (from debug_token user_id)
+        - waba_id: WhatsApp Business Account ID (from debug_token granular_scopes)
+        - business_name: WABA name
         - phone_number_id: Phone Number ID
         - display_phone_number: Display phone number
         """
@@ -278,17 +441,30 @@ class MetaOAuthService:
 
             access_token = token_data.get("access_token")
 
-            # Step 2: Get Business Account details
-            success, waba_data, error = await self.get_whatsapp_business_account(access_token)
+            # Step 2: Identify WABA ID(s) from the token (Debug Token endpoint)
+            success, token_info, error = await self.get_waba_ids_from_token(access_token)
             if not success:
-                return False, None, error or "Failed to retrieve WhatsApp Business Account"
+                logger.error(f"Step 2 failed - WABA identification: {error}")
+                return False, None, error or "Failed to identify WhatsApp Business Account"
 
-            waba_id = waba_data.get("id")
-            business_name = waba_data.get("name", "")
+            waba_ids = token_info.get("waba_ids") or []
+            waba_id = waba_ids[0]
+            business_id = token_info.get("user_id") or waba_id
+            logger.info(f"WABA ID identified: {waba_id} (business/system user ID: {business_id})")
 
-            # Step 3: Get phone numbers
+            # Step 3: Get WABA details (name). Non-fatal if it fails.
+            business_name = ""
+            success, waba_data, error = await self.get_waba_details(waba_id, access_token)
+            if success:
+                business_name = waba_data.get("name", "")
+                logger.info(f"WABA name: {business_name}")
+            else:
+                logger.warning(f"Could not fetch WABA name (continuing): {error}")
+
+            # Step 4: Get phone numbers from the WABA's phone_numbers EDGE
             success, phone_numbers, error = await self.get_phone_numbers(waba_id, access_token)
             if not success:
+                logger.error(f"Step 4 failed - Phone numbers: {error}")
                 return False, None, error or "Failed to retrieve phone numbers"
 
             # Use the first phone number
@@ -298,7 +474,7 @@ class MetaOAuthService:
 
             integration_data = {
                 "access_token": access_token,
-                "business_id": waba_id,
+                "business_id": business_id,
                 "waba_id": waba_id,
                 "business_name": business_name,
                 "phone_number_id": phone_number_id,
