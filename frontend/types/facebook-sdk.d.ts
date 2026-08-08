@@ -15,7 +15,8 @@ interface Window {
         response_type?: string;
         override_default_response_type?: boolean;
         extras?: {
-          setup?: any;
+          sessionInfoVersion?: number;
+          [key: string]: any;
         };
       }
     ) => void;

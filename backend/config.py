@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     META_APP_ID: str = ""  # Your Meta App ID for Embedded Signup
     META_APP_SECRET: str = "" # REQUIRED: Your Meta App Secret for webhook signature verification
     META_CONFIG_ID: str = ""  # Your Meta Configuration ID for Embedded Signup
+    META_OAUTH_REDIRECT_URI: str = "https://apps.orvym.com/dashboard/integrations/"  # Exact OAuth redirect URI used in the dialog + code exchange
 
     # ===========================================
     # Stripe Payment Processing

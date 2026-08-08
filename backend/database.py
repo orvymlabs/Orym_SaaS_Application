@@ -117,6 +117,48 @@ def get_db():
         db.close()
 
 
+def run_schema_migrations():
+    """
+    Add columns that are missing from existing tables.
+
+    Base.metadata.create_all() only creates missing TABLES, it never ALTERs
+    existing tables. When new columns are added to a model, this runs the
+    equivalent ALTER TABLE statements so an existing production database is
+    upgraded in place (no data loss).
+    """
+    try:
+        inspector = sqlalchemy.inspect(engine)
+        tables = set(inspector.get_table_names())
+
+        migrations = {
+            "integrations": [
+                ("waba_id", "VARCHAR(100)"),
+                ("business_id", "VARCHAR(100)"),
+                ("verified_name", "VARCHAR(255)"),
+                ("connection_status", "VARCHAR(50)"),
+            ],
+        }
+
+        with engine.begin() as conn:
+            for table, columns in migrations.items():
+                if table not in tables:
+                    continue
+                existing = {c["name"] for c in inspector.get_columns(table)}
+                for col_name, col_type in columns:
+                    if col_name not in existing:
+                        logger.info(f"Schema migration: adding {table}.{col_name} ({col_type})")
+                        conn.execute(
+                            sqlalchemy.text(
+                                f"ALTER TABLE {table} ADD COLUMN {col_name} {col_type}"
+                            )
+                        )
+        logger.info("Schema migrations applied successfully")
+    except Exception as e:
+        logger.error(f"Schema migration failed: {e}")
+        # Non-fatal: the app can still boot; the affected fields stay NULL.
+        # Log the full trace so it can be fixed in the deployment environment.
+
+
 def init_db():
     """
     Initialize database tables.
@@ -139,6 +181,9 @@ def init_db():
         
         # Actually create the tables
         Base.metadata.create_all(bind=engine)
+
+        # Upgrade existing tables with any newly added columns
+        run_schema_migrations()
         
         # Verify tables after creation using an inspector
         inspector = sqlalchemy.inspect(engine)

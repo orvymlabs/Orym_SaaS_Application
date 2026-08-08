@@ -2,6 +2,20 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 
+class MetaOAuthCallbackRequest(BaseModel):
+    """Request body for POST /api/integrations/meta/oauth/callback.
+
+    The WABA ID, phone number ID and business ID returned by Meta Embedded
+    Signup are the source of truth and are required for the normal FINISH flow.
+    The authorization code alone must NOT be used to discover the WABA.
+    """
+    code: str
+    redirect_uri: Optional[str] = None
+    waba_id: str
+    phone_number_id: str
+    business_id: str
+
+
 class IntegrationUpdate(BaseModel):
     whatsapp_token: Optional[str] = None
     phone_number_id: Optional[str] = None

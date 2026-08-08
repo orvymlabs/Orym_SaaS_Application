@@ -26,7 +26,8 @@
       "Bash(venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload)",
       "WebSearch",
       "WebFetch(domain:rollout.com)",
-      "WebFetch(domain:developers.facebook.com)"
+      "WebFetch(domain:developers.facebook.com)",
+      "Bash(python test_meta_oauth_mock.py)"
     ]
   }
 }

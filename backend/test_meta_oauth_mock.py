@@ -132,125 +132,153 @@ def test_exchange_meta_error_returned():
     print("PASS: Meta 400 error propagated with redirect_uri intact")
 
 
+def build_client(get_responses, post_responses):
+    """Return an AsyncClient mock recording every request, with separate
+    sequences for GET and POST responses."""
+    client = mock.AsyncMock()
+    client.__aenter__.return_value = client
+    client.__aexit__.return_value = False
+    requests_log = []
+
+    get_responses = list(get_responses)
+    post_responses = list(post_responses)
+
+    async def fake_get(url, params=None):
+        requests_log.append({"method": "GET", "url": url, "params": dict(params or {})})
+        return get_responses.pop(0)
+
+    async def fake_post(url, params=None, **kwargs):
+        requests_log.append({"method": "POST", "url": url, "params": dict(params or {})})
+        return post_responses.pop(0)
+
+    client.get.side_effect = fake_get
+    client.post.side_effect = fake_post
+    return client, requests_log
+
+
 def test_setup_whatsapp_integration_full_flow():
-    """Full flow: exchange -> debug_token (WABA ID) -> WABA details -> phone_numbers edge."""
-    captured = {}
+    """Full Embedded Signup flow using the WABA ID returned by Embedded Signup:
+    exchange -> GET /<WABA>/phone_numbers -> POST /<WABA>/subscribed_apps -> WABA details.
+
+    The WABA ID is NEVER guessed/discovered from the token (no debug_token call).
+    """
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
     svc.GRAPH_API_BASE = GRAPH_BASE
     code = "AQ" + ("y" * 449)
     redirect_uri = "https://apps.orvym.com/dashboard/integrations/"
+    waba_id = "123456789"          # from Embedded Signup - source of truth
+    phone_number_id = "987654321"  # from Embedded Signup - source of truth
+    business_id = "biz_999"        # from Embedded Signup
 
-    responses = [
+    get_responses = [
         FakeResponse(200, {"access_token": "EAA_business_token", "token_type": "bearer", "expires_in": 5184000}),
-        FakeResponse(200, {
-            "data": {
-                "app_id": "3862862217342382",
-                "type": "USER",
-                "is_valid": True,
-                "scopes": ["whatsapp_business_management", "whatsapp_business_messaging", "public_profile"],
-                "granular_scopes": [
-                    {"scope": "whatsapp_business_management", "target_ids": ["123456789"]},
-                    {"scope": "whatsapp_business_messaging", "target_ids": ["123456789"]},
-                ],
-                "user_id": "8888888888888888",
-            }
-        }),
-        FakeResponse(200, {"id": "123456789", "name": "My Business"}),
-        FakeResponse(200, {"data": [{"id": "987654321", "display_phone_number": "+15551234567"}]}),
+        FakeResponse(200, {"data": [{
+            "id": phone_number_id,
+            "display_phone_number": "+15551234567",
+            "verified_name": "Verified Business",
+        }]}),
+        FakeResponse(200, {"id": waba_id, "name": "My Business"}),
     ]
-    requests_log = []
+    post_responses = [
+        FakeResponse(200, {"success": True}),
+    ]
 
-    client = mock.AsyncMock()
-    client.__aenter__.return_value = client
-    client.__aexit__.return_value = False
-
-    async def fake_get(url, params=None):
-        requests_log.append({"url": url, "params": dict(params or {})})
-        return responses.pop(0)
-
-    client.get.side_effect = fake_get
+    client, requests_log = build_client(get_responses, post_responses)
 
     with mock.patch("httpx.AsyncClient", return_value=client):
-        ok, data, err = run(svc.setup_whatsapp_integration(code, redirect_uri))
+        ok, data, err = run(svc.setup_whatsapp_integration(
+            code, redirect_uri,
+            waba_id=waba_id, phone_number_id=phone_number_id, business_id=business_id,
+        ))
 
     assert ok is True, err
     assert data["access_token"] == "EAA_business_token"
-    # business_id (from debug_token user_id) MUST differ from the WABA ID
-    assert data["waba_id"] == "123456789"
-    assert data["business_id"] == "8888888888888888"
+    assert data["waba_id"] == waba_id
+    assert data["business_id"] == business_id
     assert data["business_id"] != data["waba_id"]
     assert data["business_name"] == "My Business"
-    assert data["phone_number_id"] == "987654321"
+    assert data["phone_number_id"] == phone_number_id
     assert data["display_phone_number"] == "+15551234567"
+    assert data["verified_name"] == "Verified Business"
 
-    # Verify the exchange request to Meta carried the exact redirect_uri
+    # 1) Exchange request carried the exact redirect_uri
     exchange = requests_log[0]
+    assert exchange["method"] == "GET"
     assert exchange["url"] == f"{GRAPH_BASE}/oauth/access_token"
     assert exchange["params"]["redirect_uri"] == redirect_uri
     assert exchange["params"]["code"] == code
 
-    # WABA ID must come from the debug_token endpoint, NOT from /me
-    debug = requests_log[1]
-    assert debug["url"] == f"{GRAPH_BASE}/debug_token"
-    assert debug["params"]["input_token"] == "EAA_business_token"
-    assert "access_token" in debug["params"]  # app access token authorizes the call
-    assert "input_token" not in debug["params"] or debug["params"]["input_token"] != ""
-
-    # phone_numbers must be called against the REAL WABA ID as an EDGE
-    # and NEVER as a fields=phone_numbers lookup on another object
-    phone_req = requests_log[3]
-    assert phone_req["url"] == f"{GRAPH_BASE}/123456789/phone_numbers"
+    # 2) phone_numbers called against the Embedded Signup WABA ID as an EDGE
+    #    and NEVER as a fields=phone_numbers lookup
+    phone_req = requests_log[1]
+    assert phone_req["method"] == "GET"
+    assert phone_req["url"] == f"{GRAPH_BASE}/{waba_id}/phone_numbers"
     assert "fields" not in phone_req["params"] or phone_req["params"]["fields"] != "phone_numbers"
-    print("PASS: WABA identified via debug_token; phone_numbers queried as WABA edge")
+
+    # 3) subscribed_apps POSTed against the same WABA ID
+    sub_req = requests_log[2]
+    assert sub_req["method"] == "POST"
+    assert sub_req["url"] == f"{GRAPH_BASE}/{waba_id}/subscribed_apps"
+
+    # 4) The service must NEVER guess the WABA (no debug_token, no /me)
+    urls = [r["url"] for r in requests_log]
+    assert all("/debug_token" not in u for u in urls), "WABA must come from Embedded Signup, never debug_token"
+    assert all("/me" not in u for u in urls), "/me must not be used"
+    print("PASS: WABA ID from Embedded Signup used directly; phone_numbers + subscribed_apps on the WABA edge")
 
 
 def test_phone_numbers_edge_regression():
     """
-    Regression test: phone_numbers must NEVER be requested as a field and must
-    always be requested against the WABA ID (from debug_token), not a /me id.
+    Regression test: phone_numbers must NEVER be requested as a field, and both
+    phone_numbers and subscribed_apps must be called against the WABA ID
+    returned by Embedded Signup (never a business ID or a /me id).
     """
-    captured = {}
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
     svc.GRAPH_API_BASE = GRAPH_BASE
 
     code = "AQ" + ("z" * 449)
-    responses = [
+    waba_id = "WABA_A"
+    phone_number_id = "PN_1"
+    business_id = "BIZ_1"
+
+    get_responses = [
         FakeResponse(200, {"access_token": "EAA_t", "token_type": "bearer"}),
-        FakeResponse(200, {"data": {"granular_scopes": [
-            {"scope": "whatsapp_business_management", "target_ids": ["WABA_A"]},
-            {"scope": "whatsapp_business_management", "target_ids": ["WABA_B"]},
-        ], "user_id": "BIZ_1"}}),
-        FakeResponse(200, {"id": "WABA_A", "name": "WABA A"}),
-        FakeResponse(200, {"data": [{"id": "PN_1", "display_phone_number": "+111"}]}),
+        FakeResponse(200, {"data": [{
+            "id": phone_number_id,
+            "display_phone_number": "+111",
+            "verified_name": "V",
+        }]}),
+        FakeResponse(200, {"id": waba_id, "name": "WABA A"}),
     ]
-    requests_log = []
+    post_responses = [
+        FakeResponse(200, {"success": True}),
+    ]
 
-    client = mock.AsyncMock()
-    client.__aenter__.return_value = client
-    client.__aexit__.return_value = False
-
-    async def fake_get(url, params=None):
-        requests_log.append({"url": url, "params": dict(params or {})})
-        return responses.pop(0)
-
-    client.get.side_effect = fake_get
+    client, requests_log = build_client(get_responses, post_responses)
 
     with mock.patch("httpx.AsyncClient", return_value=client):
-        ok, data, err = run(svc.setup_whatsapp_integration(code, None))
+        ok, data, err = run(svc.setup_whatsapp_integration(
+            code, None,
+            waba_id=waba_id, phone_number_id=phone_number_id, business_id=business_id,
+        ))
 
     assert ok is True, err
-    # First (most recently onboarded) WABA must be selected
-    assert data["waba_id"] == "WABA_A"
-    assert data["business_id"] == "BIZ_1"
+    assert data["waba_id"] == waba_id
+    assert data["business_id"] == business_id
 
-    # No request may ever use fields=phone_numbers
+    # No request may ever use fields=phone_numbers, /me, or debug_token
     for req in requests_log:
         assert req["params"].get("fields") != "phone_numbers", f"fields=phone_numbers used in {req['url']}"
         assert "/me" != req["url"].replace(GRAPH_BASE, "").strip("/"), "/me must not be used"
+        assert "/debug_token" not in req["url"], "WABA must never be discovered via debug_token"
 
-    # phone_numbers is called only as an edge on the WABA
-    assert requests_log[3]["url"] == f"{GRAPH_BASE}/WABA_A/phone_numbers"
-    print("PASS: no fields=phone_numbers; phone_numbers edge called on real WABA only")
+    # phone_numbers is called only as an edge on the Embedded Signup WABA
+    assert requests_log[1]["method"] == "GET"
+    assert requests_log[1]["url"] == f"{GRAPH_BASE}/{waba_id}/phone_numbers"
+    # subscribed_apps is POSTed to the same WABA
+    assert requests_log[2]["method"] == "POST"
+    assert requests_log[2]["url"] == f"{GRAPH_BASE}/{waba_id}/subscribed_apps"
+    print("PASS: no fields=phone_numbers; phone_numbers + subscribed_apps on the Embedded Signup WABA only")
 
 
 if __name__ == "__main__":

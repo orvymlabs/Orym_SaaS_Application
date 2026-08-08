@@ -1,24 +1,20 @@
-GOOD NEWS: The redirect_uri issue is FIXED.
+I want a permanent production-grade fix for our Meta WhatsApp Embedded Signup integration.
 
-The latest production log proves that the OAuth exchange is now progressing past the previous redirect_uri error.
+IMPORTANT:
+The redirect_uri issue is already resolved.
 
-Current redirect_uri:
-
+Current production redirect_uri:
 https://apps.orvym.com/dashboard/integrations/
 
-The previous error:
+Do NOT change the redirect_uri.
+Do NOT change the App ID.
+Do NOT change the Config ID.
 
-"Error validating verification code. Please make sure your redirect_uri is identical..."
+App ID:
+3862862217342382
 
-is GONE.
-
-DO NOT CHANGE THE REDIRECT_URI OR FB.login FLOW AGAIN.
-
-NEW ERROR:
-
-(#100) Tried accessing nonexisting field (phone_numbers)
-
-Production:
+Config ID:
+2432311603846818
 
 Frontend:
 https://apps.orvym.com
@@ -26,234 +22,263 @@ https://apps.orvym.com
 Backend:
 https://orym-saas-application.onrender.com
 
-Meta App ID:
-3862862217342382
+CURRENT PROBLEM:
 
-Config ID:
-2432311603846818
+Embedded Signup successfully completes and returns an exchangeable code.
 
-Latest frontend log:
+The browser receives a WA_EMBEDDED_SIGNUP message event.
 
-Exchangeable token code received (length: 451)
+The current frontend logs show the code, but the backend eventually returns:
 
-redirect_uri:
+"No WhatsApp Business Account found. Complete WhatsApp Business setup and try again."
+
+I do NOT want another workaround.
+
+Implement the standard production Embedded Signup architecture:
+
+Embedded Signup
+→ session message
+→ extract code + waba_id + phone_number_id + business_id
+→ send all required values to backend
+→ exchange code server-side
+→ validate customer business token
+→ use returned WABA ID directly
+→ retrieve/validate phone number
+→ subscribe WABA to app
+→ save credentials
+→ return successful connection to frontend.
+
+STEP 1 — FRONTEND
+
+Inspect the actual Embedded Signup message listener.
+
+It must correctly parse:
+
+type:
+WA_EMBEDDED_SIGNUP
+
+Successful event:
+FINISH
+
+And extract:
+
+data.waba_id
+data.phone_number_id
+data.business_id
+
+The expected successful structure is:
+
+{
+  data: {
+    phone_number_id: "...",
+    waba_id: "...",
+    business_id: "..."
+  },
+  type: "WA_EMBEDDED_SIGNUP",
+  event: "FINISH",
+  version: 3
+}
+
+Do NOT rely only on the authorization code to discover the WABA.
+
+The WABA ID and phone number ID returned by Embedded Signup are the source of truth.
+
+Also handle:
+
+event === "CANCEL"
+
+and:
+
+event === "ERROR"
+
+without attempting onboarding.
+
+STEP 2 — FRONTEND → BACKEND
+
+Inspect the exact current request to:
+
+POST /api/integrations/meta/oauth/callback
+
+Change it so it sends:
+
+{
+  code,
+  redirect_uri,
+  waba_id,
+  phone_number_id,
+  business_id
+}
+
+Mask the code in logs.
+
+Do NOT log access tokens or secrets.
+
+STEP 3 — BACKEND
+
+Inspect the callback request model/schema.
+
+Add:
+
+waba_id
+phone_number_id
+business_id
+
+as appropriate.
+
+Do not make them optional if they are required for the normal FINISH flow.
+
+STEP 4 — CODE EXCHANGE
+
+Exchange the short-lived Embedded Signup code server-side using the Meta OAuth token endpoint.
+
+Use the exact redirect_uri:
+
 https://apps.orvym.com/dashboard/integrations/
 
-Backend returns:
+Do not introduce another redirect URI.
 
-HTTP 400
+Log only safe metadata:
+- exchange success/failure
+- error code
+- error subcode
+- error message
+- fbtrace_id
 
-Error:
-(#100) Tried accessing nonexisting field (phone_numbers)
+Never log:
+- app secret
+- client secret
+- access token
+- full authorization code
 
-==================================================
-NEW TASK: FIX ONLY THE phone_numbers API ERROR
-==================================================
+STEP 5 — WABA
 
-DO NOT MODIFY:
+DO NOT attempt to "guess" the WABA.
 
-- redirect_uri
-- FB.login()
-- Config ID
-- response_type
-- override_default_response_type
-- OAuth callback flow
+Use the waba_id returned by Embedded Signup.
 
-Those parts are now working.
+Do NOT confuse:
+- business_id
+- WABA ID
+- phone_number_id
 
-==================================================
-1. FIND THE EXACT API CALL FAILING
-==================================================
+They are separate IDs.
 
-Inspect:
+STEP 6 — PHONE NUMBER
 
-backend/services/meta_oauth.py
+Use:
 
-backend/routers/integrations.py
+GET /{WABA_ID}/phone_numbers
 
-and all WhatsApp/Meta Graph API service files.
-
-Find where the backend requests:
-
-phone_numbers
-
-or:
-
-fields=phone_numbers
-
-or:
-
-/phone_numbers
-
-or:
-
-?fields=phone_numbers
-
-Determine the exact Graph API URL that is producing:
-
-(#100) Tried accessing nonexisting field (phone_numbers)
-
-==================================================
-2. LOG THE EXACT GRAPH API REQUEST
-==================================================
-
-Temporarily add safe debugging.
-
-Log:
-
-Graph API endpoint
-HTTP method
-API version
-object ID being queried
-fields parameter
-
-DO NOT log:
-
-access_token
-client_secret
-full OAuth code
-
-Example:
-
-Graph API request:
-GET https://graph.facebook.com/<version>/<OBJECT_ID>
-
-fields:
-...
-
-==================================================
-3. IMPORTANT: DO NOT ASSUME phone_numbers IS A FIELD
-==================================================
-
-Determine whether the current code is incorrectly doing something like:
-
-GET /<id>?fields=phone_numbers
-
-If so, fix it.
-
-phone_numbers may be a CONNECTION/EDGE rather than a field on the object being queried.
-
-If the correct API structure is:
-
-GET /<whatsapp_business_account_id>/phone_numbers
-
-then implement it as an edge request.
+to validate/retrieve the customer's WhatsApp phone number.
 
 Do NOT use:
 
-fields=phone_numbers
+/{object}?fields=phone_numbers
 
-unless Meta's current API documentation explicitly supports it for that exact object.
+or any invalid phone_numbers field lookup.
 
-==================================================
-4. DETERMINE THE CORRECT OBJECT IDs
-==================================================
+Extract:
 
-After Embedded Signup, identify the IDs returned by Meta.
+phone_number_id
+display_phone_number
+verified_name
 
-We need to distinguish:
+and verify that it matches the phone_number_id returned by Embedded Signup.
 
-- Business ID
-- WABA ID
-- Phone Number ID
+STEP 7 — SUBSCRIBE WABA
 
-Do not confuse them.
+After successful token exchange and WABA validation:
 
-The phone numbers endpoint should be called against the correct WhatsApp Business Account/WABA ID.
+POST /{WABA_ID}/subscribed_apps
 
-==================================================
-5. VERIFY CURRENT META GRAPH API DOCUMENTATION
-==================================================
+using the correct customer/business access token.
 
-Use current Meta Graph API documentation for WhatsApp Business Accounts.
+If this fails, return the REAL Meta error:
 
-Verify the correct way to retrieve phone numbers associated with a WABA.
+error.code
+error.error_subcode
+error.message
+error.fbtrace_id
 
-Determine:
+Do NOT replace it with:
+"No WhatsApp Business Account found."
 
-GET /<WABA_ID>/phone_numbers
+STEP 8 — DATABASE
 
-or the currently documented equivalent.
+After successful onboarding, save:
 
-Also determine the required permissions/access token type.
+waba_id
+phone_number_id
+business_id
+access_token
+display_phone_number
+verified_name
+connection status
 
-==================================================
-6. FIX THE API CALL
-==================================================
+Never expose the access token to the frontend.
 
-Replace the incorrect API request with the correct Graph API request.
+STEP 9 — ERROR HANDLING
 
-The expected conceptual flow is:
+Differentiate these cases:
 
-Embedded Signup
-→ exchange code
-→ obtain access token
-→ identify WABA ID
-→ query WABA's phone_numbers edge
-→ retrieve phone number ID
-→ retrieve phone number details if required
-→ save WhatsApp connection in database
+1. Embedded Signup cancelled
+2. Embedded Signup error
+3. Authorization code exchange failed
+4. Missing WABA ID
+5. Invalid WABA ID
+6. Phone number lookup failed
+7. WABA subscription failed
+8. Database save failed
 
-Do NOT attempt to retrieve phone_numbers as a field from an object that does not expose that field.
+Return useful errors for each case.
 
-==================================================
-7. CHECK ALL OTHER GRAPH API CALLS
-==================================================
+Do NOT use one generic:
+"No WhatsApp Business Account found."
 
-After fixing phone_numbers, inspect the surrounding onboarding code for similar mistakes.
+STEP 10 — VERIFY CURRENT PRODUCTION CODE
 
-Check:
+Inspect the actual source files before modifying anything.
 
-WABA retrieval
-Phone number retrieval
-Business retrieval
-Business phone number registration
-Webhook subscription
+Show me:
+- current Embedded Signup listener
+- current frontend callback request
+- current backend request schema
+- current OAuth exchange
+- current WABA lookup
+- current phone number lookup
+- current subscribed_apps call
 
-But DO NOT make unrelated changes.
+Then implement the fix.
 
-==================================================
-8. TEST WITH FRESH EMBEDDED SIGNUP
-==================================================
+STEP 11 — BUILD
 
-Use a fresh Embedded Signup attempt.
+After changes:
 
-The expected flow is:
+1. Build frontend successfully.
+2. Verify generated production bundle contains the new WABA/phone_number/business_id handling.
+3. Verify backend imports successfully.
+4. Run tests if available.
+5. Commit changes.
+6. Deploy frontend and backend.
 
-1. Embedded Signup opens
-2. User completes onboarding
-3. Exchangeable code received
-4. Backend exchanges code
-5. Access token obtained
-6. WABA ID identified
-7. GET WABA/phone_numbers succeeds
-8. Phone Number ID obtained
-9. Connection saved successfully
+Do not claim completion until the production bundle contains the fix.
 
-==================================================
-9. FINAL RESPONSE
-==================================================
+FINAL RESPONSE MUST SHOW:
 
-Tell me:
+1. Exact frontend event structure being parsed.
+2. Exact fields extracted.
+3. Exact frontend → backend request body, with code masked.
+4. Exact Meta token endpoint.
+5. Exact WABA phone_numbers endpoint.
+6. Exact subscribed_apps endpoint.
+7. Database fields saved.
+8. Files changed.
+9. Build result.
+10. Deployment result.
+11. Any Meta Dashboard setting actually required.
 
-1. Exact API endpoint that was failing
-2. Why phone_numbers was being treated incorrectly
-3. Correct Graph API endpoint
-4. WABA ID used
-5. Phone Number ID obtained
-6. Exact code files changed
-7. Whether OAuth/redirect_uri was left untouched
-8. Production build result
-9. Fresh Embedded Signup test result
+Most importantly:
 
-IMPORTANT:
+DO NOT TRY ANOTHER REDIRECT_URI EXPERIMENT.
 
-The redirect_uri is now:
-
-https://apps.orvym.com/dashboard/integrations/
-
-Do NOT change it.
-
-The current issue is ONLY:
-
-(#100) Tried accessing nonexisting field (phone_numbers)
+The permanent solution is to use the WABA ID and phone_number_id returned by Meta Embedded Signup and pass them to the backend, rather than trying to discover the WABA blindly after OAuth.

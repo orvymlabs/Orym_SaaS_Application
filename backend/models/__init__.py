@@ -161,6 +161,10 @@ class Integration(Base):
     woo_categories_cached = Column(JSON, nullable=True)  # Cached category list
     woo_products_count = Column(Integer, default=0)  # Number of cached products
     business_type = Column(String(20), default="product")  # product, service
+    waba_id = Column(String(100), index=True, nullable=True)  # WhatsApp Business Account ID (from Embedded Signup)
+    business_id = Column(String(100), nullable=True)  # Meta business portfolio ID (from Embedded Signup)
+    verified_name = Column(String(255), nullable=True)  # Verified display name from the WABA phone number
+    connection_status = Column(String(50), nullable=True)  # connected, disconnected
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

@@ -8,17 +8,36 @@ export default function NotFound() {
   useEffect(() => {
     setMounted(true);
     // Check if user is logged in and redirect to appropriate dashboard after 5 seconds
-    const token = localStorage.getItem("token");
-    if (token) {
-      const timer = setTimeout(() => {
-        window.location.href = "/dashboard";
-      }, 5000);
-      return () => clearTimeout(timer);
+    if (typeof window !== 'undefined') {
+      const token = localStorage.getItem("token");
+      if (token) {
+        const timer = setTimeout(() => {
+          window.location.href = "/dashboard";
+        }, 5000);
+        return () => clearTimeout(timer);
+      }
     }
   }, []);
 
+  // Always render content for SSR, client-side logic runs after mount
   if (!mounted) {
-    return null;
+    // Return static content for SSR/SSG
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
+        <div className="max-w-2xl mx-auto text-center space-y-8">
+          <div className="relative">
+            <div className="text-[150px] font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 leading-none">
+              404
+            </div>
+          </div>
+          <div className="space-y-4">
+            <h1 className="text-4xl md:text-5xl font-black text-slate-900 tracking-tight">
+              Page Not Found
+            </h1>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

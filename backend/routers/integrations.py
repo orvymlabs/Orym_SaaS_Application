@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Body, Background
 from sqlalchemy.orm import Session
 from database import get_db
 from models import Integration, Bot
-from schemas.integration import IntegrationUpdate, IntegrationResponse, WooCommerceFetchStatus
+from schemas.integration import IntegrationUpdate, IntegrationResponse, WooCommerceFetchStatus, MetaOAuthCallbackRequest
 from services import decode_token
 from services.encryption import encrypt_value, decrypt_value
 from services.website_fetcher import fetch_website_content as fetch_website_service
@@ -546,40 +546,49 @@ async def meta_oauth_callback_get(
 
 @router.post("/meta/oauth/callback")
 async def meta_oauth_callback_post(
-    request: Request,
-    code: str = Body(..., embed=True),
-    redirect_uri: str = Body(None, embed=True),
+    payload: MetaOAuthCallbackRequest,
     user_id: int = Depends(get_current_user_id),
     db: Session = Depends(get_db)
 ):
     """
-    Handle Meta OAuth callback via POST (exchangeable code from the OAuth dialog).
+    Handle Meta Embedded Signup callback via POST.
 
-    WhatsApp Embedded Signup is invoked with response_type=code + config_id.
-    The authorization code is bound by Meta to the EXACT redirect_uri used in the
-    OAuth dialog request.
+    The frontend extracts the following from the WA_EMBEDDED_SIGNUP message
+    event (FINISH) and forwards them here:
+      - code             : exchangeable authorization code
+      - redirect_uri     : the EXACT dialog redirect URI
+      - waba_id          : WhatsApp Business Account ID (source of truth)
+      - phone_number_id  : business phone number ID (source of truth)
+      - business_id      : business portfolio ID
 
-    When the dialog was launched manually (frontend-built dialog URL), the
-    frontend sends the SAME redirect_uri here and the backend forwards it verbatim
-    to GET /oauth/access_token so the exchange matches the dialog exactly.
-
-    redirect_uri is optional: if omitted (JS SDK / FB.login flow) the backend
-    exchange omits redirect_uri entirely per Meta's Embedded Signup docs.
+    The backend then:
+      1. Exchanges the code server-side for the customer business token
+      2. Uses the returned WABA ID directly (never "guesses" it)
+      3. Validates the phone number via GET /<WABA_ID>/phone_numbers
+      4. Subscribes the WABA to the app via POST /<WABA_ID>/subscribed_apps
+      5. Saves credentials (never exposes the access token to the frontend)
     """
     settings = get_settings()
 
+    # Mask the code in ALL logs. Never log the full code, access tokens or secrets.
+    masked_code = f"{payload.code[:8]}...{payload.code[-4:]} (length {len(payload.code)})"
     logger.info("=" * 80)
-    logger.info("📥 META OAUTH CALLBACK - POST REQUEST")
+    logger.info("META OAUTH CALLBACK - POST REQUEST")
     logger.info("=" * 80)
     logger.info(f"User ID: {user_id}")
-    logger.info(f"Code received: Yes (length: {len(code)})")
-    logger.info(f"Redirect URI provided: {repr(redirect_uri) if redirect_uri else 'NO - redirect_uri will be OMITTED from the exchange (never empty string)'}")
-    logger.info(f"Flow type: WhatsApp Embedded Signup (response_type=code + config_id)")
+    logger.info(f"Code received: {masked_code}")
+    logger.info(f"Redirect URI: {payload.redirect_uri or '(not provided - using configured default)'}")
+    logger.info(f"WABA ID: {payload.waba_id}")
+    logger.info(f"Phone Number ID: {payload.phone_number_id}")
+    logger.info(f"Business ID: {payload.business_id}")
     logger.info("=" * 80)
 
     if not settings.META_APP_ID or not settings.META_APP_SECRET:
         logger.error("Meta OAuth not configured - missing APP_ID or APP_SECRET")
         raise HTTPException(500, "Meta OAuth is not configured on the server")
+
+    # Use the exact production redirect URI unless the frontend explicitly sent one.
+    redirect_uri = payload.redirect_uri or settings.META_OAUTH_REDIRECT_URI
 
     # Get user's bot and integration
     bot = db.query(Bot).filter(Bot.user_id == user_id).first()
@@ -592,11 +601,16 @@ async def meta_oauth_callback_post(
         logger.error(f"Integration not found for bot {bot.id}")
         raise HTTPException(404, "Integration not found")
 
-    # Initialize OAuth service
+    # Initialize OAuth service and complete the Embedded Signup setup using the
+    # WABA ID / phone number ID / business ID returned by Embedded Signup.
     oauth_service = MetaOAuthService(settings.META_APP_ID, settings.META_APP_SECRET)
-
-    # Complete the setup (pass redirect_uri if provided)
-    success, integration_data, error = await oauth_service.setup_whatsapp_integration(code, redirect_uri)
+    success, integration_data, error = await oauth_service.setup_whatsapp_integration(
+        payload.code,
+        redirect_uri,
+        waba_id=payload.waba_id or None,
+        phone_number_id=payload.phone_number_id or None,
+        business_id=payload.business_id or None,
+    )
 
     if not success:
         logger.error(f"OAuth setup failed for user {user_id}: {error}")
@@ -619,6 +633,10 @@ async def meta_oauth_callback_post(
         integ.whatsapp_token = encrypt_value(integration_data["access_token"])
         integ.phone_number_id = integration_data["phone_number_id"]
         integ.whatsapp_number = integration_data["display_phone_number"]
+        integ.waba_id = integration_data["waba_id"]
+        integ.business_id = integration_data.get("business_id") or None
+        integ.verified_name = integration_data.get("verified_name") or None
+        integ.connection_status = "connected"
 
         # Generate verify token if not exists
         if not integ.verify_token:
@@ -627,7 +645,10 @@ async def meta_oauth_callback_post(
 
         db.commit()
 
-        logger.info(f"Successfully connected WhatsApp for user {user_id}: {integration_data['display_phone_number']}")
+        logger.info(
+            f"Successfully connected WhatsApp for user {user_id}: "
+            f"{integration_data['display_phone_number']} (WABA {integration_data['waba_id']})"
+        )
 
         return {
             "success": True,
@@ -635,7 +656,9 @@ async def meta_oauth_callback_post(
             "data": {
                 "business_name": integration_data.get("business_name", ""),
                 "phone_number": integration_data["display_phone_number"],
-                "phone_number_id": integration_data["phone_number_id"]
+                "phone_number_id": integration_data["phone_number_id"],
+                "waba_id": integration_data["waba_id"],
+                "verified_name": integration_data.get("verified_name", ""),
             }
         }
 

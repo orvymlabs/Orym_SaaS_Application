@@ -37,18 +37,27 @@ from main import app
 settings = get_settings()
 
 # Mock Meta entirely - never make a network call
-async def fake_setup_success(self, code, redirect_uri=None):
-    assert code and redirect_uri, "code and redirect_uri must be forwarded to the service"
+async def fake_setup_success(self, code, redirect_uri=None, waba_id=None, phone_number_id=None, business_id=None):
+    assert code, "code must be forwarded to the service"
+    if not waba_id:
+        # Mirrors the real service: a missing WABA ID is a differentiated error,
+        # never a generic "No WhatsApp Business Account found".
+        return False, None, (
+            "Missing WABA ID: the WhatsApp Business Account ID was not "
+            "returned by Embedded Signup. Please complete the Embedded Signup again."
+        )
+    assert phone_number_id, "phone_number_id from Embedded Signup must be forwarded to the service"
     return True, {
         "access_token": "EAA_test_token",
-        "business_id": "waba_111",
-        "waba_id": "waba_111",
+        "business_id": business_id,
+        "waba_id": waba_id,
         "business_name": "Test Business",
-        "phone_number_id": "phone_222",
+        "phone_number_id": phone_number_id,
         "display_phone_number": "+15551234567",
+        "verified_name": "Test Business",
     }, None
 
-async def fake_setup_error(self, code, redirect_uri=None):
+async def fake_setup_error(self, code, redirect_uri=None, waba_id=None, phone_number_id=None, business_id=None):
     return False, None, "Error validating verification code. Please make sure your redirect_uri is identical to the one you used in the OAuth dialog request"
 
 # Patch the service class INSIDE the router module so the endpoint uses the mock
@@ -109,10 +118,17 @@ def main():
 
     print("=== TEST 4: POST callback SUCCESS path ===")
     code = "AQ" + "x" * 449
-    redirect_uri = "https://apps.orvym.com/dashboard/integrations"
+    redirect_uri = "https://apps.orvym.com/dashboard/integrations/"
+    payload_success = {
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "waba_id": "waba_111",
+        "phone_number_id": "phone_222",
+        "business_id": "biz_333",
+    }
     r = client.post(
         "/api/integrations/meta/oauth/callback",
-        json={"code": code, "redirect_uri": redirect_uri},
+        json=payload_success,
         headers=headers,
     )
     check("callback returns 200", r.status_code == 200, f"{r.status_code} {r.text[:300]}")
@@ -120,6 +136,7 @@ def main():
         body = r.json()
         check("response success true", body.get("success") is True, str(body))
         check("phone number echoed", body.get("data", {}).get("phone_number") == "+15551234567", str(body))
+        check("waba_id echoed", body.get("data", {}).get("waba_id") == "waba_111", str(body))
 
         # Verify the integration row was saved
         db = SessionLocal()
@@ -128,16 +145,31 @@ def main():
             check("integration saved has_whatsapp_token", bool(saved.whatsapp_token), str(saved.whatsapp_token)[:20])
             check("phone_number_id saved", saved.phone_number_id == "phone_222", str(saved.phone_number_id))
             check("whatsapp_number saved", saved.whatsapp_number == "+15551234567", str(saved.whatsapp_number))
+            check("waba_id saved", saved.waba_id == "waba_111", str(saved.waba_id))
+            check("business_id saved", saved.business_id == "biz_333", str(saved.business_id))
+            check("verified_name saved", saved.verified_name == "Test Business", str(saved.verified_name))
+            check("connection_status saved", saved.connection_status == "connected", str(saved.connection_status))
             check("verify_token generated", bool(saved.verify_token), "")
         finally:
             db.close()
+
+    print("=== TEST 4b: POST callback MISSING WABA ID -> 400 (differentiated) ===")
+    r = client.post(
+        "/api/integrations/meta/oauth/callback",
+        json={"code": code, "redirect_uri": redirect_uri, "waba_id": "", "phone_number_id": "", "business_id": ""},
+        headers=headers,
+    )
+    check("missing waba_id returns 400", r.status_code == 400, str(r.status_code))
+    if r.status_code == 400:
+        detail = r.json().get("detail", "")
+        check("missing waba_id message is specific", "Missing WABA ID" in detail, detail[:120])
 
     print("=== TEST 5: POST callback ERROR path (Meta 400 style) ===")
     RouterMetaOAuthService.setup_whatsapp_integration = fake_setup_error
     code2 = "AQ" + "y" * 449
     r = client.post(
         "/api/integrations/meta/oauth/callback",
-        json={"code": code2, "redirect_uri": "https://apps.orvym.com/dashboard/integrations"},
+        json={**payload_success, "code": code2},
         headers=headers,
     )
     check("callback returns 400 on Meta error", r.status_code == 400, str(r.status_code))
@@ -145,22 +177,29 @@ def main():
         detail = r.json().get("detail", "")
         check("Meta error message propagated", "redirect_uri is identical" in detail, detail[:120])
 
-    print("=== TEST 6: POST callback missing redirect_uri (service sees None) ===")
+    print("=== TEST 6: POST callback missing redirect_uri (configured default is used) ===")
     calls = {}
-    async def fake_setup_record(self, code, redirect_uri=None):
+    async def fake_setup_record(self, code, redirect_uri=None, waba_id=None, phone_number_id=None, business_id=None):
         calls["redirect_uri"] = redirect_uri
+        calls["waba_id"] = waba_id
         return True, {
-            "access_token": "EAA_t2", "business_id": "waba_333", "waba_id": "waba_333",
+            "access_token": "EAA_t2", "business_id": "biz_444", "waba_id": waba_id,
             "phone_number_id": "phone_444", "display_phone_number": "+19998887777",
+            "verified_name": "Verified Co",
         }, None
     RouterMetaOAuthService.setup_whatsapp_integration = fake_setup_record
     r = client.post(
         "/api/integrations/meta/oauth/callback",
-        json={"code": "AQzzz"},
+        json={"code": "AQzzz", "waba_id": "waba_555", "phone_number_id": "phone_444", "business_id": "biz_444"},
         headers=headers,
     )
     check("callback 200 without redirect_uri", r.status_code == 200, str(r.status_code))
-    check("service received redirect_uri=None", calls.get("redirect_uri") is None, str(calls))
+    check(
+        "service received the exact production redirect_uri",
+        calls.get("redirect_uri") == settings.META_OAUTH_REDIRECT_URI,
+        str(calls),
+    )
+    check("service received waba_id from Embedded Signup", calls.get("waba_id") == "waba_555", str(calls))
 
     print()
     passed = sum(1 for _, ok in results if ok)
