@@ -190,7 +190,7 @@ def main():
     RouterMetaOAuthService.setup_whatsapp_integration = fake_setup_record
     r = client.post(
         "/api/integrations/meta/oauth/callback",
-        json={"code": "AQzzz", "waba_id": "waba_555", "phone_number_id": "phone_444", "business_id": "biz_444"},
+        json={"code": "AQ" + "z" * 449, "waba_id": "waba_555", "phone_number_id": "phone_444", "business_id": "biz_444"},
         headers=headers,
     )
     check("callback 200 without redirect_uri", r.status_code == 200, str(r.status_code))

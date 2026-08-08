@@ -5,15 +5,20 @@ from typing import Optional, List
 class MetaOAuthCallbackRequest(BaseModel):
     """Request body for POST /api/integrations/meta/oauth/callback.
 
+    All fields are optional at the Pydantic layer so a request that is missing
+    Embedded Signup data produces a structured 400 (with a useful detail
+    message) instead of a generic 422. The endpoint explicitly validates each
+    required field (code, waba_id, phone_number_id) before processing.
+
     The WABA ID, phone number ID and business ID returned by Meta Embedded
-    Signup are the source of truth and are required for the normal FINISH flow.
-    The authorization code alone must NOT be used to discover the WABA.
+    Signup are the source of truth. The authorization code alone must NOT be
+    used to discover the WABA.
     """
-    code: str
+    code: Optional[str] = None
     redirect_uri: Optional[str] = None
-    waba_id: str
-    phone_number_id: str
-    business_id: str
+    waba_id: Optional[str] = None
+    phone_number_id: Optional[str] = None
+    business_id: Optional[str] = None
 
 
 class IntegrationUpdate(BaseModel):

@@ -15,7 +15,9 @@ interface Window {
         response_type?: string;
         override_default_response_type?: boolean;
         extras?: {
-          sessionInfoVersion?: number;
+          setup?: Record<string, any>;
+          featureType?: string;
+          sessionInfoVersion?: number | string;
           [key: string]: any;
         };
       }

@@ -470,11 +470,11 @@ class MetaOAuthService:
 
         Flow:
         1. Exchange code for access token (server-side, exact redirect_uri)
-        2. Validate the WABA ID supplied by Embedded Signup
+        2. Validate the WABA ID supplied by Embedded Signup via GET /<WABA_ID>
+           (requests only supported fields: id,name)
         3. GET /<WABA_ID>/phone_numbers (WABA edge) to retrieve the phone number
         4. Verify the returned phone number ID matches Embedded Signup's
         5. POST /<WABA_ID>/subscribed_apps to subscribe the WABA to the app
-        6. (non-fatal) GET /<WABA_ID> for the WABA name
 
         Args:
             code: Authorization code from Meta Embedded Signup
@@ -491,36 +491,45 @@ class MetaOAuthService:
         - access_token: Long-lived customer-scoped business token
         - business_id: Meta business portfolio ID (from Embedded Signup)
         - waba_id: WhatsApp Business Account ID (from Embedded Signup)
-        - business_name: WABA name (best effort)
+        - business_name: WABA name (from the WABA node)
         - phone_number_id: Phone Number ID
         - display_phone_number: Display phone number
         - verified_name: Verified display name
         """
         try:
             # Step 1: Exchange code for token
-            logger.info(f"Starting WhatsApp integration setup (code length: {len(code)})")
+            logger.info(f"[EmbeddedSignup] Step 1/5 - Meta token exchange started (code length: {len(code)})")
             success, token_data, error = await self.exchange_code_for_token(code, redirect_uri)
             if not success:
-                logger.error(f"Step 1 failed - Token exchange: {error}")
+                logger.error(f"[EmbeddedSignup] Step 1/5 failed - Token exchange: {error}")
                 return False, None, error or "Failed to exchange authorization code"
-
+            logger.info("[EmbeddedSignup] Step 1/5 - Meta token exchange succeeded")
             access_token = token_data.get("access_token")
 
-            # Step 2: The WABA ID returned by Embedded Signup is the source of
-            # truth. Do NOT guess/discover the WABA from the token.
+            # Step 2: Validate the WABA ID returned by Embedded Signup. This is
+            # the source of truth - never guess/discover the WABA from the token.
             if not waba_id:
-                logger.error("Step 2 failed - Missing WABA ID from Embedded Signup")
+                logger.error("[EmbeddedSignup] Step 2/5 failed - Missing WABA ID from Embedded Signup")
                 return False, None, (
-                    "Missing WABA ID: the WhatsApp Business Account ID was not "
-                    "returned by Embedded Signup. Please complete the Embedded "
-                    "Signup again."
+                    "Missing WABA ID (waba_id): the WhatsApp Business Account ID was not "
+                    "returned by Embedded Signup. Please complete the Embedded Signup again."
                 )
 
+            logger.info(f"[EmbeddedSignup] Step 2/5 - WABA validation started (waba_id: {waba_id})")
+            success, waba_data, error = await self.get_waba_details(waba_id, access_token)
+            if not success:
+                logger.error(f"[EmbeddedSignup] Step 2/5 failed - WABA validation for {waba_id}: {error}")
+                return False, None, error or "Failed to validate the WhatsApp Business Account"
+            business_name = waba_data.get("name", "")
+            logger.info(f"[EmbeddedSignup] Step 2/5 - WABA validation succeeded (name: {business_name})")
+
             # Step 3: Get phone numbers from the WABA's phone_numbers EDGE
+            logger.info(f"[EmbeddedSignup] Step 3/5 - Phone numbers lookup started (waba_id: {waba_id})")
             success, phone_numbers, error = await self.get_phone_numbers(waba_id, access_token)
             if not success:
-                logger.error(f"Step 3 failed - Phone numbers for WABA {waba_id}: {error}")
+                logger.error(f"[EmbeddedSignup] Step 3/5 failed - Phone numbers for WABA {waba_id}: {error}")
                 return False, None, error or "Failed to retrieve phone numbers"
+            logger.info("[EmbeddedSignup] Step 3/5 - Phone numbers lookup succeeded")
 
             # Step 4: Verify the phone number matches the one Embedded Signup returned
             phone_data = None
@@ -531,7 +540,8 @@ class MetaOAuthService:
                         break
                 if phone_data is None:
                     logger.error(
-                        f"Step 4 failed - Phone number {phone_number_id} not found in WABA {waba_id}"
+                        f"[EmbeddedSignup] Step 4/5 failed - Phone number {phone_number_id} "
+                        f"not found in WABA {waba_id}"
                     )
                     return False, None, (
                         "Phone number validation failed: the phone number ID returned "
@@ -545,24 +555,25 @@ class MetaOAuthService:
             display_phone_number = phone_data.get("display_phone_number", "")
             verified_name = phone_data.get("verified_name", "")
             logger.info(
-                f"Phone number verified: {display_phone_number} "
+                f"[EmbeddedSignup] Step 4/5 - Phone number verified: {display_phone_number} "
                 f"(id: {phone_number_id_final}, verified_name: {verified_name})"
             )
 
-            # Step 5: Subscribe the WABA to the app
+            # Step 5: Subscribe the WABA to the app (required for webhooks)
+            logger.info(f"[EmbeddedSignup] Step 5/5 - WABA subscription started (waba_id: {waba_id})")
             success, sub_data, error = await self.subscribe_to_waba(waba_id, access_token)
             if not success:
-                logger.error(f"Step 5 failed - WABA subscription for {waba_id}: {error}")
+                logger.error(f"[EmbeddedSignup] Step 5/5 failed - WABA subscription for {waba_id}: {error}")
                 return False, None, error or "Failed to subscribe the WhatsApp Business Account to the app"
+            logger.info("[EmbeddedSignup] Step 5/5 - WABA subscription succeeded")
 
-            # Step 6: Get WABA details (name). Non-fatal if it fails.
-            business_name = ""
-            success, waba_data, error = await self.get_waba_details(waba_id, access_token)
-            if success:
-                business_name = waba_data.get("name", "")
-                logger.info(f"WABA name: {business_name}")
-            else:
-                logger.warning(f"Could not fetch WABA name (continuing): {error}")
+            # Business ID validation (non-fatal): use only the actual ID returned
+            # by Embedded Signup. Never invent or guess one.
+            if business_id:
+                business_id = str(business_id).strip()
+                if not business_id:
+                    business_id = None
+            logger.info(f"[EmbeddedSignup] Business ID for tenant record: {business_id or 'not provided'}")
 
             integration_data = {
                 "access_token": access_token,
@@ -575,11 +586,11 @@ class MetaOAuthService:
             }
 
             logger.info(
-                f"Successfully setup WhatsApp integration for WABA {waba_id}, "
+                f"[EmbeddedSignup] WhatsApp integration setup complete: WABA {waba_id}, "
                 f"phone {display_phone_number}, subscribed_apps={bool(sub_data)}"
             )
             return True, integration_data, None
 
         except Exception as e:
-            logger.error(f"Setup integration error: {e}")
+            logger.error(f"[EmbeddedSignup] Setup integration error: {e}")
             return False, None, f"An unexpected error occurred: {str(e)}"

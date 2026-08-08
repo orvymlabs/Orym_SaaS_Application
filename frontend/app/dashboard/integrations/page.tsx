@@ -103,28 +103,49 @@ export default function IntegrationsPage() {
 
   // The exchangeable code and the asset IDs arrive separately:
   //   - code        : delivered by Meta in the FB.login response callback
-  //                   (response.authResponse.code). MAY also be present in the
-  //                   WA_EMBEDDED_SIGNUP message data (defensive handling).
+  //                   (response.authResponse.code). It MAY also be present in
+  //                   the WA_EMBEDDED_SIGNUP session message data and in the
+  //                   JS SDK's query-string handshake message (defensive).
   //   - waba_id / phone_number_id / business_id : delivered in the
-  //                   WA_EMBEDDED_SIGNUP session message (event FINISH).
+  //                   WA_EMBEDDED_SIGNUP session message (event FINISH) only.
+  //                   They are NEVER present in the query-string SDK message.
   // These refs combine both sources and guarantee the single-use code is
   // exchanged exactly once, no matter which one arrives first.
   const signupCodeRef = useRef<string | null>(null);
   const signupDataRef = useRef<{ waba_id?: string; phone_number_id?: string; business_id?: string }>({});
   const completingRef = useRef(false);
 
-  // Complete the connection only once BOTH the exchangeable code and the
-  // asset IDs are available. The code is single-use, so it is cleared as soon
-  // as the backend callback is started.
-  const completeEmbeddedSignup = () => {
+  // Complete the connection only once BOTH the exchangeable code and the asset
+  // IDs are available. The code is single-use, so it is cleared as soon as the
+  // backend callback is started. Because the code and the asset IDs arrive in
+  // two separate Meta messages, retry briefly (up to ~6s) before surfacing an
+  // error that names exactly which value is missing.
+  const completeEmbeddedSignup = (retriesLeft = 12) => {
     if (completingRef.current) return true;
     const code = signupCodeRef.current;
     const { waba_id, phone_number_id, business_id } = signupDataRef.current;
-    if (!code || !waba_id || !phone_number_id) return false;
-    completingRef.current = true;
-    signupCodeRef.current = null;
-    handleMetaOAuthCallback(code, META_OAUTH_REDIRECT_URI, { waba_id, phone_number_id, business_id });
-    return true;
+    if (code && waba_id && phone_number_id) {
+      completingRef.current = true;
+      signupCodeRef.current = null;
+      handleMetaOAuthCallback(code, META_OAUTH_REDIRECT_URI, { waba_id, phone_number_id, business_id });
+      return true;
+    }
+    if (retriesLeft <= 0) {
+      setConnectingWhatsApp(false);
+      const missing: string[] = [];
+      if (!code) missing.push("exchangeable code");
+      if (!waba_id) missing.push("waba_id");
+      if (!phone_number_id) missing.push("phone_number_id");
+      showToast(
+        "WhatsApp Embedded Signup finished but the following data was not returned: " +
+          missing.join(", ") +
+          ". Please try again.",
+        "error"
+      );
+      return false;
+    }
+    setTimeout(() => completeEmbeddedSignup(retriesLeft - 1), 500);
+    return false;
   };
 
   useEffect(() => {
@@ -155,77 +176,115 @@ export default function IntegrationsPage() {
           // Session logging message event listener - Official Meta Code.
           // WhatsApp Embedded Signup posts a WA_EMBEDDED_SIGNUP message to this
           // window when the user finishes (FINISH), cancels (CANCEL) or hits an
-          // error (ERROR). On FINISH the event data is:
+          // error (ERROR). On FINISH the event data is (Meta's documented format):
           //   {
           //     type: "WA_EMBEDDED_SIGNUP",
           //     event: "FINISH",
-          //     data: { code, phone_number_id, waba_id, business_id, ... },
+          //     data: { phone_number_id, waba_id, business_id, ... },
           //     version: 3
           //   }
           // The waba_id / phone_number_id / business_id in this event are the
           // source of truth and are forwarded to the backend together with the
           // exchangeable code. The backend never guesses the WABA from the code.
+          // A second, query-string style message (cb=...&domain=...&code=...)
+          // is the JS SDK's internal handshake and carries ONLY the code - the
+          // asset IDs are NEVER in it, so we extract the code from it but never
+          // treat it as a source of asset IDs.
           window.addEventListener('message', (event) => {
             // Security check: only accept messages from facebook.com
             if (!event.origin.endsWith('facebook.com')) return;
 
+            let code: string | undefined;
+            let waba_id: string | undefined;
+            let phone_number_id: string | undefined;
+            let business_id: string | undefined;
+            let eventName = 'UNKNOWN';
+            let errorMessage: string | undefined;
+            let errorCode: string | undefined;
+
             try {
-              const data = JSON.parse(event.data);
-              if (data.type !== 'WA_EMBEDDED_SIGNUP') return;
-
-              console.log('WhatsApp Embedded Signup Message Event:', data);
-
-              if (data.event === 'FINISH') {
-                const { code, waba_id, phone_number_id, business_id } = data.data || {};
-                console.log('Flow completed successfully');
-                console.log('  Phone Number ID:', phone_number_id);
-                console.log('  WABA ID:', waba_id);
-                console.log('  Business ID:', business_id);
-                console.log('  Exchangeable code in message:', Boolean(code));
-
-                // The asset IDs from the session message are the source of
-                // truth for the WABA / phone number / business portfolio.
-                // Persist them and combine with the exchangeable code.
-                signupDataRef.current = { waba_id, phone_number_id, business_id };
-                if (code) signupCodeRef.current = code;
-                sessionStorage.setItem("meta_embedded_signup", JSON.stringify({
-                  waba_id,
-                  phone_number_id,
-                  business_id,
-                }));
-
-                // The exchangeable code is normally delivered by Meta in the
-                // FB.login response callback (response.authResponse.code),
-                // which can arrive a moment before or after this message.
-                // Try to complete now; if the code has not arrived yet, wait
-                // briefly for the callback.
-                if (!completeEmbeddedSignup()) {
-                  setTimeout(() => {
-                    if (completingRef.current) return;
-                    if (!completeEmbeddedSignup()) {
-                      setConnectingWhatsApp(false);
-                      const missing = !signupCodeRef.current ? "no exchangeable code" : "no phone number ID";
-                      showToast(
-                        "WhatsApp Embedded Signup finished, but " + missing +
-                        " was returned. Please try again.",
-                        "error"
-                      );
-                    }
-                  }, 1500);
-                }
-              } else if (data.event === 'CANCEL') {
-                console.log('Flow cancelled or abandoned');
-                setConnectingWhatsApp(false);
-                showToast("WhatsApp signup was cancelled. No changes were made.", "info");
-              } else if (data.event === 'ERROR') {
-                const errorMsg = data.data?.error_message || "An error occurred during WhatsApp setup";
-                console.log('Flow error:', errorMsg, 'code:', data.data?.error_code, 'session:', data.data?.session_id);
-                setConnectingWhatsApp(false);
-                showToast("WhatsApp setup failed: " + errorMsg, "error");
+              // Format 1: JSON WA_EMBEDDED_SIGNUP session message (documented).
+              const parsed = JSON.parse(event.data);
+              if (!parsed || parsed.type !== 'WA_EMBEDDED_SIGNUP') {
+                return; // unrelated JSON message from facebook.com
               }
-            } catch (parseError) {
-              // If not JSON, log the raw data
-              console.log('WhatsApp Embedded Signup Message Event (raw):', event.data);
+              eventName = String(parsed.event || 'UNKNOWN');
+              const dataObj = parsed.data || {};
+              code = dataObj.code || undefined;
+              waba_id = dataObj.waba_id || undefined;
+              phone_number_id = dataObj.phone_number_id || undefined;
+              business_id = dataObj.business_id || undefined;
+              // Multi-WABA flows: Meta may send waba_ids[] instead of waba_id.
+              if (!waba_id && Array.isArray(dataObj.waba_ids) && dataObj.waba_ids.length > 0) {
+                waba_id = String(dataObj.waba_ids[0]);
+              }
+              errorMessage = dataObj.error_message || undefined;
+              errorCode = dataObj.error_code !== undefined ? String(dataObj.error_code) : undefined;
+            } catch {
+              try {
+                // Format 2: query-string style JS SDK handshake. Contains the
+                // exchangeable code (cb=..., code=...), NEVER the asset IDs.
+                const params = new URLSearchParams(event.data);
+                if (!params.has('cb') && !params.has('code')) {
+                  return; // unrelated message
+                }
+                eventName = 'SDK_QUERY_STRING';
+                code = params.get('code') || undefined;
+              } catch {
+                return; // not parseable at all - ignore
+              }
+            }
+
+            // Safe debug logging - never log the full code, access tokens or secrets.
+            console.log('[EmbeddedSignup] message event received from', event.origin, '| event:', eventName);
+            console.log('[EmbeddedSignup] code received:', code ? 'yes (length ' + code.length + ')' : 'no');
+            console.log('[EmbeddedSignup] waba_id:', waba_id || 'MISSING');
+            console.log('[EmbeddedSignup] phone_number_id:', phone_number_id || 'MISSING');
+            console.log('[EmbeddedSignup] business_id:', business_id || 'MISSING');
+
+            if (eventName === 'CANCEL') {
+              console.log('[EmbeddedSignup] Flow cancelled or abandoned');
+              setConnectingWhatsApp(false);
+              showToast("WhatsApp signup was cancelled. No changes were made.", "info");
+              return;
+            }
+            if (eventName === 'ERROR') {
+              console.log('[EmbeddedSignup] Flow error:', errorCode, errorMessage);
+              setConnectingWhatsApp(false);
+              showToast(
+                "WhatsApp setup failed: " + (errorMessage || "An error occurred during WhatsApp setup"),
+                "error"
+              );
+              return;
+            }
+            if (eventName === 'FINISH_ONLY_WABA' && !phone_number_id) {
+              console.log('[EmbeddedSignup] FINISH_ONLY_WABA without a phone number');
+              setConnectingWhatsApp(false);
+              showToast(
+                "WhatsApp Embedded Signup finished without a phone number. " +
+                  "Please complete the flow with a business phone number.",
+                "error"
+              );
+              return;
+            }
+
+            // The asset IDs from the session message are the source of truth.
+            // Persist them (covers the popup-closed-early case) and combine
+            // them with the exchangeable code.
+            if (waba_id || phone_number_id || business_id) {
+              signupDataRef.current = { waba_id, phone_number_id, business_id };
+              sessionStorage.setItem("meta_embedded_signup", JSON.stringify({
+                waba_id,
+                phone_number_id,
+                business_id,
+              }));
+            }
+            if (code) {
+              signupCodeRef.current = code;
+            }
+
+            if (code || waba_id || phone_number_id) {
+              completeEmbeddedSignup();
             }
           });
 
@@ -265,89 +324,66 @@ export default function IntegrationsPage() {
   }, []);
 
   // Launch WhatsApp Embedded Signup - Standard production flow.
-  // Preferred: JS SDK FB.login with config_id. Meta fires a WA_EMBEDDED_SIGNUP
-  // window message carrying {code, waba_id, phone_number_id, business_id} on
-  // FINISH, which the listener above forwards to the backend.
-  // Fallback (SDK not ready): manual OAuth dialog with the exact configured
-  // redirect_uri.
+  // JS SDK FB.login with config_id (Meta's current documented invocation).
+  // Meta delivers:
+  //   - the exchangeable code  via the FB.login callback (response.authResponse.code)
+  //   - waba_id / phone_number_id / business_id via the WA_EMBEDDED_SIGNUP
+  //     session message (listener above)
+  // completeEmbeddedSignup() combines both and ensures the single-use code is
+  // exchanged exactly once.
   const launchWhatsAppLogin = () => {
     if (!metaConfig) {
       showToast("Meta Embedded Signup is not configured", "error");
       return;
     }
 
-    setConnectingWhatsApp(true);
-
-    if (typeof window !== 'undefined' && window.FB && typeof window.FB.login === 'function') {
-      console.log('Launching WhatsApp Embedded Signup via FB.login (JS SDK)');
-      console.log('  App ID:', metaConfig.app_id);
-      console.log('  Config ID:', metaConfig.config_id);
-
-      window.FB.login((response: any) => {
-        // The exchangeable code is delivered here via response.authResponse.code
-        // (Meta's documented location for Embedded Signup). The WABA / phone /
-        // business IDs arrive separately via the WA_EMBEDDED_SIGNUP session
-        // message. completeEmbeddedSignup() combines both and ensures the
-        // single-use code is exchanged exactly once.
-        if (response?.authResponse?.code) {
-          signupCodeRef.current = response.authResponse.code;
-        }
-        if (!completeEmbeddedSignup()) {
-          // The connection is not complete yet. If the user cancelled or Meta
-          // reported an error, surface it; otherwise the FINISH session message
-          // (which carries the asset IDs) completes the flow.
-          if (response?.status === 'unknown') {
-            setConnectingWhatsApp(false);
-            showToast("WhatsApp signup was cancelled. No changes were made.", "info");
-          } else if (response?.authResponse?.error) {
-            setConnectingWhatsApp(false);
-            showToast("WhatsApp signup failed: " + (response.authResponse.error || "Unknown error"), "error");
-          }
-        }
-      }, {
-        config_id: metaConfig.config_id,
-        response_type: 'code',
-        override_default_response_type: true,
-        extras: { sessionInfoVersion: 3 },
-      });
+    if (typeof window === 'undefined' || !window.FB || typeof window.FB.login !== 'function') {
+      console.warn('[EmbeddedSignup] Facebook SDK is not ready yet');
+      setConnectingWhatsApp(false);
+      showToast("Meta SDK is still loading. Please wait a moment and try again.", "error");
       return;
     }
 
-    // Fallback: manual OAuth dialog (window navigation). On return the page
-    // receives ?code=...&state=... and the useEffect below completes the flow.
-    // The dialog MUST use the exact configured production redirect URI - never
-    // a value computed at runtime. Meta binds the code to this value and the
-    // backend exchange sends the same one.
-    const oauthRedirectUri = META_OAUTH_REDIRECT_URI;
-
-    // Generate a CSRF state and persist it so the redirect-back can be verified.
-    const stateChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let state = '';
-    for (let i = 0; i < 24; i++) {
-      state += stateChars.charAt(Math.floor(Math.random() * stateChars.length));
-    }
-    sessionStorage.setItem("meta_oauth_state", state);
-
-    const params = new URLSearchParams({
-      client_id: metaConfig.app_id,
-      redirect_uri: oauthRedirectUri,
-      response_type: "code",
-      config_id: metaConfig.config_id,
-      override_default_response_type: "true",
-      state,
-    });
-
-    const dialogUrl = `https://www.facebook.com/v26.0/dialog/oauth?${params.toString()}`;
-
-    console.log('Launching WhatsApp Embedded Signup (manual OAuth dialog fallback)');
+    setConnectingWhatsApp(true);
+    console.log('[EmbeddedSignup] Launching WhatsApp Embedded Signup via FB.login (JS SDK)');
     console.log('  App ID:', metaConfig.app_id);
     console.log('  Config ID:', metaConfig.config_id);
-    console.log('  redirect_uri:', oauthRedirectUri);
 
-    window.location.href = dialogUrl;
+    window.FB.login((response: any) => {
+      // The exchangeable code is delivered here via response.authResponse.code
+      // (Meta's documented location for Embedded Signup). The WABA / phone /
+      // business IDs arrive separately via the WA_EMBEDDED_SIGNUP session
+      // message. completeEmbeddedSignup() combines both and ensures the
+      // single-use code is exchanged exactly once.
+      console.log('[EmbeddedSignup] FB.login response status:', response?.status);
+      if (response?.authResponse?.code) {
+        signupCodeRef.current = response.authResponse.code;
+        console.log('[EmbeddedSignup] exchangeable code received via FB.login callback (length:', response.authResponse.code.length, ')');
+      }
+      if (response?.status === 'unknown') {
+        setConnectingWhatsApp(false);
+        showToast("WhatsApp signup was cancelled. No changes were made.", "info");
+        return;
+      }
+      if (response?.authResponse?.error) {
+        setConnectingWhatsApp(false);
+        showToast("WhatsApp signup failed: " + response.authResponse.error, "error");
+        return;
+      }
+      completeEmbeddedSignup();
+    }, {
+      config_id: metaConfig.config_id,
+      response_type: 'code',
+      override_default_response_type: true,
+      extras: {
+        setup: {},
+        featureType: '',
+        sessionInfoVersion: '3',
+      },
+    });
   };
 
-  // Handle OAuth callback - Exchange code for access token
+  // Handle Embedded Signup completion - send all required data to the backend.
   const handleMetaOAuthCallback = async (
     code: string,
     oauthRedirectUri?: string,
@@ -361,14 +397,14 @@ export default function IntegrationsPage() {
 
       // The WABA / phone / business IDs come from the WA_EMBEDDED_SIGNUP FINISH
       // message event and are the source of truth. Fall back to any persisted
-      // value (covers the redirect-back flow). The backend never guesses.
+      // value (covers a popup that closed before the listener stored them).
       const stored = sessionStorage.getItem("meta_embedded_signup");
       const parsed = stored ? JSON.parse(stored) : {};
       const wabaId = metaData?.waba_id || parsed.waba_id;
       const phoneNumberId = metaData?.phone_number_id || parsed.phone_number_id;
       const businessId = metaData?.business_id || parsed.business_id;
 
-      console.log('Exchanging authorization code for access token');
+      console.log('[EmbeddedSignup] backend request started');
       console.log('  Code length:', code.length);
       console.log('  redirect_uri:', redirectUri);
       console.log('  waba_id:', wabaId);
@@ -376,15 +412,28 @@ export default function IntegrationsPage() {
       console.log('  business_id:', businessId);
       console.log('  Note: Exchangeable code expires in 30 seconds');
 
+      // NEVER send a broken request. The backend requires the asset IDs that
+      // Meta Embedded Signup returns in the FINISH session message. Sending
+      // undefined values produced a 422 in production.
+      const missing: string[] = [];
+      if (!wabaId) missing.push("waba_id");
+      if (!phoneNumberId) missing.push("phone_number_id");
+      if (missing.length > 0) {
+        throw new Error(
+          "Missing " + missing.join(", ") +
+          " from Embedded Signup completion data. Please reconnect WhatsApp."
+        );
+      }
+
       const result = await apiPost("/api/integrations/meta/oauth/callback", {
         code,
         redirect_uri: redirectUri,
         waba_id: wabaId,
         phone_number_id: phoneNumberId,
-        business_id: businessId,
+        business_id: businessId || null,
       });
 
-      console.log('Token exchange response:', result.success ? 'SUCCESS' : 'FAILED');
+      console.log('[EmbeddedSignup] backend request succeeded:', result.success ? 'SUCCESS' : 'FAILED');
 
       if (result.success) {
         sessionStorage.removeItem("meta_embedded_signup");
@@ -402,44 +451,13 @@ export default function IntegrationsPage() {
         showToast(result.message || "Failed to connect WhatsApp", "error");
       }
     } catch (err: any) {
-      console.error('OAuth callback error:', err);
+      console.error('[EmbeddedSignup] OAuth callback error:', err);
       showToast("Error: " + err.message, "error");
     } finally {
       completingRef.current = false;
       setConnectingWhatsApp(false);
     }
   };
-
-  // After the user finishes the Embedded Signup on facebook.com, Meta redirects
-  // the browser back to this page with ?code=...&state=... in the URL. Detect
-  // that here, verify the CSRF state, then exchange the code for a token.
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const urlParams = new URLSearchParams(window.location.search);
-    const code = urlParams.get("code");
-    if (!code) return;
-
-    const oauthRedirectUri = META_OAUTH_REDIRECT_URI;
-    const expectedState = sessionStorage.getItem("meta_oauth_state");
-    const receivedState = urlParams.get("state");
-
-    // Clean the code/state out of the URL so a refresh cannot re-submit them.
-    urlParams.delete("code");
-    urlParams.delete("state");
-    const cleanSearch = urlParams.toString();
-    const cleanUrl = window.location.pathname + (cleanSearch ? `?${cleanSearch}` : "");
-    window.history.replaceState({}, "", cleanUrl);
-
-    if (expectedState && receivedState !== expectedState) {
-      console.error('❌ OAuth state mismatch (possible CSRF):', { expectedState, receivedState });
-      showToast("OAuth state validation failed. Please try again.", "error");
-      return;
-    }
-    sessionStorage.removeItem("meta_oauth_state");
-
-    console.log('✅ Exchangeable token code received (length:', code.length, ')');
-    handleMetaOAuthCallback(code, oauthRedirectUri);
-  }, []);
 
   // Disconnect WhatsApp
   const handleDisconnectWhatsApp = async () => {

@@ -158,7 +158,7 @@ def build_client(get_responses, post_responses):
 
 def test_setup_whatsapp_integration_full_flow():
     """Full Embedded Signup flow using the WABA ID returned by Embedded Signup:
-    exchange -> GET /<WABA>/phone_numbers -> POST /<WABA>/subscribed_apps -> WABA details.
+    exchange -> GET /<WABA> (validate) -> GET /<WABA>/phone_numbers -> POST /<WABA>/subscribed_apps.
 
     The WABA ID is NEVER guessed/discovered from the token (no debug_token call).
     """
@@ -172,12 +172,12 @@ def test_setup_whatsapp_integration_full_flow():
 
     get_responses = [
         FakeResponse(200, {"access_token": "EAA_business_token", "token_type": "bearer", "expires_in": 5184000}),
+        FakeResponse(200, {"id": waba_id, "name": "My Business"}),
         FakeResponse(200, {"data": [{
             "id": phone_number_id,
             "display_phone_number": "+15551234567",
             "verified_name": "Verified Business",
         }]}),
-        FakeResponse(200, {"id": waba_id, "name": "My Business"}),
     ]
     post_responses = [
         FakeResponse(200, {"success": True}),
@@ -208,19 +208,25 @@ def test_setup_whatsapp_integration_full_flow():
     assert exchange["params"]["redirect_uri"] == redirect_uri
     assert exchange["params"]["code"] == code
 
-    # 2) phone_numbers called against the Embedded Signup WABA ID as an EDGE
+    # 2) WABA validated first: GET /<WABA_ID> with supported fields only
+    waba_req = requests_log[1]
+    assert waba_req["method"] == "GET"
+    assert waba_req["url"] == f"{GRAPH_BASE}/{waba_id}"
+    assert waba_req["params"]["fields"] == "id,name"
+
+    # 3) phone_numbers called against the Embedded Signup WABA ID as an EDGE
     #    and NEVER as a fields=phone_numbers lookup
-    phone_req = requests_log[1]
+    phone_req = requests_log[2]
     assert phone_req["method"] == "GET"
     assert phone_req["url"] == f"{GRAPH_BASE}/{waba_id}/phone_numbers"
     assert "fields" not in phone_req["params"] or phone_req["params"]["fields"] != "phone_numbers"
 
-    # 3) subscribed_apps POSTed against the same WABA ID
-    sub_req = requests_log[2]
+    # 4) subscribed_apps POSTed against the same WABA ID
+    sub_req = requests_log[3]
     assert sub_req["method"] == "POST"
     assert sub_req["url"] == f"{GRAPH_BASE}/{waba_id}/subscribed_apps"
 
-    # 4) The service must NEVER guess the WABA (no debug_token, no /me)
+    # 5) The service must NEVER guess the WABA (no debug_token, no /me)
     urls = [r["url"] for r in requests_log]
     assert all("/debug_token" not in u for u in urls), "WABA must come from Embedded Signup, never debug_token"
     assert all("/me" not in u for u in urls), "/me must not be used"
@@ -243,12 +249,12 @@ def test_phone_numbers_edge_regression():
 
     get_responses = [
         FakeResponse(200, {"access_token": "EAA_t", "token_type": "bearer"}),
+        FakeResponse(200, {"id": waba_id, "name": "WABA A"}),
         FakeResponse(200, {"data": [{
             "id": phone_number_id,
             "display_phone_number": "+111",
             "verified_name": "V",
         }]}),
-        FakeResponse(200, {"id": waba_id, "name": "WABA A"}),
     ]
     post_responses = [
         FakeResponse(200, {"success": True}),
@@ -272,13 +278,16 @@ def test_phone_numbers_edge_regression():
         assert "/me" != req["url"].replace(GRAPH_BASE, "").strip("/"), "/me must not be used"
         assert "/debug_token" not in req["url"], "WABA must never be discovered via debug_token"
 
-    # phone_numbers is called only as an edge on the Embedded Signup WABA
+    # WABA is validated first via GET /<WABA_ID>
     assert requests_log[1]["method"] == "GET"
-    assert requests_log[1]["url"] == f"{GRAPH_BASE}/{waba_id}/phone_numbers"
+    assert requests_log[1]["url"] == f"{GRAPH_BASE}/{waba_id}"
+    # phone_numbers is called only as an edge on the Embedded Signup WABA
+    assert requests_log[2]["method"] == "GET"
+    assert requests_log[2]["url"] == f"{GRAPH_BASE}/{waba_id}/phone_numbers"
     # subscribed_apps is POSTed to the same WABA
-    assert requests_log[2]["method"] == "POST"
-    assert requests_log[2]["url"] == f"{GRAPH_BASE}/{waba_id}/subscribed_apps"
-    print("PASS: no fields=phone_numbers; phone_numbers + subscribed_apps on the Embedded Signup WABA only")
+    assert requests_log[3]["method"] == "POST"
+    assert requests_log[3]["url"] == f"{GRAPH_BASE}/{waba_id}/subscribed_apps"
+    print("PASS: no fields=phone_numbers; WABA validated then phone_numbers + subscribed_apps on the Embedded Signup WABA only")
 
 
 if __name__ == "__main__":

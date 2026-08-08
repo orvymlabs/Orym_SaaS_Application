@@ -570,25 +570,49 @@ async def meta_oauth_callback_post(
     """
     settings = get_settings()
 
+    # Explicit validation of the Embedded Signup completion data. Each missing
+    # field returns a structured, actionable error (never a generic 422).
+    if not payload.code or len(str(payload.code).strip()) < 10:
+        raise HTTPException(400, "Missing authorization code from Embedded Signup completion data")
+
+    if not payload.waba_id or not str(payload.waba_id).strip():
+        raise HTTPException(400, "Missing WABA ID (waba_id) from Embedded Signup completion data")
+
+    if not payload.phone_number_id or not str(payload.phone_number_id).strip():
+        raise HTTPException(400, "Missing phone number ID (phone_number_id) from Embedded Signup completion data")
+
+    code = str(payload.code).strip()
+    waba_id = str(payload.waba_id).strip()
+    phone_number_id = str(payload.phone_number_id).strip()
+    business_id = (str(payload.business_id).strip() if payload.business_id else "") or None
+
     # Mask the code in ALL logs. Never log the full code, access tokens or secrets.
-    masked_code = f"{payload.code[:8]}...{payload.code[-4:]} (length {len(payload.code)})"
+    masked_code = f"{code[:8]}...{code[-4:]} (length {len(code)})"
     logger.info("=" * 80)
     logger.info("META OAUTH CALLBACK - POST REQUEST")
     logger.info("=" * 80)
     logger.info(f"User ID: {user_id}")
     logger.info(f"Code received: {masked_code}")
     logger.info(f"Redirect URI: {payload.redirect_uri or '(not provided - using configured default)'}")
-    logger.info(f"WABA ID: {payload.waba_id}")
-    logger.info(f"Phone Number ID: {payload.phone_number_id}")
-    logger.info(f"Business ID: {payload.business_id}")
+    logger.info(f"WABA ID: {waba_id}")
+    logger.info(f"Phone Number ID: {phone_number_id}")
+    logger.info(f"Business ID: {business_id or '(not provided)'}")
     logger.info("=" * 80)
 
     if not settings.META_APP_ID or not settings.META_APP_SECRET:
         logger.error("Meta OAuth not configured - missing APP_ID or APP_SECRET")
         raise HTTPException(500, "Meta OAuth is not configured on the server")
 
-    # Use the exact production redirect URI unless the frontend explicitly sent one.
-    redirect_uri = payload.redirect_uri or settings.META_OAUTH_REDIRECT_URI
+    # The configured production redirect URI is the single source of truth for
+    # the token exchange. If the frontend sent a different value, log it but
+    # always exchange with the exact configured URI so the code validation can
+    # never fail from a redirect_uri mismatch.
+    redirect_uri = settings.META_OAUTH_REDIRECT_URI
+    if payload.redirect_uri and payload.redirect_uri != redirect_uri:
+        logger.warning(
+            f"Frontend sent redirect_uri '{payload.redirect_uri}' which differs from "
+            f"the configured '{redirect_uri}'. Using the configured value for the exchange."
+        )
 
     # Get user's bot and integration
     bot = db.query(Bot).filter(Bot.user_id == user_id).first()
@@ -605,11 +629,11 @@ async def meta_oauth_callback_post(
     # WABA ID / phone number ID / business ID returned by Embedded Signup.
     oauth_service = MetaOAuthService(settings.META_APP_ID, settings.META_APP_SECRET)
     success, integration_data, error = await oauth_service.setup_whatsapp_integration(
-        payload.code,
+        code,
         redirect_uri,
-        waba_id=payload.waba_id or None,
-        phone_number_id=payload.phone_number_id or None,
-        business_id=payload.business_id or None,
+        waba_id=waba_id,
+        phone_number_id=phone_number_id,
+        business_id=business_id,
     )
 
     if not success:
@@ -638,10 +662,11 @@ async def meta_oauth_callback_post(
         integ.verified_name = integration_data.get("verified_name") or None
         integ.connection_status = "connected"
 
-        # Generate verify token if not exists
+        # Generate verify token if not exists (Meta requires alphanumeric only)
         if not integ.verify_token:
             import secrets
-            integ.verify_token = secrets.token_urlsafe(16)
+            alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+            integ.verify_token = "orvym" + "".join(secrets.choice(alphabet) for _ in range(32))
 
         db.commit()
 
