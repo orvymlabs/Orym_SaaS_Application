@@ -114,6 +114,10 @@ export default function IntegrationsPage() {
   const signupCodeRef = useRef<string | null>(null);
   const signupDataRef = useRef<{ waba_id?: string; phone_number_id?: string; business_id?: string }>({});
   const completingRef = useRef(false);
+  // Synchronous guard against duplicate launches (e.g. a fast double-click
+  // before React re-renders the disabled state). It is cleared again when the
+  // flow finishes, cancels or errors, so reconnect/retry keeps working.
+  const launchingRef = useRef(false);
 
   // Complete the connection only once BOTH the exchangeable code and the asset
   // IDs are available. The code is single-use, so it is cleared as soon as the
@@ -131,6 +135,7 @@ export default function IntegrationsPage() {
       return true;
     }
     if (retriesLeft <= 0) {
+      launchingRef.current = false;
       setConnectingWhatsApp(false);
       const missing: string[] = [];
       if (!code) missing.push("exchangeable code");
@@ -202,6 +207,25 @@ export default function IntegrationsPage() {
             let errorMessage: string | undefined;
             let errorCode: string | undefined;
 
+            // Safe debug: log only the STRUCTURE of the payload, never values
+            // (codes, tokens or IDs are sensitive).
+            const logPayloadStructure = (raw: any, label: string) => {
+              try {
+                if (typeof raw === 'string' && raw.startsWith('cb=')) {
+                  const keys = Array.from(new URLSearchParams(raw).keys());
+                  console.log('[EmbeddedSignup] payload structure (' + label + '): query-string with keys:', JSON.stringify(keys));
+                } else if (typeof raw === 'string') {
+                  console.log('[EmbeddedSignup] payload structure (' + label + '): typeof=string, first 120 chars:', JSON.stringify(raw.slice(0, 120)));
+                } else if (raw && typeof raw === 'object') {
+                  console.log('[EmbeddedSignup] payload structure (' + label + '): object keys:', JSON.stringify(Object.keys(raw)));
+                } else {
+                  console.log('[EmbeddedSignup] payload structure (' + label + '): typeof=' + typeof raw);
+                }
+              } catch {
+                // never break the flow for logging
+              }
+            };
+
             try {
               // Format 1: JSON WA_EMBEDDED_SIGNUP session message (documented).
               const parsed = JSON.parse(event.data);
@@ -222,14 +246,19 @@ export default function IntegrationsPage() {
               errorCode = dataObj.error_code !== undefined ? String(dataObj.error_code) : undefined;
             } catch {
               try {
-                // Format 2: query-string style JS SDK handshake. Contains the
-                // exchangeable code (cb=..., code=...), NEVER the asset IDs.
+                // Format 2: query-string style JS SDK handshake. It always carries
+                // the exchangeable code. Defensively, it MAY also carry the asset
+                // IDs (waba_id / phone_number_id / business_id) as query params,
+                // so we extract them too when present - never hardcoded values.
                 const params = new URLSearchParams(event.data);
                 if (!params.has('cb') && !params.has('code')) {
                   return; // unrelated message
                 }
                 eventName = 'SDK_QUERY_STRING';
                 code = params.get('code') || undefined;
+                waba_id = params.get('waba_id') || params.get('waba_ids')?.split(',')[0] || undefined;
+                phone_number_id = params.get('phone_number_id') || undefined;
+                business_id = params.get('business_id') || undefined;
               } catch {
                 return; // not parseable at all - ignore
               }
@@ -237,6 +266,7 @@ export default function IntegrationsPage() {
 
             // Safe debug logging - never log the full code, access tokens or secrets.
             console.log('[EmbeddedSignup] message event received from', event.origin, '| event:', eventName);
+            logPayloadStructure(event.data, eventName);
             console.log('[EmbeddedSignup] code received:', code ? 'yes (length ' + code.length + ')' : 'no');
             console.log('[EmbeddedSignup] waba_id:', waba_id || 'MISSING');
             console.log('[EmbeddedSignup] phone_number_id:', phone_number_id || 'MISSING');
@@ -244,12 +274,14 @@ export default function IntegrationsPage() {
 
             if (eventName === 'CANCEL') {
               console.log('[EmbeddedSignup] Flow cancelled or abandoned');
+              launchingRef.current = false;
               setConnectingWhatsApp(false);
               showToast("WhatsApp signup was cancelled. No changes were made.", "info");
               return;
             }
             if (eventName === 'ERROR') {
               console.log('[EmbeddedSignup] Flow error:', errorCode, errorMessage);
+              launchingRef.current = false;
               setConnectingWhatsApp(false);
               showToast(
                 "WhatsApp setup failed: " + (errorMessage || "An error occurred during WhatsApp setup"),
@@ -259,6 +291,7 @@ export default function IntegrationsPage() {
             }
             if (eventName === 'FINISH_ONLY_WABA' && !phone_number_id) {
               console.log('[EmbeddedSignup] FINISH_ONLY_WABA without a phone number');
+              launchingRef.current = false;
               setConnectingWhatsApp(false);
               showToast(
                 "WhatsApp Embedded Signup finished without a phone number. " +
@@ -337,6 +370,14 @@ export default function IntegrationsPage() {
       return;
     }
 
+    // Synchronously block a second FB.login() while one flow is already
+    // running (e.g. a double-click before the disabled re-render). This is the
+    // duplicate-launch guard - one click produces exactly one FB.login().
+    if (launchingRef.current) {
+      console.warn('[EmbeddedSignup] FB.login already in progress - ignoring duplicate launch');
+      return;
+    }
+
     if (typeof window === 'undefined' || !window.FB || typeof window.FB.login !== 'function') {
       console.warn('[EmbeddedSignup] Facebook SDK is not ready yet');
       setConnectingWhatsApp(false);
@@ -344,6 +385,7 @@ export default function IntegrationsPage() {
       return;
     }
 
+    launchingRef.current = true;
     setConnectingWhatsApp(true);
     console.log('[EmbeddedSignup] Launching WhatsApp Embedded Signup via FB.login (JS SDK)');
     console.log('  App ID:', metaConfig.app_id);
@@ -361,11 +403,13 @@ export default function IntegrationsPage() {
         console.log('[EmbeddedSignup] exchangeable code received via FB.login callback (length:', response.authResponse.code.length, ')');
       }
       if (response?.status === 'unknown') {
+        launchingRef.current = false;
         setConnectingWhatsApp(false);
         showToast("WhatsApp signup was cancelled. No changes were made.", "info");
         return;
       }
       if (response?.authResponse?.error) {
+        launchingRef.current = false;
         setConnectingWhatsApp(false);
         showToast("WhatsApp signup failed: " + response.authResponse.error, "error");
         return;
@@ -455,6 +499,7 @@ export default function IntegrationsPage() {
       showToast("Error: " + err.message, "error");
     } finally {
       completingRef.current = false;
+      launchingRef.current = false;
       setConnectingWhatsApp(false);
     }
   };
