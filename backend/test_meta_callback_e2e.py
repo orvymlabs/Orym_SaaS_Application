@@ -27,7 +27,6 @@ os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB}"
 from fastapi.testclient import TestClient
 from fastapi.testclient import TestClient as _T
 
-from config import get_settings
 from database import init_db, SessionLocal, Base, engine
 from models import User, Bot, Integration
 from services.auth_service import create_access_token
@@ -35,8 +34,6 @@ from services.auth_service import create_access_token
 from routers.integrations import MetaOAuthService as RouterMetaOAuthService
 
 from main import app
-
-settings = get_settings()
 
 # Mock Meta entirely - never make a network call
 async def fake_setup_success(self, code, redirect_uri=None, waba_id=None, phone_number_id=None, business_id=None):
@@ -192,7 +189,7 @@ def main():
         detail = r.json().get("detail", "")
         check("Meta error message propagated", "redirect_uri is identical" in detail, detail[:120])
 
-    print("=== TEST 6: POST callback missing redirect_uri (configured default is used) ===")
+    print("=== TEST 6: POST callback - redirect_uri is NOT forwarded to the exchange ===")
     calls = {}
     async def fake_setup_record(self, code, redirect_uri=None, waba_id=None, phone_number_id=None, business_id=None):
         calls["redirect_uri"] = redirect_uri
@@ -205,13 +202,17 @@ def main():
     RouterMetaOAuthService.setup_whatsapp_integration = fake_setup_record
     r = client.post(
         "/api/integrations/meta/oauth/callback",
-        json={"code": "AQ" + "z" * 449, "waba_id": "waba_555", "phone_number_id": "phone_444", "business_id": "biz_444"},
+        json={
+            "code": "AQ" + "z" * 449,
+            "redirect_uri": "https://apps.orvym.com/dashboard/integrations/",
+            "waba_id": "waba_555", "phone_number_id": "phone_444", "business_id": "biz_444",
+        },
         headers=headers,
     )
-    check("callback 200 without redirect_uri", r.status_code == 200, str(r.status_code))
+    check("callback 200 with redirect_uri in payload", r.status_code == 200, str(r.status_code))
     check(
-        "service received the exact production redirect_uri",
-        calls.get("redirect_uri") == settings.META_OAUTH_REDIRECT_URI,
+        "redirect_uri NOT forwarded to the service (config_id flow)",
+        calls.get("redirect_uri") is None,
         str(calls),
     )
     check("service received waba_id from Embedded Signup", calls.get("waba_id") == "waba_555", str(calls))

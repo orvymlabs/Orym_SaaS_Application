@@ -49,18 +49,22 @@ def run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
-def test_exchange_with_redirect_uri_forwards_exact_value():
-    """The EXACT dialog redirect_uri must appear in the Meta request."""
+def test_exchange_never_sends_redirect_uri():
+    """
+    The Embedded Signup config_id flow returns the code directly to the
+    FB.login callback (no browser redirect). Per the current official Meta
+    docs the exchange NEVER includes redirect_uri - sending any value causes
+    error_subcode 36008. This test locks that behavior in.
+    """
     captured = {}
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
     svc.GRAPH_API_BASE = GRAPH_BASE
     code = "AQ" + ("x" * 449)
-    redirect_uri = "https://apps.orvym.com/dashboard/integrations"
 
     with mock.patch("httpx.AsyncClient", return_value=captured_request(
         captured, 200, {"access_token": "EAA_token", "token_type": "bearer", "expires_in": 5184000}
     )):
-        ok, data, err = run(svc.exchange_code_for_token(code, redirect_uri))
+        ok, data, err = run(svc.exchange_code_for_token(code))
 
     assert ok is True, err
     assert data["access_token"] == "EAA_token"
@@ -68,13 +72,12 @@ def test_exchange_with_redirect_uri_forwards_exact_value():
     assert captured["params"]["client_id"] == "3862862217342382"
     assert captured["params"]["client_secret"] == "secret"
     assert captured["params"]["code"] == code
-    assert captured["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations"
-    assert captured["params"]["redirect_uri"] != ""
-    print("PASS: exact redirect_uri forwarded to Meta")
+    assert "redirect_uri" not in captured["params"], "redirect_uri must NEVER be sent in the Embedded Signup exchange"
+    print("PASS: exchange sends only client_id + client_secret + code (no redirect_uri)")
 
 
 def test_exchange_without_redirect_uri_omits_it():
-    """When no redirect_uri is supplied it must be OMITTED, never empty."""
+    """The exchange must never include a redirect_uri parameter."""
     captured = {}
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
     svc.GRAPH_API_BASE = GRAPH_BASE
@@ -86,24 +89,7 @@ def test_exchange_without_redirect_uri_omits_it():
 
     assert ok is True, err
     assert "redirect_uri" not in captured["params"], "redirect_uri must be OMITTED"
-    print("PASS: redirect_uri omitted entirely when not supplied")
-
-
-def test_exchange_never_sends_empty_string():
-    """redirect_uri='' must NEVER be present in the request (even as empty)."""
-    captured = {}
-    svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
-    svc.GRAPH_API_BASE = GRAPH_BASE
-
-    # Passing empty string is treated as "no value" -> omitted
-    with mock.patch("httpx.AsyncClient", return_value=captured_request(
-        captured, 200, {"access_token": "EAA_token", "token_type": "bearer"}
-    )):
-        ok, data, err = run(svc.exchange_code_for_token("AQcode", ""))
-
-    assert ok is True, err
-    assert "redirect_uri" not in captured["params"]
-    print("PASS: empty string redirect_uri is never sent")
+    print("PASS: redirect_uri omitted entirely")
 
 
 def test_exchange_meta_error_returned():
@@ -123,13 +109,13 @@ def test_exchange_meta_error_returned():
     with mock.patch("httpx.AsyncClient", return_value=captured_request(
         captured, 400, error_payload
     )):
-        ok, data, err = run(svc.exchange_code_for_token("AQcode", "https://apps.orvym.com/dashboard/integrations"))
+        ok, data, err = run(svc.exchange_code_for_token("AQcode"))
 
     assert ok is False
     assert data is None
     assert "redirect_uri is identical" in err
-    assert captured["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations"
-    print("PASS: Meta 400 error propagated with redirect_uri intact")
+    assert "redirect_uri" not in captured["params"], "no redirect_uri is ever sent, even on error"
+    print("PASS: Meta 400 error propagated, exchange carried no redirect_uri")
 
 
 def build_client(get_responses, post_responses):
@@ -165,7 +151,6 @@ def test_setup_whatsapp_integration_full_flow():
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
     svc.GRAPH_API_BASE = GRAPH_BASE
     code = "AQ" + ("y" * 449)
-    redirect_uri = "https://apps.orvym.com/dashboard/integrations/"
     waba_id = "123456789"          # from Embedded Signup - source of truth
     phone_number_id = "987654321"  # from Embedded Signup - source of truth
     business_id = "biz_999"        # from Embedded Signup
@@ -187,7 +172,7 @@ def test_setup_whatsapp_integration_full_flow():
 
     with mock.patch("httpx.AsyncClient", return_value=client):
         ok, data, err = run(svc.setup_whatsapp_integration(
-            code, redirect_uri,
+            code,
             waba_id=waba_id, phone_number_id=phone_number_id, business_id=business_id,
         ))
 
@@ -201,11 +186,12 @@ def test_setup_whatsapp_integration_full_flow():
     assert data["display_phone_number"] == "+15551234567"
     assert data["verified_name"] == "Verified Business"
 
-    # 1) Exchange request carried the exact redirect_uri
+    # 1) Exchange request carries ONLY client_id + client_secret + code
+    #    (Embedded Signup config_id flow never uses redirect_uri)
     exchange = requests_log[0]
     assert exchange["method"] == "GET"
     assert exchange["url"] == f"{GRAPH_BASE}/oauth/access_token"
-    assert exchange["params"]["redirect_uri"] == redirect_uri
+    assert "redirect_uri" not in exchange["params"], "redirect_uri must never be sent"
     assert exchange["params"]["code"] == code
 
     # 2) WABA validated first: GET /<WABA_ID> with supported fields only
@@ -243,7 +229,6 @@ def test_setup_whatsapp_integration_code_only_discovery():
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
     svc.GRAPH_API_BASE = GRAPH_BASE
     code = "AQ" + ("w" * 449)
-    redirect_uri = "https://apps.orvym.com/dashboard/integrations/"
     discovered_waba_id = "111222333"
     discovered_phone_id = "444555666"
 
@@ -273,7 +258,7 @@ def test_setup_whatsapp_integration_code_only_discovery():
 
     with mock.patch("httpx.AsyncClient", return_value=client):
         ok, data, err = run(svc.setup_whatsapp_integration(
-            code, redirect_uri, waba_id=None, phone_number_id=None, business_id=None,
+            code, waba_id=None, phone_number_id=None, business_id=None,
         ))
 
     assert ok is True, err
@@ -286,11 +271,11 @@ def test_setup_whatsapp_integration_code_only_discovery():
     # business_id falls back to the genuine debug_token user_id (never fabricated)
     assert data["business_id"] == "biz_owner_999"
 
-    # 1) Exchange request carried the exact redirect_uri
+    # 1) Exchange request carries ONLY client_id + client_secret + code
     exchange = requests_log[0]
     assert exchange["method"] == "GET"
     assert exchange["url"] == f"{GRAPH_BASE}/oauth/access_token"
-    assert exchange["params"]["redirect_uri"] == redirect_uri
+    assert "redirect_uri" not in exchange["params"], "redirect_uri must never be sent"
 
     # 2) WABA discovered via debug_token with the app access token
     debug = requests_log[1]
@@ -336,7 +321,7 @@ def test_setup_whatsapp_integration_code_only_no_waba():
 
     with mock.patch("httpx.AsyncClient", return_value=client):
         ok, data, err = run(svc.setup_whatsapp_integration(
-            code, "https://apps.orvym.com/dashboard/integrations/",
+            code,
         ))
 
     assert ok is False
@@ -376,7 +361,7 @@ def test_phone_numbers_edge_regression():
 
     with mock.patch("httpx.AsyncClient", return_value=client):
         ok, data, err = run(svc.setup_whatsapp_integration(
-            code, None,
+            code,
             waba_id=waba_id, phone_number_id=phone_number_id, business_id=business_id,
         ))
 
@@ -384,8 +369,9 @@ def test_phone_numbers_edge_regression():
     assert data["waba_id"] == waba_id
     assert data["business_id"] == business_id
 
-    # No request may ever use fields=phone_numbers, /me, or debug_token
+    # No request may ever use redirect_uri, fields=phone_numbers, /me, or debug_token
     for req in requests_log:
+        assert "redirect_uri" not in req["params"], "redirect_uri must never be sent"
         assert req["params"].get("fields") != "phone_numbers", f"fields=phone_numbers used in {req['url']}"
         assert "/me" != req["url"].replace(GRAPH_BASE, "").strip("/"), "/me must not be used"
         assert "/debug_token" not in req["url"], "WABA must never be discovered via debug_token"

@@ -556,7 +556,6 @@ async def meta_oauth_callback_post(
     The frontend extracts the following from Meta's messages and forwards them
     here:
       - code             : exchangeable authorization code (REQUIRED)
-      - redirect_uri     : the EXACT dialog redirect URI
       - waba_id          : WhatsApp Business Account ID (optional - the backend
                            discovers it server-side from the token when absent)
       - phone_number_id  : business phone number ID (optional - the backend
@@ -569,8 +568,16 @@ async def meta_oauth_callback_post(
     code exchange and then discovers/validates the connected WhatsApp Business
     information server-side.
 
+    Note on redirect_uri: the current Meta Embedded Signup flow uses the JS SDK
+    + config_id popup, which returns the code directly to the FB.login callback
+    (no browser redirect). Per the current official Meta documentation the code
+    exchange therefore does NOT use a redirect_uri - sending one fails with
+    error_subcode 36008. A redirect_uri sent by the frontend is accepted and
+    ignored.
+
     The backend then:
       1. Exchanges the code server-side for the customer business token
+         (no redirect_uri)
       2. Resolves the WABA ID (from Embedded Signup, or discovered from the
          token's debug_token granular_scopes when not provided)
       3. Validates the WABA via GET /<WABA_ID>
@@ -597,7 +604,7 @@ async def meta_oauth_callback_post(
     logger.info("=" * 80)
     logger.info(f"User ID: {user_id}")
     logger.info(f"Code received: {masked_code}")
-    logger.info(f"Redirect URI: {payload.redirect_uri or '(not provided - using configured default)'}")
+    logger.info("Redirect URI: not used by the Embedded Signup code exchange (config_id flow)")
     logger.info(f"WABA ID: {waba_id or '(not provided - will be discovered server-side)'}")
     logger.info(f"Phone Number ID: {phone_number_id or '(not provided - first WABA phone number will be used)'}")
     logger.info(f"Business ID: {business_id or '(not provided - will be resolved server-side)'}")
@@ -606,17 +613,6 @@ async def meta_oauth_callback_post(
     if not settings.META_APP_ID or not settings.META_APP_SECRET:
         logger.error("Meta OAuth not configured - missing APP_ID or APP_SECRET")
         raise HTTPException(500, "Meta OAuth is not configured on the server")
-
-    # The configured production redirect URI is the single source of truth for
-    # the token exchange. If the frontend sent a different value, log it but
-    # always exchange with the exact configured URI so the code validation can
-    # never fail from a redirect_uri mismatch.
-    redirect_uri = settings.META_OAUTH_REDIRECT_URI
-    if payload.redirect_uri and payload.redirect_uri != redirect_uri:
-        logger.warning(
-            f"Frontend sent redirect_uri '{payload.redirect_uri}' which differs from "
-            f"the configured '{redirect_uri}'. Using the configured value for the exchange."
-        )
 
     # Get user's bot and integration
     bot = db.query(Bot).filter(Bot.user_id == user_id).first()
@@ -630,11 +626,11 @@ async def meta_oauth_callback_post(
         raise HTTPException(404, "Integration not found")
 
     # Initialize OAuth service and complete the Embedded Signup setup using the
-    # WABA ID / phone number ID / business ID returned by Embedded Signup.
+    # WABA ID / phone number ID / business ID when provided (the backend
+    # discovers any missing ones server-side after the token exchange).
     oauth_service = MetaOAuthService(settings.META_APP_ID, settings.META_APP_SECRET)
     success, integration_data, error = await oauth_service.setup_whatsapp_integration(
         code,
-        redirect_uri,
         waba_id=waba_id,
         phone_number_id=phone_number_id,
         business_id=business_id,

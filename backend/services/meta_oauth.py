@@ -152,29 +152,27 @@ class MetaOAuthService:
     # Step 1 - Exchange code for access token
     # ============================================================
 
-    async def exchange_code_for_token(self, code: str, redirect_uri: Optional[str] = None) -> Tuple[bool, Optional[Dict], Optional[str]]:
+    async def exchange_code_for_token(self, code: str) -> Tuple[bool, Optional[Dict], Optional[str]]:
         """
-        Exchange authorization code for access token.
+        Exchange the Embedded Signup authorization code for an access token.
 
-        The authorization code is bound by Meta to the exact redirect_uri used in
-        the OAuth dialog request. This method therefore sends redirect_uri ONLY
-        when the caller supplies the EXACT dialog redirect_uri (the manual
-        dialog flow: frontend builds the dialog URL with a redirect_uri we
-        control). When no redirect_uri is supplied (JS-SDK / FB.login flow) it
-        is OMITTED entirely - never sent as an empty string.
+        Per the CURRENT official Meta WhatsApp Embedded Signup / Facebook Login
+        for Business documentation, the JS SDK + config_id popup flow returns
+        the code directly to the FB.login callback (no browser redirect), so
+        the code exchange does NOT include a redirect_uri:
 
-        Per Meta's "Manually Build a Login Flow" documentation:
-            redirect_uri is required and must be the same as the original
-            redirect_uri used when starting the OAuth login process.
+            GET /oauth/access_token?client_id&client_secret&code
 
-        Per Meta's Facebook Login for Business / WhatsApp Embedded Signup docs
-        (JS SDK + config_id flow):
-            GET /oauth/access_token?client_id&client_secret&code  (no redirect_uri)
+        Sending ANY redirect_uri in this exchange (even one registered in the
+        app) fails with error_subcode 36008:
+            "Error validating verification code. Please make sure your
+             redirect_uri is identical to the one you used in the OAuth dialog
+             request"
+        because no redirect occurred and Meta recorded no redirect_uri for the
+        code. redirect_uri is therefore always OMITTED.
 
         Args:
-            code: Authorization code from Meta OAuth
-            redirect_uri: The EXACT redirect_uri from the OAuth dialog request.
-                If None/empty, redirect_uri is omitted from the exchange.
+            code: The exchangeable authorization code from Meta Embedded Signup.
 
         Returns:
             (success, data, error_message)
@@ -187,10 +185,6 @@ class MetaOAuthService:
                 "client_secret": self.app_secret,
                 "code": code,
             }
-            # Only include redirect_uri when the caller supplies the EXACT value
-            # used in the dialog. Never send an empty string.
-            if redirect_uri:
-                params["redirect_uri"] = redirect_uri
 
             self._log_exchange_request(url, params)
 
@@ -455,7 +449,6 @@ class MetaOAuthService:
     async def setup_whatsapp_integration(
         self,
         code: str,
-        redirect_uri: Optional[str] = None,
         waba_id: Optional[str] = None,
         phone_number_id: Optional[str] = None,
         business_id: Optional[str] = None,
@@ -472,8 +465,12 @@ class MetaOAuthService:
         (most recently onboarded first). The code is never used to guess the
         WABA - only to obtain the token, which is then inspected.
 
+        The code exchange NEVER includes a redirect_uri (current Meta Embedded
+        Signup config_id flow records no redirect_uri; sending one fails with
+        error_subcode 36008).
+
         Flow:
-        1. Exchange code for access token (server-side, exact redirect_uri)
+        1. Exchange code for access token (server-side, no redirect_uri)
         2. If no WABA ID was provided, discover it via debug_token
            granular_scopes (whatsapp_business_management / _messaging)
         3. Validate the WABA via GET /<WABA_ID> (only supported fields: id,name)
@@ -484,8 +481,6 @@ class MetaOAuthService:
 
         Args:
             code: Authorization code from Meta Embedded Signup
-            redirect_uri: The EXACT redirect_uri used in the OAuth dialog request
-                (defaults to the configured production redirect URI).
             waba_id: WhatsApp Business Account ID returned by Embedded Signup
                 (optional - discovered server-side when omitted).
             phone_number_id: Business phone number ID returned by Embedded Signup
@@ -508,9 +503,10 @@ class MetaOAuthService:
         - verified_name: Verified display name
         """
         try:
-            # Step 1: Exchange code for token
+            # Step 1: Exchange code for token (no redirect_uri - current Meta
+            # Embedded Signup config_id flow, see exchange_code_for_token).
             logger.info(f"[EmbeddedSignup] Step 1/5 - Meta token exchange started (code length: {len(code)})")
-            success, token_data, error = await self.exchange_code_for_token(code, redirect_uri)
+            success, token_data, error = await self.exchange_code_for_token(code)
             if not success:
                 logger.error(f"[EmbeddedSignup] Step 1/5 failed - Token exchange: {error}")
                 return False, None, error or "Failed to exchange authorization code"

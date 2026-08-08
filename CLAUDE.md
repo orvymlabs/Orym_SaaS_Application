@@ -1,281 +1,44 @@
-I need you to fix and complete ONLY the WhatsApp Embedded Signup integration in my existing ORVYM SaaS application and make it fully working end-to-end.
+Fix ONLY the WhatsApp Embedded Signup integration.
 
-DO NOT modify, refactor, redesign, or touch any unrelated ORVYM functionality.
+This is a very strict targeted change.
 
-This is a targeted production bug fix.
+## DO NOT TOUCH ANYTHING ELSE
 
-==================================================
-CURRENT STATUS
-==============
+ABSOLUTELY DO NOT MODIFY, REFACTOR, REMOVE, OR REBUILD:
 
-Facebook SDK is working:
+* Authentication
+* Login
+* Signup / Registration
+* User accounts
+* Sessions
+* Authorization
+* Existing dashboard
+* Existing APIs unrelated to Embedded Signup
+* Existing database
+* Existing user/tenant logic
+* Existing application logic
+* Any other integration
+* Any existing working functionality
 
-Facebook SDK initialized with App ID: 3862862217342382
+Everything outside WhatsApp Embedded Signup must remain exactly as it is.
 
-Embedded Signup opens successfully:
+DO NOT change authentication or signup/login under any circumstances.
 
-[EmbeddedSignup] Launching WhatsApp Embedded Signup via FB.login (JS SDK)
-App ID: 3862862217342382
-Config ID: 2432311603846818
+## ONLY CHANGE THIS
 
-Meta sends:
+Remove the CURRENT WhatsApp Embedded Signup implementation and rebuild ONLY that specific integration according to the CURRENT official Meta WhatsApp Embedded Signup documentation.
 
-event: SDK_QUERY_STRING
+The replacement must be isolated to the WhatsApp Embedded Signup code.
 
-The actual payload is:
+Do not rebuild the whole OAuth/authentication system.
 
-query-string with keys:
-["cb","domain","is_canvas","origin","relation","frame","code","base_domain"]
+Do not replace the application's existing authentication.
 
-The exchangeable authorization code is successfully received:
+Do not create a new login system.
 
-[EmbeddedSignup] code received: yes (length 451)
+Do not modify the existing signup/login flow.
 
-FB.login also returns:
-
-[EmbeddedSignup] FB.login response status: connected
-
-Therefore, Facebook SDK initialization, App ID, Config ID, Embedded Signup launch, Meta authorization, and exchangeable code reception are already working.
-
-==================================================
-IMPORTANT DISCOVERY
-===================
-
-DO NOT try to extract:
-
-* waba_id
-* phone_number_id
-* business_id
-
-from the `SDK_QUERY_STRING` event.
-
-The actual payload does NOT contain these fields.
-
-It contains the exchangeable `code`.
-
-Therefore the correct architecture is:
-
-Embedded Signup
-↓
-SDK_QUERY_STRING
-↓
-Extract exchangeable code
-↓
-Send code to existing ORVYM backend
-↓
-Backend performs the required Meta code/token exchange
-↓
-Backend uses the resulting authorization/token
-↓
-Backend retrieves/validates the connected WhatsApp Business information
-↓
-Get:
-business_id
-waba_id
-phone_number_id
-↓
-Save/process through the EXISTING ORVYM integration flow
-↓
-Frontend shows WhatsApp Connected
-
-==================================================
-YOUR TASK
-=========
-
-Make this complete flow actually work.
-
-Do not stop after receiving the code.
-
-Trace and fix everything AFTER the 451-character code is received.
-
-Inspect the existing codebase and determine:
-
-1. Where the exchangeable code is received.
-2. Where it is supposed to be sent.
-3. Which backend endpoint receives it.
-4. Whether that request is actually being made.
-5. Whether the backend receives the code correctly.
-6. Whether the backend successfully performs the required Meta exchange.
-7. Whether the resulting authorization/token is valid.
-8. Whether the backend can retrieve the connected Business/WABA/Phone information.
-9. Whether the result is returned to the frontend.
-10. Whether the existing ORVYM connection flow saves/displays the connection correctly.
-
-Fix the actual broken point.
-
-Do not guess.
-
-==================================================
-FRONTEND
-========
-
-Keep the existing Facebook SDK and Embedded Signup implementation.
-
-The frontend should:
-
-1. Launch FB.login exactly once per user click.
-2. Receive SDK_QUERY_STRING.
-3. Parse the query string correctly.
-4. Extract the exchangeable `code`.
-5. Prevent processing the same code more than once.
-6. Send the code to the existing backend integration endpoint.
-7. Wait for the backend result.
-8. Update the existing connection state.
-9. Allow retry if the signup is cancelled or fails.
-
-Do NOT require WABA ID, Phone Number ID, or Business ID from SDK_QUERY_STRING.
-
-Do NOT hardcode any IDs.
-
-==================================================
-DUPLICATE FB.LOGIN
-==================
-
-The current logs previously showed Embedded Signup launching more than once.
-
-Find and fix the reason.
-
-Check:
-
-* duplicate click handlers
-* useEffect
-* component mounting
-* React StrictMode
-* duplicate SDK initialization
-* duplicate event listeners
-* callbacks
-* state changes
-
-Required:
-
-ONE CLICK
-→ ONE FB.login()
-→ ONE Embedded Signup
-→ ONE CODE
-→ ONE BACKEND EXCHANGE
-
-Do not permanently disable reconnect/retry.
-
-==================================================
-BACKEND
-=======
-
-This is the most important part.
-
-Inspect the existing backend implementation that handles the Embedded Signup exchangeable code.
-
-Do NOT create an unnecessary new architecture if an existing endpoint/service already exists.
-
-Trace:
-
-Frontend
-→ existing backend endpoint
-→ Meta API
-→ response
-→ existing ORVYM connection flow
-
-If the endpoint is incorrect, fix it.
-
-If the Meta exchange implementation is incorrect, fix it.
-
-If the Meta API request is incorrect, fix it.
-
-If WABA discovery is missing, implement it only within the existing WhatsApp integration flow.
-
-If the backend already has WABA discovery logic, reuse it.
-
-The backend must securely handle Meta credentials.
-
-Never expose:
-
-* App Secret
-* access tokens
-* client secrets
-
-to the frontend.
-
-==================================================
-WABA / PHONE / BUSINESS INFORMATION
-===================================
-
-After processing the exchangeable code, the backend must obtain/validate the actual connected WhatsApp account information from Meta.
-
-Required information:
-
-* Business ID
-* WABA ID
-* Phone Number ID
-* Display phone number where available
-
-Do NOT fabricate these values.
-
-Do NOT hardcode them.
-
-Do NOT expect them from SDK_QUERY_STRING.
-
-Obtain them through the appropriate backend/Meta flow after processing the authorization code.
-
-==================================================
-ORVYM CONNECTION
-================
-
-Once Meta authorization and account discovery succeed, continue using the EXISTING ORVYM WhatsApp connection mechanism.
-
-Do not redesign the database.
-
-Do not redesign the tenant system.
-
-Do not redesign webhooks.
-
-Do not redesign messaging.
-
-Use the existing implementation.
-
-The only goal is to make the existing WhatsApp connection flow complete successfully.
-
-==================================================
-DO NOT TOUCH THESE
-==================
-
-DO NOT modify:
-
-* ORVYM dashboard
-* UI design
-* AI
-* chatbot
-* inbox
-* campaigns
-* analytics
-* billing
-* subscriptions
-* authentication
-* tenant architecture
-* database architecture
-* existing webhook architecture
-* existing messaging logic
-* unrelated APIs
-* unrelated components
-* unrelated dependencies
-
-Do not refactor unrelated code.
-
-Make the smallest safe changes necessary.
-
-==================================================
-PRODUCTION
-==========
-
-Production frontend:
-
-https://apps.orvym.com
-
-Production backend:
-
-https://orym-saas-application.onrender.com
-
-Do not introduce localhost URLs into production.
-
-Do not change the current App ID or Config ID unless you prove they are actually incorrect.
+## CURRENT META DETAILS
 
 App ID:
 
@@ -285,101 +48,220 @@ Config ID:
 
 2432311603846818
 
-==================================================
-ERROR HANDLING
-==============
+Production frontend:
 
-Trace the real request/response flow.
+https://apps.orvym.com
 
-If the backend returns an error, identify the exact Meta/API/backend error and fix it.
+Production backend:
 
-Handle:
+https://orym-saas-application.onrender.com
 
-* user cancellation
-* missing code
-* invalid code
-* code exchange failure
-* Meta API errors
-* missing WABA
-* missing phone number
-* network errors
-* duplicate processing
+Keep the existing App ID and Config ID unless the current official Meta documentation proves that a change is required.
 
-Do not hide errors.
+## CURRENT EMBEDDED SIGNUP STATUS
 
-Do not fake successful connection.
+The current implementation successfully:
 
-==================================================
-SUCCESS CONDITION
-=================
+* initializes Facebook SDK
+* launches Embedded Signup
+* receives Meta's SDK_QUERY_STRING event
+* receives the exchangeable authorization code
 
-I consider this task complete ONLY when this works:
+The payload contains:
 
-User opens ORVYM
+["cb","domain","is_canvas","origin","relation","frame","code","base_domain"]
+
+The exchangeable code is successfully received with length around 451.
+
+The old implementation then fails with:
+
+HTTP 400
+
+"Error validating verification code. Please make sure your redirect_uri is identical to the one you used in the OAuth dialog request"
+
+## REQUIRED APPROACH
+
+Use the CURRENT official Meta WhatsApp Embedded Signup documentation as the source of truth.
+
+Choose the simplest officially supported Embedded Signup implementation.
+
+Do not continue patching the old implementation if it is based on outdated/custom OAuth logic.
+
+Remove only the old Embedded Signup-specific implementation and replace it with the current documented approach.
+
+## IMPORTANT
+
+Do NOT try to integrate Embedded Signup with the application's login/signup/authentication system.
+
+The user is already authenticated in ORVYM.
+
+Embedded Signup is ONLY for connecting the user's WhatsApp Business account.
+
+The existing ORVYM authentication must remain completely untouched.
+
+The flow should simply be:
+
+Existing logged-in ORVYM user
+↓
+Existing "Connect WhatsApp" action
+↓
+WhatsApp Embedded Signup
+↓
+Meta authorization
+↓
+Exchangeable code
+↓
+Existing/required backend Embedded Signup processing
+↓
+WhatsApp connection completed
+
+Do NOT create or modify any login/signup/authentication flow.
+
+## REDIRECT URI
+
+Investigate the current redirect_uri error using the current official Meta documentation.
+
+Do not automatically keep the old redirect_uri implementation.
+
+Determine whether the current Embedded Signup flow actually requires the old OAuth redirect_uri validation.
+
+If it does not, remove ONLY that obsolete Embedded Signup redirect handling.
+
+If it does require a redirect URI, configure it exactly according to Meta's current documentation.
+
+Do not modify application authentication redirects.
+
+Do not modify login/signup redirects.
+
+Do not modify existing auth callbacks.
+
+Any redirect change must be isolated strictly to WhatsApp Embedded Signup.
+
+## FRONTEND
+
+Rebuild only the Embedded Signup component/handler.
+
+It must:
+
+* initialize/use Facebook SDK correctly
+* launch Embedded Signup once
+* use the existing Config ID
+* receive the exchangeable code
+* process the code once
+* communicate with the Embedded Signup backend endpoint
+* handle success
+* handle cancellation
+* handle errors
+* allow retry
+
+Do not modify authentication-related components.
+
+## BACKEND
+
+Modify ONLY backend code directly responsible for WhatsApp Embedded Signup processing.
+
+Do not modify authentication middleware.
+
+Do not modify login endpoints.
+
+Do not modify signup endpoints.
+
+Do not modify session handling.
+
+Do not modify user authentication.
+
+Do not create a new authentication system.
+
+Use the currently authenticated ORVYM user through the EXISTING authentication mechanism without changing that mechanism.
+
+The backend should securely process the Meta Embedded Signup authorization code according to the current official Meta documentation.
+
+Do not expose App Secret or access tokens.
+
+## DUPLICATE LAUNCH
+
+Fix duplicate Embedded Signup execution if present.
+
+Required:
+
+ONE CLICK
+→ ONE FB.login()
+→ ONE EMBEDDED SIGNUP
+→ ONE CODE
+→ ONE BACKEND REQUEST
+
+Do not affect any other buttons or authentication actions.
+
+## ACCOUNT INFORMATION
+
+Do not assume WABA ID, phone number ID, or business ID are present in SDK_QUERY_STRING.
+
+Follow the current Meta Embedded Signup documentation to obtain the required information after processing the exchangeable code.
+
+Do not hardcode IDs.
+
+Do not fabricate IDs.
+
+## STRICT ISOLATION RULE
+
+Before changing any file, identify whether it belongs to:
+
+A. Authentication/Login/Signup
+B. WhatsApp Embedded Signup
+
+If it belongs to A:
+DO NOT CHANGE IT.
+
+If it belongs specifically to B:
+You may change it.
+
+If a file contains both systems:
+make the smallest possible isolated change only to the Embedded Signup section.
+
+Do not refactor the file.
+
+## SUCCESS CONDITION
+
+The final result must be:
+
+User logs into ORVYM using the EXISTING login system
+→ opens existing dashboard
 → clicks Connect WhatsApp
 → Embedded Signup opens
-→ user completes Meta onboarding
+→ Meta onboarding completes
 → exchangeable code is received
-→ code is sent to backend
-→ backend successfully processes the code
-→ backend obtains the authorized WhatsApp Business information
-→ existing ORVYM WhatsApp connection is completed
-→ frontend receives success
-→ WhatsApp shows CONNECTED
-→ page refresh still shows the correct existing connection
-→ user can retry if signup fails/cancels
+→ backend processes it correctly
+→ WhatsApp connection succeeds
 
-The `SDK_QUERY_STRING` event does NOT need to contain WABA ID, Phone ID, or Business ID.
+The existing login/signup/authentication must work exactly as before.
 
-Only the exchangeable code needs to come from that event.
+## FINAL VERIFICATION
 
-==================================================
-VERY IMPORTANT
-==============
+Before finishing, verify:
 
-Do not tell me only what I should change.
+[ ] Existing login still works
+[ ] Existing signup still works
+[ ] Existing authentication still works
+[ ] Embedded Signup launches
+[ ] Embedded Signup launches only once
+[ ] Exchangeable code is received
+[ ] Code is processed once
+[ ] Backend Embedded Signup processing succeeds
+[ ] No redirect_uri mismatch
+[ ] WhatsApp connection completes
+[ ] No unrelated files/functionality were modified
 
-Inspect the existing codebase and IMPLEMENT THE FIX.
+## FINAL REPORT
 
-Do not stop at:
+Report only:
 
-"code received successfully."
+1. Embedded Signup root cause
+2. Embedded Signup files changed
+3. What was removed
+4. What was rebuilt
+5. Meta documentation approach used
+6. Redirect URI handling
+7. Test result
+8. Confirmation that LOGIN, SIGNUP, AUTHENTICATION and all unrelated functionality were NOT modified
 
-Continue through:
-
-CODE
-→ BACKEND
-→ META EXCHANGE
-→ WABA DISCOVERY
-→ PHONE DISCOVERY
-→ EXISTING ORVYM CONNECTION
-→ SUCCESS
-
-If something is already implemented, reuse it.
-
-If something is broken, fix it.
-
-If something is missing and is required specifically for Embedded Signup to complete, implement it.
-
-Do not touch anything unrelated.
-
-==================================================
-FINAL REPORT
-============
-
-After implementation, report:
-
-1. Exact root cause
-2. Files changed
-3. Exact changes made
-4. Code → backend flow
-5. Meta exchange flow
-6. How WABA/Phone/Business IDs are obtained
-7. Duplicate FB.login fix
-8. Whether production configuration needs any change
-9. What was tested
-10. Any remaining blocker
-
-Do not give a theoretical answer.
-
-IMPLEMENT AND VERIFY THE FIX.
+DO NOT TOUCH AUTH, LOGIN, SIGNUP, OR ANY OTHER PART OF THE APPLICATION.

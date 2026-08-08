@@ -96,11 +96,6 @@ export default function IntegrationsPage() {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? 'https://orym-saas-application.onrender.com' : '');
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : 'https://apps.orvym.com');
 
-  // Exact production OAuth redirect URI. It matches the redirect URI configured
-  // in the Meta developer portal, and the authorization code is bound to it by
-  // Meta. NEVER change this value.
-  const META_OAUTH_REDIRECT_URI = "https://apps.orvym.com/dashboard/integrations/";
-
   // The exchangeable code is the only value REQUIRED from Meta. The asset IDs
   // (waba_id / phone_number_id / business_id) are NOT present in the
   // SDK_QUERY_STRING handshake that Meta actually sends - the backend resolves
@@ -126,7 +121,7 @@ export default function IntegrationsPage() {
     if (code) {
       completingRef.current = true;
       signupCodeRef.current = null;
-      handleMetaOAuthCallback(code, META_OAUTH_REDIRECT_URI, { ...signupDataRef.current });
+      handleMetaOAuthCallback(code, { ...signupDataRef.current });
       return true;
     }
     if (retriesLeft <= 0) {
@@ -405,17 +400,17 @@ export default function IntegrationsPage() {
   // backend. Any asset IDs that a WA_EMBEDDED_SIGNUP FINISH message returned
   // are forwarded too, but the backend resolves any missing ones server-side
   // after the token exchange, so the code alone is always enough.
+  //
+  // Note: no redirect_uri is sent. The current Meta Embedded Signup flow uses
+  // the JS SDK + config_id popup, which returns the code directly to the
+  // FB.login callback (no browser redirect). Per the current official Meta
+  // documentation the code exchange does not use a redirect_uri - sending one
+  // causes error_subcode 36008.
   const handleMetaOAuthCallback = async (
     code: string,
-    oauthRedirectUri?: string,
     metaData?: { waba_id?: string; phone_number_id?: string; business_id?: string }
   ) => {
     try {
-      // The code is bound by Meta to the EXACT redirect_uri used in the OAuth
-      // dialog request. We always forward that same value so the backend token
-      // exchange (GET /oauth/access_token) matches the dialog exactly.
-      const redirectUri = oauthRedirectUri || META_OAUTH_REDIRECT_URI;
-
       // The WABA / phone / business IDs MAY come from a WA_EMBEDDED_SIGNUP
       // FINISH message event. Fall back to any persisted value (covers a popup
       // that closed before the listener stored them). They are optional - the
@@ -428,7 +423,7 @@ export default function IntegrationsPage() {
 
       console.log('[EmbeddedSignup] backend request started');
       console.log('  Code length:', code.length);
-      console.log('  redirect_uri:', redirectUri);
+      console.log('  redirect_uri: not used (config_id flow)');
       console.log('  waba_id:', wabaId || 'not provided - backend will resolve');
       console.log('  phone_number_id:', phoneNumberId || 'not provided - backend will resolve');
       console.log('  business_id:', businessId || 'not provided - backend will resolve');
@@ -436,7 +431,6 @@ export default function IntegrationsPage() {
 
       const result = await apiPost("/api/integrations/meta/oauth/callback", {
         code,
-        redirect_uri: redirectUri,
         waba_id: wabaId || null,
         phone_number_id: phoneNumberId || null,
         business_id: businessId || null,
