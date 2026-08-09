@@ -263,28 +263,28 @@ def test_setup_whatsapp_integration_full_flow():
 
 def test_setup_whatsapp_integration_code_only_discovery():
     """
-    Production flow: Meta delivers ONLY the exchangeable code (FB.login
-    payload has no waba_id / phone_number_id / business_id). The backend must
-    exchange the code and then discover the WABA server-side via debug_token
-    granular_scopes, resolve the phone number, and subscribe the WABA.
+    Production flow: Meta delivers ONLY the exchangeable code (the OAuth
+    redirect back carries no waba_id / phone_number_id / business_id). The
+    backend must exchange the code and then discover the WABA server-side via
+    Meta's documented business portfolio edges: GET /me/businesses -> the
+    business portfolio, then GET /<business_id>/client_whatsapp_business_accounts
+    -> the WABA IDs shared with the portfolio. debug_token is never used.
     """
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
     svc.GRAPH_API_BASE = GRAPH_BASE
     code = "AQ" + ("w" * 449)
+    discovered_business_id = "biz_portfolio_123"
     discovered_waba_id = "111222333"
     discovered_phone_id = "444555666"
 
     get_responses = [
         FakeResponse(200, {"access_token": "EAA_business_token", "token_type": "bearer", "expires_in": 5184000}),
-        # debug_token granular_scopes - the documented "Get shared WABA ID with
-        # access token" approach. user_id is the genuine business/system user.
-        FakeResponse(200, {"data": {
-            "user_id": "biz_owner_999",
-            "granular_scopes": [
-                {"scope": "whatsapp_business_management", "target_ids": [discovered_waba_id]},
-                {"scope": "whatsapp_business_messaging", "target_ids": [discovered_waba_id]},
-            ],
-        }}),
+        # GET /me/businesses - the documented Business edge resolving the
+        # business portfolio(s) the token can access
+        FakeResponse(200, {"data": [{"id": discovered_business_id, "name": "Portfolio Co"}]}),
+        # GET /<business_id>/client_whatsapp_business_accounts - the
+        # documented "Get list of shared WABAs" edge for Embedded Signup
+        FakeResponse(200, {"data": [{"id": discovered_waba_id, "name": "Discovered Business"}]}),
         FakeResponse(200, {"id": discovered_waba_id, "name": "Discovered Business"}),
         FakeResponse(200, {"data": [{
             "id": discovered_phone_id,
@@ -310,8 +310,10 @@ def test_setup_whatsapp_integration_code_only_discovery():
     assert data["display_phone_number"] == "+19998887777"
     assert data["verified_name"] == "Discovered Verified"
     assert data["business_name"] == "Discovered Business"
-    # business_id falls back to the genuine debug_token user_id (never fabricated)
-    assert data["business_id"] == "biz_owner_999"
+    # business_id falls back to the genuine portfolio resolved from
+    # /me/businesses (never fabricated)
+    assert data["business_id"] == discovered_business_id
+    assert data["business_id"] != data["waba_id"]
 
     # 1) Exchange request carries ONLY client_id + client_secret + code
     exchange = requests_log[0]
@@ -319,44 +321,54 @@ def test_setup_whatsapp_integration_code_only_discovery():
     assert exchange["url"] == f"{GRAPH_BASE}/oauth/access_token"
     assert "redirect_uri" not in exchange["params"], "redirect_uri must never be sent"
 
-    # 2) WABA discovered via debug_token with the app access token
-    debug = requests_log[1]
-    assert debug["method"] == "GET"
-    assert debug["url"] == f"{GRAPH_BASE}/debug_token"
-    assert debug["params"]["access_token"] == "3862862217342382|secret"
-    assert debug["params"]["input_token"] == "EAA_business_token"
+    # 2) Business portfolio resolved via GET /me/businesses (fields=id,name)
+    biz_req = requests_log[1]
+    assert biz_req["method"] == "GET"
+    assert biz_req["url"] == f"{GRAPH_BASE}/me/businesses"
+    assert biz_req["params"]["fields"] == "id,name"
+    assert biz_req["params"]["access_token"] == "EAA_business_token"
 
-    # 3) WABA validated via GET /<WABA_ID>
-    waba_req = requests_log[2]
+    # 3) WABA discovered via the client_whatsapp_business_accounts edge of the
+    #    resolved business portfolio (fields=id,name)
+    client_waba_req = requests_log[2]
+    assert client_waba_req["method"] == "GET"
+    assert client_waba_req["url"] == f"{GRAPH_BASE}/{discovered_business_id}/client_whatsapp_business_accounts"
+    assert client_waba_req["params"]["fields"] == "id,name"
+
+    # 4) WABA validated via GET /<WABA_ID>
+    waba_req = requests_log[3]
     assert waba_req["method"] == "GET"
     assert waba_req["url"] == f"{GRAPH_BASE}/{discovered_waba_id}"
     assert waba_req["params"]["fields"] == "id,name"
 
-    # 4) phone_numbers as an edge on the discovered WABA (never fields=phone_numbers)
-    phone_req = requests_log[3]
+    # 5) phone_numbers as an edge on the discovered WABA (never fields=phone_numbers)
+    phone_req = requests_log[4]
     assert phone_req["method"] == "GET"
     assert phone_req["url"] == f"{GRAPH_BASE}/{discovered_waba_id}/phone_numbers"
 
-    # 5) subscribed_apps POSTed against the discovered WABA
-    sub_req = requests_log[4]
+    # 6) subscribed_apps POSTed against the discovered WABA
+    sub_req = requests_log[5]
     assert sub_req["method"] == "POST"
     assert sub_req["url"] == f"{GRAPH_BASE}/{discovered_waba_id}/subscribed_apps"
 
-    # /me must never be used for WABA discovery
+    # debug_token must NEVER be used for WABA discovery
     urls = [r["url"] for r in requests_log]
-    assert all("/me" not in u for u in urls), "/me must not be used"
-    print("PASS: code-only flow - WABA discovered via debug_token; phone_numbers + subscribed_apps on the discovered WABA")
+    assert all("/debug_token" not in u for u in urls), "WABA must never be discovered via debug_token"
+    print("PASS: code-only flow - WABA discovered via /me/businesses + client_whatsapp_business_accounts; phone_numbers + subscribed_apps on the discovered WABA")
 
 
 def test_setup_whatsapp_integration_code_only_no_waba():
-    """Code-only flow where debug_token returns no WABA IDs must fail clearly."""
+    """Code-only flow where the business edges return no WABA IDs must fail clearly."""
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
     svc.GRAPH_API_BASE = GRAPH_BASE
     code = "AQ" + ("v" * 449)
 
     get_responses = [
         FakeResponse(200, {"access_token": "EAA_business_token", "token_type": "bearer"}),
-        FakeResponse(200, {"data": {"user_id": "biz_owner_999", "granular_scopes": []}}),
+        # Portfolio resolves, but the WABA edges return nothing
+        FakeResponse(200, {"data": [{"id": "biz_portfolio_123", "name": "Portfolio Co"}]}),
+        FakeResponse(200, {"data": []}),  # client_whatsapp_business_accounts
+        FakeResponse(200, {"data": []}),  # owned_whatsapp_business_accounts
     ]
 
     client, _ = build_client(get_responses, [])

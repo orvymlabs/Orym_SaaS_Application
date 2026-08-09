@@ -128,16 +128,20 @@ async def run_exchange(svc: MetaOAuthService, code: str) -> None:
     print(f"  Token type: {data.get('token_type', '')}")
     print(f"  Expires in: {data.get('expires_in', '')}")
 
-    # Discover the WABA IDs the token was granted (debug_token granular_scopes),
-    # the documented "Get shared WABA ID with access token" approach.
+    # Discover the WABA IDs the token was granted via Meta's documented
+    # business portfolio edges (GET /me/businesses ->
+    # /<business_id>/client_whatsapp_business_accounts). debug_token
+    # granular_scopes is NOT used - for a Business Integration System User
+    # token inspected with the app access token the WABA target_ids are empty.
     print_sep()
-    print("WABA DISCOVERY (debug_token)")
+    print("WABA DISCOVERY (business portfolio edges)")
     print_sep()
-    ok, token_info, tok_error = await svc.get_waba_ids_from_token(token)
+    ok, token_info, tok_error = await svc.discover_shared_waba_from_token(token)
     if not ok:
         print(f"[WARN] WABA discovery failed: {redact(tok_error)}")
         return
-    print(f"  User ID: {token_info.get('user_id') or 'none'}")
+    print(f"  Business portfolio ID: {token_info.get('business_id') or 'none'}")
+    print(f"  Business portfolio name: {token_info.get('business_name') or 'none'}")
     print(f"  WABA IDs: {token_info.get('waba_ids') or 'none'}")
 
 

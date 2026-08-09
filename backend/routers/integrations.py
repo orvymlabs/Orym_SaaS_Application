@@ -684,7 +684,8 @@ async def meta_oauth_callback_post(
       1. Exchanges the code server-side for the customer business token
          (with the exact dialog redirect_uri)
       2. Resolves the WABA ID (from Embedded Signup, or discovered from the
-         token's debug_token granular_scopes when not provided)
+         token via the business portfolio edges when not provided:
+         GET /me/businesses -> /<business_id>/client_whatsapp_business_accounts)
       3. Validates the WABA via GET /<WABA_ID>
       4. Retrieves the phone number via GET /<WABA_ID>/phone_numbers
       5. Subscribes the WABA to the app via POST /<WABA_ID>/subscribed_apps

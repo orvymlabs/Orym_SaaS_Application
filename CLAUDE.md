@@ -1,119 +1,109 @@
-I need you to DEBUG and FIX the existing Meta WhatsApp Embedded Signup implementation in our SaaS application.
+We now have detailed production logs. DO NOT rebuild the existing implementation.
+
+The previous OAuth/token exchange problem is FIXED.
+
+The logs prove:
+
+Step 1/5 - Meta token exchange started
+→ Meta returned HTTP 200
+→ Access token received: YES
+→ Token exchange successful
+
+So DO NOT modify the successful token exchange unless absolutely necessary.
+
+The CURRENT failure is specifically WABA discovery.
+
+Production logs:
+
+Step 2/5 - No WABA ID supplied, discovering via debug_token
+
+debug_token response:
+- Debug token OK
+- granular scopes found
+- WABA IDs identified: []
+
+Then:
+"No WABA IDs found in debug_token granular_scopes"
+
+And the backend returns:
+
+HTTP 400:
+"No WhatsApp Business Account found. Complete WhatsApp Business setup and try again."
+
+Frontend logs also show:
+
+waba_id: not provided - backend will resolve
+phone_number_id: not provided - backend will resolve
+business_id: not provided - backend will resolve
+
+THIS IS THE ISSUE TO FIX.
+
+Do not rebuild Meta Embedded Signup.
+Do not redesign the UI.
+Do not change unrelated SaaS functionality.
+Do not change the already-working OAuth token exchange.
+
+Inspect the existing Embedded Signup event handling and determine why the WhatsApp Business information is not being captured.
+
+Specifically inspect:
+
+1. WA_EMBEDDED_SIGNUP postMessage listener
+2. The exact event payload received after Embedded Signup
+3. How the frontend extracts:
+   - waba_id
+   - phone_number_id
+   - business_id
+4. Whether the event listener is registered before FB.login()
+5. Whether the listener is filtering the wrong event name
+6. Whether the listener is reading the wrong payload structure
+7. Whether the Meta event contains the WABA/phone information under a different field
+8. Whether the values are lost during the OAuth redirect-back
+9. Whether the OAuth callback is being processed before the Embedded Signup completion event
+10. The exact JSON payload sent from frontend to:
+   POST /api/integrations/meta/oauth/callback
 
 IMPORTANT:
-The Embedded Signup is ALREADY IMPLEMENTED.
-Do NOT rebuild it.
-Do NOT redesign the UI.
-Do NOT create a new OAuth flow.
-Do NOT replace the existing implementation.
 
-The goal is simply to make the CURRENT implementation work correctly from start to finish.
+The current backend fallback:
 
-CURRENT ISSUE:
+"No WABA ID supplied → discover via debug_token"
 
-The Meta/Facebook authorization popup opens successfully and the OAuth authorization code is being received, but the flow fails during the Meta OAuth/token exchange.
+is failing because debug_token returns:
 
-The exact error we are currently getting is:
+WABA IDs identified: []
 
-Meta Error 36008
+Do not simply suppress this error.
 
-Fix this exact error.
+Do not fabricate a WABA ID.
 
-EXPECTED EXISTING FLOW:
+Do not use a fake phone number ID.
 
-Connect WhatsApp
-→ Meta WhatsApp Embedded Signup opens
-→ User authorizes
-→ WhatsApp onboarding continues
-→ OAuth authorization code is generated
-→ Frontend sends the code to our backend
-→ Backend exchanges the code with Meta
-→ Meta returns the required token/data
-→ WABA / WhatsApp phone information is obtained
-→ Connection is saved to the correct SaaS customer
-→ WhatsApp is successfully connected.
+Find the correct Meta-supported source for the WABA/phone information produced by the existing Embedded Signup flow.
 
-DO NOT stop at the Facebook authorization popup. The COMPLETE existing Embedded Signup flow must work.
+If the Embedded Signup completion event provides the IDs, capture them and send them to the backend.
 
-DEBUG THE EXISTING CODEBASE FIRST.
+If the IDs are supposed to be obtained server-side after the successful token exchange, implement the correct Meta API request/edge for the current Embedded Signup flow rather than relying on debug_token granular_scopes.
 
-Check the frontend:
+The successful Step 1 token exchange must remain intact.
 
-- Meta/Facebook SDK initialization
-- Meta App ID
-- Embedded Signup Config ID
-- FB.login() configuration
-- response_type
-- override_default_response_type
-- WA_EMBEDDED_SIGNUP event listener
-- OAuth authorization code handling
-- duplicate FB.login() calls
-- duplicate event listeners
-- duplicate API requests
-- whether the authorization code is being sent to the backend more than once
+Desired flow:
 
-Check the backend:
+Embedded Signup
+→ user completes WhatsApp setup
+→ capture the correct WABA/phone/business information
+→ OAuth code received
+→ token exchange succeeds (already working)
+→ identify WABA
+→ identify phone number
+→ save connection
+→ successful WhatsApp integration.
 
-- OAuth authorization-code endpoint
-- Meta token exchange request
-- client_id
-- client_secret
-- redirect_uri
-- Graph API version
-- request parameters
-- response handling
-- error handling
-- whether the same authorization code is being exchanged more than once
+Before changing code, show me:
+- the exact current event payload received from Meta (with tokens/secrets redacted)
+- the exact frontend callback payload
+- why waba_id is currently missing
+- why debug_token returns an empty WABA list
 
-Check Meta configuration:
+Then make the minimum required fix.
 
-- Meta App ID and Embedded Signup Config ID belong to the same Meta App
-- Embedded Signup configuration
-- OAuth redirect configuration
-- App domains
-- required permissions
-- WhatsApp Business configuration
-
-VERY IMPORTANT:
-
-The OAuth authorization code is single-use.
-
-Make sure ONE user signup produces:
-- exactly ONE authorization code
-- exactly ONE backend request
-- exactly ONE Meta code exchange
-
-Do not exchange the same code twice.
-
-Do not randomly change the redirect_uri.
-Do not randomly change the Graph API version.
-Do not create another OAuth flow.
-Do not mock a successful response.
-Do not hide or suppress error 36008.
-
-FIRST:
-Inspect the current implementation and identify the EXACT root cause of Meta error 36008.
-
-THEN:
-Make only the necessary changes to fix the existing implementation.
-
-AFTER FIXING:
-Test the complete existing flow:
-
-Connect WhatsApp
-→ Meta Embedded Signup
-→ Authorization
-→ WhatsApp onboarding
-→ OAuth code
-→ Backend
-→ Meta token exchange
-→ WABA / Phone Number information
-→ Save connection
-→ Successful WhatsApp connection.
-
-Also explain to me:
-1. What was causing error 36008?
-2. Which file(s) you changed?
-3. What exactly you changed?
-4. Why the change fixes the error?
-5. Confirm that the existing Embedded Signup implementation was preserved and not rebuilt.
+Do not modify unrelated application functionality.

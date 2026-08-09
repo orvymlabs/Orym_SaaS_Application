@@ -30,7 +30,7 @@ to any value Meta recorded in the dialog and triggers:
 When no redirect_uri is supplied (legacy callers), the parameter is omitted
 entirely - never constructed, never sent empty.
 
-IMPORTANT - How the WABA ID is identified (phone_numbers edge):
+IMPORTANT - How the WABA ID is identified (business portfolio edges):
 
 The access token obtained from Embedded Signup is a customer-scoped business
 token. GET /me returns the TOKEN OWNER (business / system user), NOT the
@@ -40,17 +40,26 @@ fails with:
 because phone_numbers is an EDGE of the WhatsAppBusinessAccount node, not a
 field of a Business node.
 
-Per Meta's WhatsApp Embedded Signup docs ("Manage accounts > Get shared WABA
-ID with access token") the correct way to identify the WABA ID from the token
-is the Debug Token endpoint:
+Per Meta's WhatsApp Embedded Signup docs ("Manage WhatsApp Business Accounts")
+the WABA IDs shared with the app are discovered through the BUSINESS portfolio
+edges - the documented "Get list of shared WABAs" fallback:
 
-    GET /debug_token?input_token=<SIGNUP_TOKEN>&access_token=<APP_ACCESS_TOKEN>
+    1. GET /me/businesses?fields=id,name
+       -> the business portfolio(s) the token can access
+    2. GET /<business_id>/client_whatsapp_business_accounts?fields=id,name
+       -> WABAs shared with the portfolio by Embedded Signup
+       (fallback edge: /<business_id>/owned_whatsapp_business_accounts)
+    3. GET /<WABA_ID>/phone_numbers?access_token=<BUSINESS_TOKEN>
+       -> the business phone number
 
-The response's data.granular_scopes entry for whatsapp_business_management
-lists the WABA IDs the token was granted access to (most recently onboarded
-first). Those WABA IDs are then queried through the WABA phone_numbers EDGE:
-
-    GET /<WABA_ID>/phone_numbers?access_token=<BUSINESS_TOKEN>
+The debug_token endpoint is NOT used for WABA discovery. Its granular_scopes
+entries list permission scopes, and for a Business Integration System User
+token inspected with the app access token (access_token=<APP_ID>|<APP_SECRET>)
+the whatsapp_business_management / whatsapp_business_messaging scopes come back
+WITHOUT the WABA target_ids populated (Meta's docs call /debug_token for this
+purpose with a System User token in the Authorization header). The business
+portfolio edges above are the documented, reliable source for the current
+Embedded Signup flow.
 """
 import httpx
 import logging
@@ -320,42 +329,32 @@ class MetaOAuthService:
             return False, None, str(e)
 
     # ============================================================
-    # Step 2 - Identify WABA ID(s) granted to the access token
+    # Step 2 - Identify the WABA ID(s) granted to the access token
     # ============================================================
 
-    async def get_waba_ids_from_token(self, access_token: str) -> Tuple[bool, Optional[Dict], Optional[str]]:
+    async def get_businesses_from_token(self, access_token: str) -> Tuple[bool, Optional[list], Optional[str]]:
         """
-        Identify the WhatsApp Business Account (WABA) ID(s) granted to a token.
+        Resolve the business portfolio(s) associated with the access token via
+        the documented Business edge:
 
-        Uses Meta's Debug Token endpoint as documented in WhatsApp Embedded
-        Signup ("Manage accounts > Get shared WABA ID with access token"):
+            GET /me/businesses?fields=id,name&access_token=<TOKEN>
 
-            GET /debug_token?input_token=<SIGNUP_TOKEN>&access_token=<APP_ACCESS_TOKEN>
-
-        The response's data.granular_scopes entry for
-        whatsapp_business_management / whatsapp_business_messaging lists the
-        WABA IDs the token can access, most recently onboarded first.
-        data.user_id is the business / system user the token belongs to.
-
-        NOTE: GET /me is NOT used here - it returns the token owner, not the
-        WABA. Using the /me id as a WABA id produces:
-            (#100) Tried accessing nonexisting field (phone_numbers)
+        This returns the business portfolios the Embedded Signup token can
+        access. The business portfolio ID is what the WABA edges
+        (client_whatsapp_business_accounts / owned_whatsapp_business_accounts)
+        are read from.
 
         Args:
             access_token: The business access token returned by the exchange.
 
         Returns:
-            (success, {"waba_ids": [str, ...], "user_id": str|None}, error_message)
+            (success, [{"id": str, "name": str}, ...], error_message)
         """
         try:
-            url = f"{self.GRAPH_API_BASE}/debug_token"
-            # Meta docs: "An app access token or an app developer's user access
-            # token for the app associated with the input_token is required."
-            # App access token format is <APP_ID>|<APP_SECRET>.
-            app_access_token = f"{self.app_id}|{self.app_secret}"
+            url = f"{self.GRAPH_API_BASE}/me/businesses"
             params = {
-                "input_token": access_token,
-                "access_token": app_access_token,
+                "fields": "id,name",
+                "access_token": access_token,
             }
 
             self._log_graph_request("GET", url, params)
@@ -365,35 +364,172 @@ class MetaOAuthService:
 
             if response.status_code != 200:
                 last_error, error_obj = self._parse_error(response)
-                logger.error(f"Debug token failed: {last_error} (code: {error_obj.get('code')})")
-                return False, None, last_error or "Failed to inspect access token"
+                logger.error(
+                    f"Resolve business portfolios failed: {last_error} "
+                    f"(code: {error_obj.get('code')}, subcode: {error_obj.get('error_subcode')})"
+                )
+                return False, None, last_error or "Failed to resolve the business portfolios for this token"
 
-            data = response.json().get("data", {})
-
-            waba_ids: list = []
-            for gs in data.get("granular_scopes") or []:
-                scope = gs.get("scope")
-                if scope in ("whatsapp_business_management", "whatsapp_business_messaging"):
-                    for target_id in gs.get("target_ids") or []:
-                        sid = str(target_id)
-                        if sid not in waba_ids:
-                            waba_ids.append(sid)
-
-            user_id = data.get("user_id")
-
-            logger.info(f"Debug token OK - granular scopes found, WABA IDs identified: {waba_ids}")
-
-            if not waba_ids:
-                logger.error("No WABA IDs found in debug_token granular_scopes")
-                return False, None, "No WhatsApp Business Account found. Complete WhatsApp Business setup and try again."
-
-            return True, {"waba_ids": waba_ids, "user_id": user_id}, None
+            businesses = response.json().get("data") or []
+            logger.info(
+                f"Business portfolios resolved from token: "
+                f"{[(b.get('id'), b.get('name')) for b in businesses]}"
+            )
+            return True, businesses, None
 
         except httpx.TimeoutException:
-            logger.error("Debug token request timed out")
+            logger.error("Resolve business portfolios timed out")
             return False, None, "Request timed out. Please try again."
         except Exception as e:
-            logger.error(f"Debug token error: {e}", exc_info=True)
+            logger.error(f"Resolve business portfolios error: {e}", exc_info=True)
+            return False, None, str(e)
+
+    async def get_business_wabas(self, business_id: str, edge: str, access_token: str) -> Tuple[bool, Optional[list], Optional[str]]:
+        """
+        Read the WhatsApp Business Accounts of a business portfolio from the
+        documented WhatsApp Business Account edges of the Business node:
+
+            GET /<business_id>/<edge>?fields=id,name&access_token=<TOKEN>
+
+        edge is one of:
+          - client_whatsapp_business_accounts: WABAs shared with the business
+            portfolio by Embedded Signup ("Get list of shared WABAs")
+          - owned_whatsapp_business_accounts:   WABAs owned by the portfolio
+
+        Args:
+            business_id: The business portfolio ID (from /me/businesses or the
+                Embedded Signup completion message).
+            edge: "client_whatsapp_business_accounts" or
+                  "owned_whatsapp_business_accounts".
+            access_token: The business access token returned by the exchange.
+
+        Returns:
+            (success, [{"id": str, "name": str}, ...], error_message)
+        """
+        try:
+            url = f"{self.GRAPH_API_BASE}/{business_id}/{edge}"
+            params = {
+                "fields": "id,name",
+                "access_token": access_token,
+            }
+
+            self._log_graph_request("GET", url, params)
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url, params=params)
+
+            if response.status_code != 200:
+                last_error, error_obj = self._parse_error(response)
+                logger.info(
+                    f"GET /{business_id}/{edge} unavailable: {last_error} "
+                    f"(code: {error_obj.get('code')}, subcode: {error_obj.get('error_subcode')})"
+                )
+                return False, None, last_error or "Failed to read the WhatsApp Business Account list"
+
+            wabas = response.json().get("data") or []
+            logger.info(f"WABAs via /{business_id}/{edge}: {[w.get('id') for w in wabas]}")
+            return True, wabas, None
+
+        except httpx.TimeoutException:
+            logger.error(f"GET /{business_id}/{edge} timed out")
+            return False, None, "Request timed out. Please try again."
+        except Exception as e:
+            logger.error(f"GET /{business_id}/{edge} error: {e}", exc_info=True)
+            return False, None, str(e)
+
+    async def discover_shared_waba_from_token(self, access_token: str) -> Tuple[bool, Optional[Dict], Optional[str]]:
+        """
+        Identify the WhatsApp Business Account (WABA) ID(s) and the business
+        portfolio granted to an Embedded Signup access token.
+
+        Uses Meta's documented business portfolio edges (NOT debug_token
+        granular_scopes - the granular scopes of a Business Integration System
+        User token inspected with the app access token do not include the WABA
+        target_ids):
+
+            1. GET /me/businesses?fields=id,name
+               -> the business portfolio(s) the token can access
+            2. GET /<business_id>/client_whatsapp_business_accounts?fields=id,name
+               -> WABAs shared with the portfolio by Embedded Signup
+            3. Fallback: GET /<business_id>/owned_whatsapp_business_accounts
+               -> WABAs owned directly by the portfolio
+
+        The business portfolios are iterated in order; the first portfolio that
+        exposes any WABA wins. The discovered business portfolio ID is the
+        genuine tenant business ID (never fabricated).
+
+        Args:
+            access_token: The business access token returned by the exchange.
+
+        Returns:
+            (success, {"waba_ids": [str, ...], "business_id": str|None,
+                       "business_name": str|None}, error_message)
+        """
+        try:
+            # 1. Resolve the business portfolio(s) the token can access
+            ok, businesses, error = await self.get_businesses_from_token(access_token)
+            if not ok:
+                return False, None, error or "Failed to discover the WhatsApp Business Account"
+            if not businesses:
+                logger.error("/me/businesses returned no business portfolios for this token")
+                return False, None, (
+                    "No WhatsApp Business Account found. The access token is not "
+                    "associated with a business portfolio. Complete WhatsApp "
+                    "Business setup and try again."
+                )
+
+            waba_ids: list = []
+            business_id = None
+            business_name = None
+            for biz in businesses:
+                biz_id = str(biz.get("id") or "").strip()
+                if not biz_id:
+                    continue
+                if business_id is None:
+                    business_id = biz_id
+                    business_name = biz.get("name") or ""
+
+                # 2. Shared WABAs first, then owned WABAs as a fallback edge
+                for edge in ("client_whatsapp_business_accounts", "owned_whatsapp_business_accounts"):
+                    ok_edge, wabas, edge_error = await self.get_business_wabas(biz_id, edge, access_token)
+                    if not ok_edge:
+                        logger.info(
+                            f"Edge /{biz_id}/{edge} unavailable ({edge_error}) - trying next source"
+                        )
+                        continue
+                    for waba in wabas:
+                        wid = str(waba.get("id") or "").strip()
+                        if wid and wid not in waba_ids:
+                            waba_ids.append(wid)
+                    if waba_ids:
+                        break
+
+                if waba_ids:
+                    break
+
+            logger.info(f"WABA discovery via business edges - WABA IDs identified: {waba_ids}")
+
+            if not waba_ids:
+                logger.error(
+                    "No WABA IDs found via /me/businesses + "
+                    "client/owned_whatsapp_business_accounts edges"
+                )
+                return False, None, (
+                    "No WhatsApp Business Account found. Complete WhatsApp "
+                    "Business setup and try again."
+                )
+
+            return True, {
+                "waba_ids": waba_ids,
+                "business_id": business_id,
+                "business_name": business_name,
+            }, None
+
+        except httpx.TimeoutException:
+            logger.error("WABA discovery timed out")
+            return False, None, "Request timed out. Please try again."
+        except Exception as e:
+            logger.error(f"WABA discovery error: {e}", exc_info=True)
             return False, None, str(e)
 
     # ============================================================
@@ -555,12 +691,14 @@ class MetaOAuthService:
 
         The WABA ID and phone number ID MAY be returned by Meta Embedded Signup
         in the WA_EMBEDDED_SIGNUP session message. In the current production
-        flow Meta delivers ONLY the exchangeable code (via the FB.login
-        callback), so when the asset IDs are not provided the backend
-        discovers them server-side from the token:
-        GET /debug_token granular_scopes -> the WABA IDs the token can access
-        (most recently onboarded first). The code is never used to guess the
-        WABA - only to obtain the token, which is then inspected.
+        flow Meta delivers ONLY the exchangeable code (via the OAuth redirect
+        back), so when the asset IDs are not provided the backend discovers
+        them server-side from the token using Meta's documented business
+        portfolio edges (NOT debug_token granular_scopes):
+        GET /me/businesses -> the business portfolio, then
+        GET /<business_id>/client_whatsapp_business_accounts -> the WABA IDs
+        shared with the portfolio by Embedded Signup. The code is never used to
+        guess the WABA - only to obtain the token, which is then inspected.
 
         The code exchange includes the EXACT redirect_uri that was used in the
         frontend-built OAuth dialog URL (the app owns it, so the exchange can
@@ -570,8 +708,8 @@ class MetaOAuthService:
         Flow:
         1. Exchange code for access token (server-side, with the exact dialog
            redirect_uri)
-        2. If no WABA ID was provided, discover it via debug_token
-           granular_scopes (whatsapp_business_management / _messaging)
+        2. If no WABA ID was provided, discover it via the business portfolio
+           edges (GET /me/businesses -> /client_whatsapp_business_accounts)
         3. Validate the WABA via GET /<WABA_ID> (only supported fields: id,name)
         4. GET /<WABA_ID>/phone_numbers (WABA edge) to retrieve the phone number
         5. Verify the returned phone number ID matches Embedded Signup's (when
@@ -585,7 +723,8 @@ class MetaOAuthService:
             phone_number_id: Business phone number ID returned by Embedded Signup
                 (optional - first phone number used when omitted).
             business_id: Business portfolio ID returned by Embedded Signup
-                (optional - falls back to the debug_token user_id when omitted).
+                (optional - falls back to the portfolio resolved from the token
+                when omitted).
             redirect_uri: The EXACT redirect_uri used in the OAuth dialog
                 request (from the frontend-built dialog URL). Forwarded
                 verbatim to the code exchange. Omitted when None.
@@ -595,10 +734,10 @@ class MetaOAuthService:
 
         integration_data contains:
         - access_token: Long-lived customer-scoped business token
-        - business_id: Meta business / system user ID (from Embedded Signup or
-          the debug_token inspection)
+        - business_id: Meta business portfolio ID (from Embedded Signup or
+          resolved via /me/businesses)
         - waba_id: WhatsApp Business Account ID (from Embedded Signup or
-          discovered via debug_token granular_scopes)
+          discovered via the business portfolio edges)
         - business_name: WABA name (from the WABA node)
         - phone_number_id: Phone Number ID
         - display_phone_number: Display phone number
@@ -619,25 +758,28 @@ class MetaOAuthService:
 
             # Step 2: Resolve the WABA ID. When Embedded Signup did not return
             # one (current production flow delivers only the exchangeable code),
-            # discover it server-side from the token's granular_scopes - the
-            # documented "Get shared WABA ID with access token" approach.
+            # discover it server-side from the token using Meta's documented
+            # business portfolio edges: GET /me/businesses -> the portfolio,
+            # then GET /<business_id>/client_whatsapp_business_accounts -> the
+            # WABAs shared with the portfolio by Embedded Signup.
             if not waba_id:
-                logger.info("[EmbeddedSignup] Step 2/5 - No WABA ID supplied, discovering via debug_token")
-                success, token_info, error = await self.get_waba_ids_from_token(access_token)
+                logger.info("[EmbeddedSignup] Step 2/5 - No WABA ID supplied, discovering via business portfolio edges")
+                success, token_info, error = await self.discover_shared_waba_from_token(access_token)
                 if not success:
-                    logger.error(f"[EmbeddedSignup] Step 2/5 failed - WABA discovery via debug_token: {error}")
+                    logger.error(f"[EmbeddedSignup] Step 2/5 failed - WABA discovery: {error}")
                     return False, None, error or "Failed to discover the WhatsApp Business Account"
                 discovered_waba_ids = token_info.get("waba_ids") or []
                 if not discovered_waba_ids:
-                    logger.error("[EmbeddedSignup] Step 2/5 failed - debug_token returned no WABA IDs")
+                    logger.error("[EmbeddedSignup] Step 2/5 failed - business edges returned no WABA IDs")
                     return False, None, "No WhatsApp Business Account found. Complete WhatsApp Business setup and try again."
                 waba_id = str(discovered_waba_ids[0])
-                # The debug_token user_id is the genuine Meta business/system user
-                # the token belongs to. Use it as the tenant business ID only when
-                # Embedded Signup did not supply one (never fabricate a value).
+                # The portfolio resolved from /me/businesses is the genuine Meta
+                # business the token belongs to. Use it as the tenant business
+                # ID only when Embedded Signup did not supply one (never
+                # fabricate a value).
                 if not business_id:
-                    business_id = token_info.get("user_id")
-                logger.info(f"[EmbeddedSignup] Step 2/5 - WABA discovered via debug_token: {waba_id}")
+                    business_id = token_info.get("business_id")
+                logger.info(f"[EmbeddedSignup] Step 2/5 - WABA discovered via business edges: {waba_id}")
 
             logger.info(f"[EmbeddedSignup] Step 2/5 - WABA validation started (waba_id: {waba_id})")
             success, waba_data, error = await self.get_waba_details(waba_id, access_token)
