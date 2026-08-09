@@ -668,21 +668,21 @@ async def meta_oauth_callback_post(
                            uses the first phone number on the WABA when absent)
       - business_id      : business portfolio ID (optional)
 
-    In the current production flow Meta delivers the exchangeable code via the
-    FB.login callback (response.authResponse.code) and the asset IDs via the
-    WA_EMBEDDED_SIGNUP session message event. The backend performs the code
-    exchange and then discovers/validates any missing asset IDs server-side.
+    In the current production flow the frontend launches the WhatsApp Embedded
+    Signup through a frontend-built OAuth dialog URL (the app OWNS the
+    redirect_uri) and Meta redirects the browser back to the app page with the
+    exchangeable code. The asset IDs arrive via the WA_EMBEDDED_SIGNUP session
+    message event when present; the backend discovers/validates any missing
+    asset IDs server-side.
 
-    Note on redirect_uri: the current Meta Embedded Signup flow uses the JS SDK
-    + config_id popup, which returns the code directly to the FB.login callback
-    (no browser redirect). Per the current official Meta documentation the code
-    exchange therefore does NOT use a redirect_uri - sending one fails with
-    error_subcode 36008. A redirect_uri sent by the frontend is accepted and
-    ignored.
+    Note on redirect_uri: the frontend-built dialog URL binds the code to the
+    app's own redirect_uri, so the exchange MUST send that exact value. The
+    redirect_uri received here is forwarded verbatim to the code exchange. It
+    is only ever sent as a real non-empty URL; an empty string is never sent.
 
     The backend then:
       1. Exchanges the code server-side for the customer business token
-         (no redirect_uri)
+         (with the exact dialog redirect_uri)
       2. Resolves the WABA ID (from Embedded Signup, or discovered from the
          token's debug_token granular_scopes when not provided)
       3. Validates the WABA via GET /<WABA_ID>
@@ -701,6 +701,7 @@ async def meta_oauth_callback_post(
     waba_id = (str(payload.waba_id).strip() if payload.waba_id else "") or None
     phone_number_id = (str(payload.phone_number_id).strip() if payload.phone_number_id else "") or None
     business_id = (str(payload.business_id).strip() if payload.business_id else "") or None
+    redirect_uri = (str(payload.redirect_uri).strip() if payload.redirect_uri else "") or None
 
     # Mask the code in ALL logs. Never log the full code, access tokens or secrets.
     masked_code = f"{code[:8]}...{code[-4:]} (length {len(code)})"
@@ -709,7 +710,7 @@ async def meta_oauth_callback_post(
     logger.info("=" * 80)
     logger.info(f"User ID: {user_id}")
     logger.info(f"Code received: {masked_code}")
-    logger.info("Redirect URI: not used by the Embedded Signup code exchange (config_id flow)")
+    logger.info(f"Redirect URI: {redirect_uri or '(not provided - exchange will omit it)'}")
     logger.info(f"WABA ID: {waba_id or '(not provided - will be discovered server-side)'}")
     logger.info(f"Phone Number ID: {phone_number_id or '(not provided - first WABA phone number will be used)'}")
     logger.info(f"Business ID: {business_id or '(not provided - will be resolved server-side)'}")
@@ -739,6 +740,7 @@ async def meta_oauth_callback_post(
         waba_id=waba_id,
         phone_number_id=phone_number_id,
         business_id=business_id,
+        redirect_uri=redirect_uri,
     )
 
     if not success:

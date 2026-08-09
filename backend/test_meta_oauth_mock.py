@@ -51,10 +51,11 @@ def run(coro):
 
 def test_exchange_never_sends_redirect_uri():
     """
-    The Embedded Signup config_id flow returns the code directly to the
-    FB.login callback (no browser redirect). Per the current official Meta
-    docs the exchange NEVER includes redirect_uri - sending any value causes
-    error_subcode 36008. This test locks that behavior in.
+    When the exchange is invoked WITHOUT a redirect_uri (legacy/no-dialog
+    context) the parameter is omitted entirely - never constructed, never sent
+    empty. The manual dialog flow sends the exact value (see
+    test_exchange_forwards_exact_redirect_uri); omitting it here must be
+    explicit and safe.
     """
     captured = {}
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
@@ -72,12 +73,12 @@ def test_exchange_never_sends_redirect_uri():
     assert captured["params"]["client_id"] == "3862862217342382"
     assert captured["params"]["client_secret"] == "secret"
     assert captured["params"]["code"] == code
-    assert "redirect_uri" not in captured["params"], "redirect_uri must NEVER be sent in the Embedded Signup exchange"
-    print("PASS: exchange sends only client_id + client_secret + code (no redirect_uri)")
+    assert "redirect_uri" not in captured["params"], "no redirect_uri supplied -> parameter omitted entirely"
+    print("PASS: no redirect_uri supplied -> parameter omitted entirely (never empty)")
 
 
 def test_exchange_without_redirect_uri_omits_it():
-    """The exchange must never include a redirect_uri parameter."""
+    """When no redirect_uri is supplied the exchange omits the parameter."""
     captured = {}
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
     svc.GRAPH_API_BASE = GRAPH_BASE
@@ -90,6 +91,47 @@ def test_exchange_without_redirect_uri_omits_it():
     assert ok is True, err
     assert "redirect_uri" not in captured["params"], "redirect_uri must be OMITTED"
     print("PASS: redirect_uri omitted entirely")
+
+
+def test_exchange_forwards_exact_redirect_uri():
+    """
+    The manual dialog flow: the code is bound to the app's own redirect_uri
+    (frontend-built dialog URL), so the exchange MUST send that EXACT value
+    (never an empty string) for Meta's "redirect_uri identical" check.
+    """
+    captured = {}
+    svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
+    svc.GRAPH_API_BASE = GRAPH_BASE
+    code = "AQ" + ("r" * 449)
+    redirect_uri = "https://apps.orvym.com/dashboard/integrations/"
+
+    with mock.patch("httpx.AsyncClient", return_value=captured_request(
+        captured, 200, {"access_token": "EAA_token", "token_type": "bearer"}
+    )):
+        ok, data, err = run(svc.exchange_code_for_token(code, redirect_uri=redirect_uri))
+
+    assert ok is True, err
+    assert captured["params"]["client_id"] == "3862862217342382"
+    assert captured["params"]["code"] == code
+    assert captured["params"]["redirect_uri"] == redirect_uri, \
+        "redirect_uri must be forwarded byte-identically"
+    print("PASS: exact dialog redirect_uri forwarded to Meta")
+
+
+def test_exchange_never_sends_empty_string_redirect_uri():
+    """redirect_uri="" must never be sent (it can never match the dialog value)."""
+    captured = {}
+    svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
+    svc.GRAPH_API_BASE = GRAPH_BASE
+
+    with mock.patch("httpx.AsyncClient", return_value=captured_request(
+        captured, 200, {"access_token": "EAA_token", "token_type": "bearer"}
+    )):
+        ok, data, err = run(svc.exchange_code_for_token("AQcode", redirect_uri="   "))
+
+    assert ok is True, err
+    assert "redirect_uri" not in captured["params"], "empty/whitespace redirect_uri must be OMITTED"
+    print("PASS: empty-string redirect_uri is never sent")
 
 
 def test_exchange_meta_error_returned():

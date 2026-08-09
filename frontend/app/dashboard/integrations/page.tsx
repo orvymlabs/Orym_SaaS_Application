@@ -334,83 +334,77 @@ export default function IntegrationsPage() {
     };
   }, []);
 
-  // Launch WhatsApp Embedded Signup - Official Meta implementation.
-  // JS SDK FB.login with config_id, response_type: 'code' and
-  // override_default_response_type: true. Meta returns the exchangeable token
-  // code via the callback (response.authResponse.code); the WABA / phone /
-  // business IDs arrive via the WA_EMBEDDED_SIGNUP message event.
-  // completeEmbeddedSignup() ensures the single-use code is exchanged exactly
-  // once.
+  // Launch WhatsApp Embedded Signup - Official Meta "Manually Build a Login
+  // Flow" for Facebook Login for Business. The dialog URL is built here so the
+  // app OWNS the redirect_uri (config_id + response_type=code +
+  // override_default_response_type=true + extras setup). Meta binds the
+  // exchangeable code to this exact redirect_uri and redirects the browser
+  // back to it with ?code=...&state=...; the redirect-back handler verifies
+  // the CSRF state and sends the code to the backend exactly once.
+  //
+  // The JS SDK FB.login() popup is intentionally NOT used for the launch: it
+  // opens the dialog with Meta's internal redirect_uri
+  // (https://staticxx.facebook.com/x/connect/xd_arbiter/?version=v46#cb=<random>)
+  // whose cb fragment is random per session. That value can never be
+  // reproduced in the server-side exchange, so any exchange attempt fails with
+  // Meta error 36008 ("redirect_uri identical"). Building the dialog URL
+  // ourselves guarantees the code is bound to OUR registered redirect_uri.
   const launchWhatsAppSignup = () => {
     if (!metaConfig) {
       showToast("Meta Embedded Signup is not configured", "error");
       return;
     }
 
-    // Synchronously block a second FB.login() while one flow is already
-    // running (e.g. a double-click before the disabled re-render). This is the
-    // duplicate-launch guard - one click produces exactly one FB.login().
-    if (launchingRef.current) {
-      console.warn('[EmbeddedSignup] FB.login already in progress - ignoring duplicate launch');
-      return;
-    }
+    if (typeof window === 'undefined') return;
 
-    if (typeof window === 'undefined' || !window.FB || typeof window.FB.login !== 'function') {
-      console.warn('[EmbeddedSignup] Facebook SDK is not ready yet');
-      setConnectingWhatsApp(false);
-      showToast("Meta SDK is still loading. Please wait a moment and try again.", "error");
+    // Synchronously block a second launch while one flow is already running
+    // (e.g. a double-click before the disabled re-render). One click produces
+    // exactly one dialog launch.
+    if (launchingRef.current) {
+      console.warn('[EmbeddedSignup] Embedded Signup already in progress - ignoring duplicate launch');
       return;
     }
 
     launchingRef.current = true;
     setConnectingWhatsApp(true);
-    console.log('[EmbeddedSignup] Launching WhatsApp Embedded Signup via FB.login (JS SDK)');
+
+    // Start a fresh session: drop any WABA/phone/business IDs persisted by a
+    // PREVIOUS Embedded Signup run so a stale asset ID can never be attached to
+    // a new single-use code.
+    sessionStorage.removeItem("meta_embedded_signup");
+    signupDataRef.current = {};
+
+    // The exact page this dialog is launched from. Meta redirects the browser
+    // back to this URL with the code, so it MUST be registered in the Meta App
+    // Dashboard "Valid OAuth Redirect URIs" (this is the documented production
+    // value: https://apps.orvym.com/dashboard/integrations/).
+    const redirectUri = window.location.origin + window.location.pathname;
+
+    // CSRF state: Meta returns it unchanged on redirect-back, so it proves the
+    // code belongs to THIS launch (prevents login-CSRF).
+    const state = "orvym_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    sessionStorage.setItem("meta_embedded_signup_state", state);
+
+    const params = new URLSearchParams({
+      client_id: metaConfig.app_id,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      override_default_response_type: "true",
+      config_id: metaConfig.config_id,
+      state,
+      extras: JSON.stringify({ setup: {} }),
+    });
+    const dialogUrl = `https://www.facebook.com/v26.0/dialog/oauth?${params.toString()}`;
+
+    // Diagnostics: log the exact dialog request context (never the code).
+    console.log('[EmbeddedSignup] Launching WhatsApp Embedded Signup via manual OAuth dialog URL');
+    console.log('  Dialog: https://www.facebook.com/v26.0/dialog/oauth');
+    console.log('  redirect_uri:', redirectUri);
     console.log('  App ID:', metaConfig.app_id);
     console.log('  Config ID:', metaConfig.config_id);
+    console.log('  response_type: code | override_default_response_type: true | extras: {"setup":{}}');
 
-    // Response callback - Official Meta Code.
-    const fbLoginCallback = (response: any) => {
-      console.log('[EmbeddedSignup] FB.login response status:', response?.status);
-
-      // response.authResponse.code is the exchangeable token code. Send it to
-      // the backend immediately (TTL ~30 seconds) - never log the full code.
-      if (response?.authResponse?.code) {
-        const code = response.authResponse.code;
-        signupCodeRef.current = code;
-        console.log('[EmbeddedSignup] exchangeable code received via FB.login callback (length:', code.length, ')');
-        completeEmbeddedSignup();
-        return;
-      }
-
-      if (response?.status === 'unknown') {
-        launchingRef.current = false;
-        setConnectingWhatsApp(false);
-        showToast("WhatsApp signup was cancelled. No changes were made.", "info");
-        return;
-      }
-
-      if (response?.authResponse?.error) {
-        launchingRef.current = false;
-        setConnectingWhatsApp(false);
-        showToast("WhatsApp signup failed: " + response.authResponse.error, "error");
-        return;
-      }
-
-      // No authResponse yet - the exchangeable code may arrive via the
-      // WA_EMBEDDED_SIGNUP message a moment later; completeEmbeddedSignup()
-      // retries briefly before surfacing an error.
-      completeEmbeddedSignup();
-    };
-
-    // Launch method and callback registration - Official Meta Code.
-    window.FB.login(fbLoginCallback, {
-      config_id: metaConfig.config_id,
-      response_type: 'code',
-      override_default_response_type: true,
-      extras: {
-        setup: {},
-      },
-    });
+    window.location.href = dialogUrl;
   };
 
   // Handle Embedded Signup completion - send the exchangeable code to the
@@ -418,16 +412,21 @@ export default function IntegrationsPage() {
   // forwarded too, but the backend resolves any missing ones server-side
   // after the token exchange, so the code alone is always enough.
   //
-  // Note: no redirect_uri is sent. The official Meta Embedded Signup flow uses
-  // the JS SDK + config_id popup, which returns the code directly to the
-  // FB.login callback (no browser redirect). Per the current official Meta
-  // documentation the code exchange does not use a redirect_uri - sending one
-  // causes error_subcode 36008.
+  // The redirect_uri IS sent: the code was generated by the frontend-built
+  // dialog URL, so it is bound to this exact redirect_uri. The backend
+  // forwards it verbatim to the code exchange so Meta's "redirect_uri
+  // identical" check (error 36008) passes. It must be byte-identical to the
+  // value used in the OAuth dialog request.
   const handleMetaOAuthCallback = async (
     code: string,
     metaData?: { waba_id?: string; phone_number_id?: string; business_id?: string }
   ) => {
     try {
+      // The exact redirect_uri used in the OAuth dialog request. This page is
+      // the redirect target, so window.location.origin + pathname matches the
+      // dialog's redirect_uri byte-for-byte.
+      const oauthRedirectUri = window.location.origin + window.location.pathname;
+
       // The WABA / phone / business IDs MAY come from a WA_EMBEDDED_SIGNUP
       // FINISH message event. Fall back to any persisted value (covers a popup
       // that closed before the listener stored them). They are optional - the
@@ -440,7 +439,7 @@ export default function IntegrationsPage() {
 
       console.log('[EmbeddedSignup] backend request started');
       console.log('  Code length:', code.length);
-      console.log('  redirect_uri: not used (config_id flow)');
+      console.log('  redirect_uri:', oauthRedirectUri, '(exact dialog value)');
       console.log('  waba_id:', wabaId || 'not provided - backend will resolve');
       console.log('  phone_number_id:', phoneNumberId || 'not provided - backend will resolve');
       console.log('  business_id:', businessId || 'not provided - backend will resolve');
@@ -448,6 +447,7 @@ export default function IntegrationsPage() {
 
       const result = await apiPost("/api/integrations/meta/oauth/callback", {
         code,
+        redirect_uri: oauthRedirectUri,
         waba_id: wabaId || null,
         phone_number_id: phoneNumberId || null,
         business_id: businessId || null,
@@ -479,6 +479,54 @@ export default function IntegrationsPage() {
       setConnectingWhatsApp(false);
     }
   };
+
+  // Redirect-back handler for the manual OAuth dialog flow. After the user
+  // finishes (or cancels) WhatsApp Embedded Signup, Meta redirects the browser
+  // back to this page with ?code=...&state=... (or ?error=...&state=...). On
+  // mount we verify the CSRF state against the value stored at launch, strip
+  // the params from the URL immediately (so a refresh can NEVER re-submit the
+  // single-use code), and send the code to the backend exactly once.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+    const oauthError = params.get('error');
+
+    if (!code && !oauthError) return;
+
+    const expectedState = sessionStorage.getItem("meta_embedded_signup_state");
+    sessionStorage.removeItem("meta_embedded_signup_state");
+    const cleanUrl = window.location.origin + window.location.pathname;
+    window.history.replaceState({}, "", cleanUrl);
+
+    if (expectedState && state && state !== expectedState) {
+      // CSRF mismatch - the code does not belong to this launch. Abort.
+      console.warn('[EmbeddedSignup] state mismatch on OAuth redirect-back - ignoring code');
+      launchingRef.current = false;
+      setConnectingWhatsApp(false);
+      showToast("WhatsApp signup validation failed. Please try again.", "error");
+      return;
+    }
+
+    if (oauthError) {
+      console.log('[EmbeddedSignup] OAuth dialog returned error:', oauthError);
+      launchingRef.current = false;
+      setConnectingWhatsApp(false);
+      showToast("WhatsApp signup was cancelled. No changes were made.", "info");
+      return;
+    }
+
+    if (code) {
+      console.log('[EmbeddedSignup] exchangeable code received via OAuth redirect-back (length:', code.length, ')');
+      // Mark the single exchange as in progress so the message-driven retry
+      // machinery can never submit this code a second time.
+      completingRef.current = true;
+      setConnectingWhatsApp(true);
+      handleMetaOAuthCallback(code);
+    }
+  }, []);
 
   // Disconnect WhatsApp
   const handleDisconnectWhatsApp = async () => {
