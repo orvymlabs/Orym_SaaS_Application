@@ -11,6 +11,8 @@ from services.meta_oauth import MetaOAuthService
 from config import get_settings
 import logging
 import json
+from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 
@@ -471,6 +473,180 @@ def get_meta_config():
     return {
         "app_id": settings.META_APP_ID,
         "config_id": settings.META_CONFIG_ID
+    }
+
+
+@router.get("/meta/verify")
+async def verify_meta_config(
+    user_id: int = Depends(get_current_user_id),
+):
+    """
+    Server-side Meta Embedded Signup configuration health check.
+
+    Verifies every configuration item that CAN be verified from the backend
+    and returns a structured checklist for the items that must match the
+    production Embedded Signup flow. Items that can only be confirmed in the
+    Meta App Dashboard are reported with status "manual" and the exact expected
+    value.
+
+    Server-verified items:
+      - META_APP_ID / META_APP_SECRET / META_CONFIG_ID are configured
+      - the App Secret belongs to the App ID and the Graph API version is
+        supported (GET /<APP_ID> with an <APP_ID>|<APP_SECRET> app token)
+      - the frontend configuration endpoint serves the same App ID / Config ID
+        that the backend is configured with (by construction)
+
+    The app secret is never logged or returned.
+    """
+    settings = get_settings()
+
+    app_id = (settings.META_APP_ID or "").strip()
+    app_secret = (settings.META_APP_SECRET or "").strip()
+    config_id = (settings.META_CONFIG_ID or "").strip()
+
+    redirect_uri = (settings.META_OAUTH_REDIRECT_URI or "").strip()
+    production_origin = ""
+    try:
+        parts = urlsplit(redirect_uri)
+        if parts.scheme and parts.netloc:
+            production_origin = f"{parts.scheme}://{parts.netloc}"
+    except Exception:
+        production_origin = ""
+
+    graph_version = MetaOAuthService.GRAPH_API_BASE.rstrip("/").rsplit("/", 1)[-1]
+
+    def check(status: str, detail: str) -> dict:
+        return {"status": status, "detail": detail}
+
+    checks = {}
+
+    checks["app_id_configured"] = check(
+        "pass" if app_id else "fail",
+        f"META_APP_ID is {'set (' + app_id + ')' if app_id else 'NOT set on the server'}",
+    )
+    checks["app_secret_configured"] = check(
+        "pass" if app_secret else "fail",
+        "META_APP_SECRET is set on the server" if app_secret else "META_APP_SECRET is NOT set on the server",
+    )
+    checks["config_id_configured"] = check(
+        "pass" if config_id else "fail",
+        f"META_CONFIG_ID is {'set (' + config_id + ')' if config_id else 'NOT set on the server'}",
+    )
+    checks["frontend_uses_backend_config"] = check(
+        "pass" if app_id and config_id else "not_checked",
+        "The frontend reads /api/integrations/meta/config, which serves exactly "
+        "this App ID / Config ID, so frontend and backend use the same config "
+        "by construction.",
+    )
+
+    credential_check = {
+        "status": "not_checked",
+        "detail": "Requires META_APP_ID and META_APP_SECRET to be configured.",
+        "app_name": None,
+        "graph_version_supported": None,
+    }
+    if app_id and app_secret:
+        oauth_service = MetaOAuthService(app_id, app_secret)
+        ok, cred_data, error = await oauth_service.verify_app_credentials()
+        if ok:
+            credential_check = {
+                "status": "pass",
+                "detail": f"App Secret verified for App ID {app_id} - app name: {cred_data.get('app_name', '')}",
+                "app_name": cred_data.get("app_name"),
+                "graph_version_supported": True,
+            }
+        else:
+            version_ok = cred_data and cred_data.get("graph_version_supported")
+            credential_check = {
+                "status": "fail" if version_ok else "version_fail",
+                "detail": f"Meta rejected the credential check: {error}",
+                "app_name": None,
+                "graph_version_supported": version_ok,
+            }
+    checks["app_secret_valid_for_app_id"] = credential_check
+    checks["graph_api_version_supported"] = check(
+        "pass" if credential_check.get("graph_version_supported") else "fail",
+        f"Backend uses {graph_version}. A version-unsupported response from Meta "
+        "means the configured version is not valid for this app.",
+    )
+
+    checks["facebook_login_for_business"] = check(
+        "manual",
+        "In the Meta App Dashboard confirm the app is set up with the Facebook "
+        "Login for Business product (Tech Provider). This configuration decides "
+        "whether the code exchange requires a redirect_uri.",
+    )
+    checks["client_oauth_login"] = check(
+        "manual",
+        "Facebook Login for Business > Settings > Client OAuth settings > Client OAuth Login must be Yes.",
+    )
+    checks["web_oauth_login"] = check(
+        "manual",
+        "Facebook Login for Business > Settings > Client OAuth settings > Web OAuth Login must be Yes.",
+    )
+    checks["login_with_javascript_sdk"] = check(
+        "manual",
+        "Facebook Login for Business > Settings > Client OAuth settings > Login with the JavaScript SDK must be Yes.",
+    )
+    checks["enforce_https"] = check(
+        "manual",
+        "Facebook Login for Business > Settings > Client OAuth settings > Enforce HTTPS must be Yes.",
+    )
+    checks["embedded_browser_oauth_login"] = check(
+        "manual",
+        "Facebook Login for Business > Settings > Client OAuth settings > Embedded Browser OAuth Login must be Yes.",
+    )
+    checks["use_strict_mode_for_redirect_uris"] = check(
+        "manual",
+        "Facebook Login for Business > Settings > Client OAuth settings > Use Strict Mode for redirect URIs must be Yes.",
+    )
+    checks["allowed_domains_include_production_domain"] = check(
+        "manual",
+        f"Allowed Domains must include the production spawning domain "
+        f"({production_origin or 'https://apps.orvym.com'}).",
+    )
+    checks["valid_oauth_redirect_uris_include_production_domain"] = check(
+        "manual",
+        f"Valid OAuth Redirect URIs must include the production spawning domain "
+        f"({production_origin or 'https://apps.orvym.com'} and its trailing-slash "
+        "variant). The backend Render URL must NOT be added unless Meta's current "
+        "docs require it for this exact flow.",
+    )
+    checks["config_id_belongs_to_app_id"] = check(
+        "manual",
+        f"Confirm the Embedded Signup configuration {config_id or '(not configured)'} "
+        f"belongs to App ID {app_id or '(not configured)'} in the Meta App Dashboard.",
+    )
+    checks["app_in_live_mode"] = check(
+        "manual",
+        "The Meta App must be in Live mode. Development mode restricts the flow.",
+    )
+    checks["account_update_webhook_subscribed"] = check(
+        "manual",
+        "Meta requires the app to be subscribed to the account_update webhook, "
+        "which is triggered when a customer completes Embedded Signup.",
+    )
+
+    status_counts = {"pass": 0, "fail": 0, "manual": 0, "not_checked": 0, "version_fail": 0}
+    for c in checks.values():
+        s = c["status"]
+        if s in status_counts:
+            status_counts[s] += 1
+
+    logger.info(
+        f"Meta config verification requested by user {user_id}: "
+        f"pass={status_counts['pass']} fail={status_counts['fail']} "
+        f"manual={status_counts['manual']} not_checked={status_counts['not_checked']}"
+    )
+
+    return {
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "graph_api_version": graph_version,
+        "app_id": app_id or None,
+        "config_id": config_id or None,
+        "production_domain": production_origin or "https://apps.orvym.com",
+        "summary": status_counts,
+        "checks": checks,
     }
 
 

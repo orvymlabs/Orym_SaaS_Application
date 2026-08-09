@@ -140,12 +140,36 @@ class MetaOAuthService:
             logger.info(f"  fbtrace_id: {error_obj.get('fbtrace_id', 'none')}")
 
     def _parse_error(self, response: httpx.Response) -> Tuple[str, Dict]:
-        """Extract (error_message, error_object) from a Meta error response."""
+        """Extract (error_message, error_object) from a Meta error response.
+
+        When Meta reports error_subcode 36008 (verification-code validation
+        failure) an actionable hint is appended. The hint explains that the
+        exchange request is already correct (client_id + client_secret + code,
+        no redirect_uri) and points at the Meta App Dashboard configuration
+        that determines whether the code exchange needs a redirect_uri: the
+        Facebook Login for Business / Tech Provider setup, the Embedded Signup
+        configuration that generated the code, the spawning page domain in
+        Allowed Domains / Valid OAuth Redirect URIs, and Live mode. It never
+        suggests adding or removing redirect_uri.
+        """
         try:
             error_obj = response.json().get("error", {})
         except Exception:
             error_obj = {}
         message = error_obj.get("message", "Failed to exchange code")
+        if error_obj.get("error_subcode") == 36008:
+            message = (
+                f"{message} (hint: the exchange request is already correct - "
+                "client_id + client_secret + code with no redirect_uri. "
+                "error_subcode 36008 means Meta could not validate this "
+                "single-use code against the flow context. In the Meta App "
+                "Dashboard confirm: the app is set up for Facebook Login for "
+                "Business (Tech Provider), the Embedded Signup configuration "
+                "that generated this code belongs to this app, the spawning "
+                "page domain is listed in Allowed Domains and Valid OAuth "
+                "Redirect URIs, and the app is in Live mode. The code must "
+                "also be exchanged exactly once within its short TTL.)"
+            )
         return message, error_obj
 
     # ============================================================
@@ -221,6 +245,71 @@ class MetaOAuthService:
             return False, None, "Request timed out. Please try again."
         except Exception as e:
             logger.error(f"Token exchange error: {e}", exc_info=True)
+            return False, None, str(e)
+
+    # ============================================================
+    # App credential / configuration verification
+    # ============================================================
+
+    async def verify_app_credentials(self) -> Tuple[bool, Optional[Dict], Optional[str]]:
+        """
+        Verify the App Secret belongs to the configured App ID and that the
+        configured Graph API version is supported.
+
+        Calls the documented App node read with an APP ACCESS TOKEN
+        (<APP_ID>|<APP_SECRET>):
+
+            GET /v26.0/<APP_ID>?fields=id,name&access_token=<APP_ID>|<APP_SECRET>
+
+        A valid secret returns the app's name. An invalid secret or an
+        unsupported Graph API version returns a Meta error (for an unsupported
+        version Meta returns code 12 "Unsupported get request. Please use one
+        of the documented versions..."). The app secret is never logged or
+        returned.
+
+        Returns:
+            (success, {"app_name": str|None, "graph_version_supported": bool}, error_message)
+        """
+        try:
+            url = f"{self.GRAPH_API_BASE}/{self.app_id}"
+            app_access_token = f"{self.app_id}|{self.app_secret}"
+            params = {
+                "fields": "id,name",
+                "access_token": app_access_token,
+            }
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url, params=params)
+
+            if response.status_code == 200:
+                data = response.json()
+                logger.info(
+                    f"Meta app credentials verified - app {self.app_id} "
+                    f"responded with name: {data.get('name', '')}"
+                )
+                return True, {
+                    "app_name": data.get("name", ""),
+                    "graph_version_supported": True,
+                }, None
+
+            last_error, error_obj = self._parse_error(response)
+            code = error_obj.get("code")
+            message = (error_obj.get("message") or last_error or "").lower()
+            version_unsupported = code == 12 or "documented versions" in message
+            logger.error(
+                f"Meta app credential check failed (code: {error_obj.get('code')}, "
+                f"error_subcode: {error_obj.get('error_subcode')})"
+            )
+            return False, {
+                "app_name": None,
+                "graph_version_supported": not version_unsupported,
+            }, last_error or "Failed to verify Meta app credentials"
+
+        except httpx.TimeoutException:
+            logger.error("Meta app credential check timed out")
+            return False, None, "Request timed out. Please try again."
+        except Exception as e:
+            logger.error(f"Meta app credential check error: {e}", exc_info=True)
             return False, None, str(e)
 
     # ============================================================

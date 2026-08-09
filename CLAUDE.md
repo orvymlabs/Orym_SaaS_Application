@@ -1,667 +1,281 @@
-vI need you to replace ONLY the existing WhatsApp Embedded Signup implementation in the ORVYM SaaS application.
+We now have the ACTUAL production Render logs. Do not make another blind code change.
 
-Use the official Meta WhatsApp Embedded Signup implementation below as the PRIMARY SOURCE OF TRUTH.
+IMPORTANT DISCOVERY:
 
-Do not patch the current custom implementation.
+The backend is ALREADY using:
 
-Remove the old Embedded Signup-specific implementation and rebuild it using the official Meta flow below, adapted properly for our existing Next.js/React application.
+GET https://graph.facebook.com/v26.0/oauth/access_token
 
-==================================================
-STRICT SCOPE — DO NOT TOUCH ANYTHING ELSE
-=========================================
+with:
 
-ONLY modify the WhatsApp Embedded Signup implementation.
+* client_id
+* client_secret
+* code
 
-DO NOT modify:
+and `redirect_uri` is genuinely OMITTED.
 
-* Login
-* Signup
-* Registration
-* Authentication
-* Authorization
-* Sessions
-* User accounts
-* Existing dashboard
-* Existing database
-* Existing APIs unrelated to Embedded Signup
-* Existing WhatsApp functionality unrelated to Embedded Signup
-* Existing application logic
-* Existing UI unrelated to Embedded Signup
-* Any other integration
-* Any other working functionality
+Render confirms:
 
-DO NOT refactor unrelated files.
+`redirect_uri included: False`
 
-DO NOT upgrade unrelated dependencies.
+Meta still returns:
 
-DO NOT rebuild authentication.
+Error Code: 100
+Error Subcode: 36008
+Error Type: OAuthException
 
-DO NOT create a new login system.
+`Error validating verification code. Please make sure your redirect_uri is identical to the one you used in the OAuth dialog request`
 
-DO NOT create a new signup system.
+Therefore DO NOT simply remove redirect_uri from the backend again. It is already removed.
 
-The existing ORVYM authentication must remain exactly as it currently works.
-
-The user is already logged into ORVYM.
-
-Embedded Signup is ONLY used when the existing logged-in user clicks the existing WhatsApp connection button.
+The current problem is now most likely related to the Embedded Signup authorization/configuration context or the exact redirect/domain configuration associated with the code.
 
 ==================================================
-OFFICIAL META EMBEDDED SIGNUP IMPLEMENTATION
-============================================
+ACTUAL PRODUCTION FLOW
+======================
 
-Use the following official Meta implementation as the basis of the new implementation.
-
-### SDK LOADING
-
-```html
-<!-- SDK loading -->
-<script async defer crossorigin="anonymous"
-  src="https://connect.facebook.net/en_US/sdk.js"></script>
-```
-
-Load the Facebook JavaScript SDK correctly in the existing Next.js/React application.
-
-Do not literally paste raw HTML into a React component if that is not appropriate.
-
-Adapt it correctly to the existing framework.
-
-==================================================
-SDK INITIALIZATION
-==================
-
-Use the official Meta initialization pattern:
-
-```javascript
-// SDK initialization
-window.fbAsyncInit = function() {
-  FB.init({
-    appId: '<APP_ID>',
-    autoLogAppEvents: true,
-    xfbml: true,
-    version: '<GRAPH_API_VERSION>'
-  });
-};
-```
-
-Use:
-
-App ID:
-
-3862862217342382
-
-For Graph API version, use the latest version required by the current official Meta documentation.
-
-Do not invent another App ID.
-
-Do not create another Meta App.
-
-Do not create another Config ID unless absolutely required.
-
-==================================================
-SESSION LOGGING MESSAGE EVENT
-=============================
-
-Implement the official Meta message event listener:
-
-```javascript
-// Session logging message event listener
-window.addEventListener('message', (event) => {
-  if (!event.origin.endsWith('facebook.com')) return;
-
-  try {
-    const data = JSON.parse(event.data);
-
-    if (data.type === 'WA_EMBEDDED_SIGNUP') {
-      console.log('message event: ', data);
-      // your code goes here
-    }
-  } catch {
-    console.log('message event: ', event.data);
-    // your code goes here
-  }
-});
-```
-
-Adapt this properly for production React/Next.js.
-
-The event listener must be registered only once.
-
-Clean it up correctly when the component unmounts.
-
-Do not create duplicate listeners.
-
-Do not process the same event multiple times.
-
-==================================================
-IMPORTANT — WA_EMBEDDED_SIGNUP
-==============================
-
-Do NOT use the old custom:
-
-SDK_QUERY_STRING
-
-implementation.
-
-The current implementation incorrectly relies on SDK_QUERY_STRING and therefore reports:
-
-waba_id: MISSING
-phone_number_id: MISSING
-business_id: MISSING
-
-Replace that logic completely.
-
-Use:
-
-data.type === 'WA_EMBEDDED_SIGNUP'
-
-as specified by the official Meta implementation.
-
-The successful flow can return:
-
-```javascript
-{
-  data: {
-    phone_number_id: '<CUSTOMER_BUSINESS_PHONE_NUMBER_ID>',
-    waba_id: '<CUSTOMER_WABA_ID>',
-    business_id: '<CUSTOMER_BUSINESS_PORTFOLIO_ID>',
-
-    // only included if customer selected ad accounts
-    ad_account_ids: [
-      '<CUSTOMER_AD_ACCOUNT_ID_1>',
-      '<CUSTOMER_AD_ACCOUNT_ID_2>'
-    ],
-
-    // only included if customer selected Facebook Pages
-    page_ids: [
-      '<CUSTOMER_PAGE_ID_1>',
-      '<CUSTOMER_PAGE_ID_2>'
-    ],
-
-    // only included if customer selected datasets
-    dataset_ids: [
-      '<CUSTOMER_DATASET_ID_1>',
-      '<CUSTOMER_DATASET_ID_2>'
-    ],
-
-    // only included if customer selected catalogs
-    catalog_ids: [
-      '<CUSTOMER_CATALOG_ID_1>',
-      '<CUSTOMER_CATALOG_ID_2>'
-    ],
-
-    // only included if customer selected Instagram accounts
-    instagram_account_ids: [
-      '<CUSTOMER_IG_ACCOUNT_ID_1>',
-      '<CUSTOMER_IG_ACCOUNT_ID_2>'
-    ],
-
-    // only included for multi-WABA flows
-    waba_ids: [
-      '<CUSTOMER_WABA_ID_1>',
-      '<CUSTOMER_WABA_ID_2>'
-    ]
-  },
-
-  type: 'WA_EMBEDDED_SIGNUP',
-
-  event: '<FLOW_FINISH_TYPE>'
-}
-```
-
-Correctly extract and process:
-
-* phone_number_id
-* waba_id
-* business_id
-
-when they are provided.
-
-Do not fabricate missing values.
-
-Do not hardcode these IDs.
-
-==================================================
-FLOW FINISH TYPES
-=================
-
-Handle the official Meta flow completion values:
-
-```text
-FINISH
-FINISH_ONLY_WABA
-FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING
-FINISH_OBO_MIGRATION
-FINISH_GRANT_ONLY_API_ACCESS
-ERROR
-```
-
-`FINISH` indicates successful Cloud API flow completion.
-
-`FINISH_ONLY_WABA` indicates completion without adding a phone number.
-
-`FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING` indicates completion with a WhatsApp Business App number.
-
-`FINISH_OBO_MIGRATION` indicates an on-behalf-of migration flow.
-
-`FINISH_GRANT_ONLY_API_ACCESS` indicates grant-only API access.
-
-`ERROR` indicates the customer encountered an error.
-
-Handle these according to the actual data returned.
-
-==================================================
-ABANDONED FLOW
-==============
-
-Handle the official Meta cancellation structure:
-
-```javascript
-{
-  data: {
-    current_step: '<CURRENT_STEP>',
-  },
-  type: 'WA_EMBEDDED_SIGNUP',
-  event: 'CANCEL',
-}
-```
-
-Capture `current_step`.
-
-Do not treat a normal successful finish/close as cancellation when Meta reports it as a successful completion.
-
-According to Meta's documentation, on the final screen, clicking Finish or closing the popup can still represent successful onboarding.
-
-==================================================
-USER REPORTED ERRORS
-====================
-
-Handle the official error structure:
-
-```javascript
-{
-  data: {
-    error_message: '<ERROR_MESSAGE>',
-    error_code: '<ERROR_CODE>',
-    session_id: '<SESSION_ID>',
-    timestamp: '<TIMESTAMP>',
-  },
-  type: 'WA_EMBEDDED_SIGNUP',
-  event: 'CANCEL',
-}
-```
-
-Capture:
-
-* error_message
-* error_code
-* session_id
-* timestamp
-
-Use this information for debugging/error handling.
-
-Do not expose sensitive internal information to the user.
-
-==================================================
-RESPONSE CALLBACK
-=================
-
-Implement the official Meta response callback:
-
-```javascript
-// Response callback
-const fbLoginCallback = (response) => {
-  if (response.authResponse) {
-    const code = response.authResponse.code;
-    console.log('response: ', code);
-    // your code goes here
-  } else {
-    console.log('response: ', response);
-    // your code goes here
-  }
-}
-```
-
-Adapt it properly to React/Next.js.
-
-When:
-
-```javascript
-response.authResponse
-```
-
-exists, retrieve:
-
-```javascript
-response.authResponse.code
-```
-
-This is the exchangeable token code.
-
-Immediately send this code to the backend.
-
-Do not wait for another user action.
-
-Do not manually exchange it from the frontend.
-
-Do not expose App Secret.
-
-Do not expose customer access tokens.
-
-The exchangeable code has a TTL of approximately 30 seconds, so process it immediately.
-
-Do not log the complete code in production.
-
-==================================================
-LAUNCH METHOD
-=============
-
-Implement the official Meta launch method:
-
-```javascript
-// Launch method and callback registration
-const launchWhatsAppSignup = () => {
-  FB.login(fbLoginCallback, {
-    config_id: '<CONFIGURATION_ID>',
-    response_type: 'code',
-    override_default_response_type: true,
-    extras: {
-      setup: {},
-    }
-  });
-}
-```
-
-Use:
-
-Configuration ID:
-
-2432311603846818
-
-Use:
-
-```text
-response_type: 'code'
-override_default_response_type: true
-extras: {
-  setup: {}
-}
-```
-
-Do not replace this with the old custom OAuth implementation.
-
-==================================================
-LAUNCH BUTTON
-=============
-
-Do NOT replace the existing ORVYM UI unnecessarily.
-
-The existing Connect WhatsApp button should remain.
-
-Only replace the underlying Embedded Signup launch logic.
-
-The official example button:
-
-```html
-<!-- Launch button -->
-<button
-  onclick="launchWhatsAppSignup()"
-  style="background-color: #1877f2; border: 0; border-radius: 4px; color: #fff; cursor: pointer; font-family: Helvetica, Arial, sans-serif; font-size: 16px; font-weight: bold; height: 40px; padding: 0 24px;">
-  Login with Facebook
-</button>
-```
-
-is only an example.
-
-Do NOT change the ORVYM dashboard UI to a "Login with Facebook" button.
-
-Keep the existing ORVYM WhatsApp connection button and connect it to the new `launchWhatsAppSignup` logic.
-
-==================================================
-BACKEND PROCESSING
-==================
-
-The official Meta documentation states that the exchangeable code should be sent to the server and then exchanged for the customer's business token during onboarding.
-
-Implement this server-side.
-
-The backend must securely process the exchangeable code using the current Meta-documented flow.
-
-Do not expose:
-
-* App Secret
-* access tokens
-* client secrets
-
-to the browser.
-
-Use the existing authenticated ORVYM user.
-
-DO NOT modify authentication.
-
-DO NOT modify login.
-
-DO NOT modify signup.
-
-Do not create a new authentication mechanism.
-
-After Meta processing succeeds, pass the resulting WhatsApp account information into the EXISTING ORVYM WhatsApp connection mechanism.
-
-Do not rebuild the entire WhatsApp system.
-
-==================================================
-REDIRECT URI — IMPORTANT
-========================
-
-The OLD implementation currently fails with:
-
-HTTP 400
-
-"Error validating verification code. Please make sure your redirect_uri is identical to the one you used in the OAuth dialog request"
-
-Do NOT blindly preserve this old custom redirect_uri logic.
-
-Follow the official Meta Embedded Signup implementation above.
-
-Determine from the CURRENT Meta documentation and implementation whether this specific flow requires the old redirect_uri handling.
-
-If the old redirect_uri validation is obsolete for this implementation, remove ONLY that obsolete Embedded Signup logic.
-
-If Meta requires a redirect URI for the actual flow being used, implement exactly what Meta currently requires.
-
-Do not modify application login redirects.
-
-Do not modify signup redirects.
-
-Do not modify authentication callbacks.
-
-Do not introduce localhost.
-
-Production frontend:
+Frontend:
 
 https://apps.orvym.com
 
-Production backend:
+Meta App ID:
+
+3862862217342382
+
+Config ID:
+
+2432311603846818
+
+Graph API:
+
+v26.0
+
+Backend:
 
 https://orym-saas-application.onrender.com
 
-==================================================
-DUPLICATE EXECUTION
-===================
+The frontend successfully:
 
-The old implementation sometimes launches Embedded Signup twice.
+* initializes Facebook SDK
+* launches FB.login
+* uses the Config ID
+* completes Meta Embedded Signup
+* receives a 451-character exchangeable code
+* sends that code immediately to backend
 
-Fix this only inside Embedded Signup.
+Backend successfully receives the code.
 
-Required behavior:
+The backend then performs:
 
-ONE CLICK
-→ ONE FB.login()
-→ ONE Embedded Signup session
-→ ONE exchangeable code
-→ ONE backend request
+GET /v26.0/oauth/access_token
 
-Prevent duplicate event listeners.
+with:
 
-Prevent duplicate code processing.
+client_id
+client_secret
+code
 
-Prevent duplicate backend requests.
+NO redirect_uri.
 
-Still allow retry after cancellation or failure.
+Meta rejects the code with:
 
-==================================================
-NEXT.JS / REACT ADAPTATION
-==========================
-
-The official Meta example is plain HTML/JavaScript.
-
-Our application is already built with Next.js/React.
-
-Convert the official implementation correctly into the existing React architecture.
-
-Do not literally inject the entire HTML example into the page.
-
-Use the appropriate React lifecycle for:
-
-* SDK loading
-* SDK initialization
-* message listener registration
-* message listener cleanup
-* FB.login invocation
-* callback handling
-
-Do not create unnecessary architecture.
-
-Do not change unrelated components.
-
-==================================================
-CURRENT PROBLEM TO FIX
-======================
-
-Current logs show:
-
-Facebook SDK initialized
-
-Embedded Signup launches
-
-SDK_QUERY_STRING received
-
-exchangeable code received
-
-but:
-
-waba_id: MISSING
-phone_number_id: MISSING
-business_id: MISSING
-
-and then:
-
-POST /api/integrations/meta/oauth/callback
-
-returns:
-
-400 Bad Request
+Error 100
+Subcode 36008
 
 "Error validating verification code. Please make sure your redirect_uri is identical to the one you used in the OAuth dialog request"
 
-The new implementation must remove the incorrect old SDK_QUERY_STRING dependency and implement the official `WA_EMBEDDED_SIGNUP` event handling plus official `FB.login` response callback.
+==================================================
+DO NOT CHANGE THE WORKING FRONTEND
+==================================
+
+Do NOT change:
+
+* FB.login
+* Config ID
+* Facebook SDK initialization
+* response_type
+* Embedded Signup event listener
+* existing authentication
+* login
+* signup
+* dashboard
+* unrelated APIs
 
 ==================================================
-IMPORTANT IMPLEMENTATION RULE
+FIRST: VERIFY META CONFIGURATION
+================================
+
+Before changing backend code, inspect the Meta App configuration for:
+
+1. Facebook Login for Business configuration
+
+2. Embedded Signup configuration associated with:
+
+   2432311603846818
+
+3. Allowed Domains
+
+4. Valid OAuth Redirect URIs
+
+5. Client OAuth Login
+
+6. Web OAuth Login
+
+7. Login with JavaScript SDK
+
+8. Enforce HTTPS
+
+9. App Domains
+
+10. Embedded Browser OAuth Login if required by the current Meta setup
+
+11. Any configuration-specific redirect/domain settings
+
+The production spawning domain is:
+
+https://apps.orvym.com
+
+Make sure Meta configuration is consistent with the production Embedded Signup flow.
+
+Do not add random URLs.
+
+Do not change the production URL.
+
+Do not add the backend Render URL as an OAuth redirect unless Meta's current documentation specifically requires it for this exact flow.
+
+==================================================
+SECOND: VERIFY THE CODE IS NOT BEING REUSED
+===========================================
+
+The exchangeable Embedded Signup code is short-lived and single-use.
+
+Make sure ORVYM is NOT exchanging the same code twice.
+
+Check whether:
+
+* frontend sends the request twice
+* React Strict Mode causes duplicate handling
+* FB.login callback fires more than once
+* WA_EMBEDDED_SIGNUP event and FB.login callback both trigger the backend exchange
+* backend retries the same code
+* browser/network layer repeats the POST
+
+There must be exactly ONE backend token-exchange attempt for each newly generated Embedded Signup code.
+
+This is extremely important.
+
+The Render logs currently show a fresh code and one exchange attempt, but verify the complete frontend/backend flow to ensure the same code is never exchanged twice.
+
+==================================================
+THIRD: VERIFY APP ID / CONFIG ID RELATIONSHIP
+=============================================
+
+Confirm that Config ID:
+
+2432311603846818
+
+belongs to App ID:
+
+3862862217342382
+
+and that the production frontend is launching the Embedded Signup configuration belonging to this exact Meta App.
+
+Do not assume this.
+
+Verify it in Meta Developer Dashboard.
+
+==================================================
+FOURTH: VERIFY GRAPH API VERSION
+================================
+
+The current backend uses:
+
+v26.0
+
+Confirm that the Embedded Signup configuration and current Meta documentation support this version.
+
+Do not downgrade randomly.
+
+Do not upgrade randomly.
+
+Use the currently supported version for this app/flow.
+
+==================================================
+FIFTH: VERIFY APP SECRET
+========================
+
+Confirm the backend App Secret belongs to:
+
+App ID 3862862217342382
+
+Do not expose the secret.
+
+Do not print it.
+
+Do not change it unless it is actually incorrect.
+
+==================================================
+SIXTH: TEST WITH A FRESH CODE
 =============================
 
-Do not simply add the official code alongside the old code.
+After configuration/code fixes:
 
-REMOVE the old Embedded Signup implementation.
+1. Open production.
+2. Start Embedded Signup.
+3. Complete the flow.
+4. Generate a completely new exchangeable code.
+5. Send it immediately.
+6. Perform exactly ONE exchange.
+7. Capture the actual Meta response.
 
-There must be ONE active Embedded Signup implementation after the change.
-
-Do not leave duplicate:
-
-* FB.login handlers
-* message listeners
-* code processors
-* callbacks
-* Embedded Signup components
+Never manually reuse an old code.
 
 ==================================================
-SUCCESS FLOW
-============
+IMPORTANT
+=========
 
-The final flow should be:
+Do NOT conclude that the solution is:
 
-Existing ORVYM logged-in user
-↓
-Existing Connect WhatsApp button
-↓
-Official Meta Embedded Signup
-↓
-User completes onboarding
-↓
-WA_EMBEDDED_SIGNUP message received
-↓
-phone_number_id / waba_id / business_id captured when provided
-↓
-FB.login callback receives exchangeable code
-↓
-Code immediately sent to backend
-↓
-Backend securely performs required Meta processing
-↓
-Existing ORVYM WhatsApp connection completes
-↓
-Dashboard shows WhatsApp connected
+"add redirect_uri to the backend request."
 
-==================================================
-TESTING
-=======
+The backend already omits redirect_uri.
 
-Test the complete production flow.
+Do NOT conclude that the solution is:
 
-Verify:
+"remove redirect_uri from backend."
 
-[ ] Facebook SDK initializes once
-[ ] Existing Connect WhatsApp button still works
-[ ] Embedded Signup opens once
-[ ] Official Config ID is used
-[ ] WA_EMBEDDED_SIGNUP event is received
-[ ] phone_number_id is captured when provided
-[ ] waba_id is captured when provided
-[ ] business_id is captured when provided
-[ ] FB.login callback receives the exchangeable code
-[ ] Code is sent to backend immediately
-[ ] Backend processes the code successfully
-[ ] Existing WhatsApp connection completes
-[ ] No redirect_uri mismatch remains
-[ ] Cancellation works
-[ ] Error handling works
-[ ] Retry works
-[ ] Existing login still works
-[ ] Existing signup still works
-[ ] Existing authentication still works
+It is already removed.
+
+The current task is to determine WHY Meta generated a code that Meta's `/oauth/access_token` endpoint refuses with subcode 36008.
+
+Trace the complete relationship:
+
+Meta App
+→ Facebook Login for Business
+→ Embedded Signup Configuration
+→ production domain
+→ FB.login
+→ generated code
+→ backend exchange
+
+Find the mismatch.
 
 ==================================================
-FINAL STRICT RULE
-=================
+FINAL GOAL
+==========
 
-This is ONLY a WhatsApp Embedded Signup replacement.
+Do not stop at explaining the error.
 
-DO NOT TOUCH:
+Actually fix the underlying issue and make the production Embedded Signup work.
 
-AUTH
-LOGIN
-SIGNUP
-REGISTRATION
-SESSIONS
-USER MANAGEMENT
-DATABASE ARCHITECTURE
-UNRELATED APIs
-UNRELATED UI
-UNRELATED FEATURES
-UNRELATED INTEGRATIONS
+After the fix, verify:
 
-Use the official Meta Embedded Signup code and documentation provided above.
+Meta Embedded Signup
+→ fresh code
+→ ONE exchange
+→ business token
+→ WABA ID
+→ phone number ID
+→ existing ORVYM WhatsApp connection
 
-Make the smallest possible isolated change.
-
-The task is complete only when the Embedded Signup flow works end-to-end in production.
+Do not touch authentication, login, signup, or unrelated functionality.
