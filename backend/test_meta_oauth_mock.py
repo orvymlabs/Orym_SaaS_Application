@@ -221,7 +221,7 @@ def test_setup_whatsapp_integration_full_flow():
 
 def test_setup_whatsapp_integration_code_only_discovery():
     """
-    Production flow: Meta delivers ONLY the exchangeable code (SDK_QUERY_STRING
+    Production flow: Meta delivers ONLY the exchangeable code (FB.login
     payload has no waba_id / phone_number_id / business_id). The backend must
     exchange the code and then discover the WABA server-side via debug_token
     granular_scopes, resolve the phone number, and subscribe the WABA.

@@ -11,9 +11,9 @@ class MetaOAuthCallbackRequest(BaseModel):
     required field (code) before processing.
 
     Only the exchangeable code is required. The WABA ID, phone number ID and
-    business ID are optional: when they are not present (production
-    SDK_QUERY_STRING payload carries only the code) the backend resolves them
-    server-side from the token after the exchange.
+    business ID are optional: when they are not present (production payload
+    carries only the code) the backend resolves them server-side from the
+    token after the exchange.
     """
     code: Optional[str] = None
     redirect_uri: Optional[str] = None

@@ -39,8 +39,8 @@ from main import app
 async def fake_setup_success(self, code, redirect_uri=None, waba_id=None, phone_number_id=None, business_id=None):
     assert code, "code must be forwarded to the service"
     # Mirrors the real service: asset IDs are OPTIONAL. When Embedded Signup
-    # does not deliver them (production SDK_QUERY_STRING payload has only the
-    # code), the service resolves them server-side from the token.
+    # does not deliver them (production payload carries only the code), the
+    # service resolves them server-side from the token.
     resolved_waba = waba_id or "waba_discovered_888"
     resolved_phone = phone_number_id or "phone_discovered_999"
     resolved_biz = business_id or "biz_discovered_777"
@@ -150,7 +150,7 @@ def main():
         finally:
             db.close()
 
-    print("=== TEST 4b: POST callback CODE-ONLY (production SDK_QUERY_STRING payload) ===")
+    print("=== TEST 4b: POST callback CODE-ONLY (production payload) ===")
     # Production Meta payload delivers ONLY the exchangeable code - no asset
     # IDs. The backend must accept the code and resolve WABA/phone/business
     # server-side (the mocked service resolves them on behalf of the backend).

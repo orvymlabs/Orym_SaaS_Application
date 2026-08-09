@@ -458,9 +458,9 @@ class MetaOAuthService:
 
         The WABA ID and phone number ID MAY be returned by Meta Embedded Signup
         in the WA_EMBEDDED_SIGNUP session message. In the current production
-        flow Meta delivers ONLY the exchangeable code (via SDK_QUERY_STRING /
-        the FB.login callback), so when the asset IDs are not provided the
-        backend discovers them server-side from the token:
+        flow Meta delivers ONLY the exchangeable code (via the FB.login
+        callback), so when the asset IDs are not provided the backend
+        discovers them server-side from the token:
         GET /debug_token granular_scopes -> the WABA IDs the token can access
         (most recently onboarded first). The code is never used to guess the
         WABA - only to obtain the token, which is then inspected.

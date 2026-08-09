@@ -474,76 +474,6 @@ def get_meta_config():
     }
 
 
-@router.get("/meta/oauth/callback")
-async def meta_oauth_callback_get(
-    request: Request,
-    code: str = None,
-    state: str = None,
-    error: str = None,
-    error_description: str = None,
-    db: Session = Depends(get_db)
-):
-    """
-    Handle Meta OAuth callback via GET redirect (traditional OAuth flow).
-    This is called when Meta redirects the browser back to our app.
-    """
-    logger.info(f"GET OAuth callback: code={code[:20] if code else None}..., state={state}, error={error}")
-
-    # If there's an error from Meta
-    if error:
-        logger.error(f"Meta OAuth error: {error} - {error_description}")
-        # Redirect back to integrations page with error
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(
-            url=f"/dashboard/integrations?error={error}&message={error_description or 'OAuth failed'}",
-            status_code=302
-        )
-
-    # Code is required for successful OAuth
-    if not code:
-        logger.error("No code provided in GET callback")
-        from fastapi.responses import RedirectResponse
-        return RedirectResponse(
-            url="/dashboard/integrations?error=no_code&message=No authorization code received",
-            status_code=302
-        )
-
-    # TODO: In production, you should use the 'state' parameter to:
-    # 1. Verify CSRF protection
-    # 2. Retrieve user_id from session/state
-    # For now, returning a message that frontend needs to handle this via JavaScript
-
-    logger.warning("GET callback received but requires frontend JavaScript handling (FB.login approach)")
-    from fastapi.responses import HTMLResponse
-    return HTMLResponse(
-        content=f"""
-        <html>
-        <head><title>WhatsApp Connection</title></head>
-        <body>
-            <h2>Processing WhatsApp Connection...</h2>
-            <p>Authorization code received. Please complete the process from the dashboard.</p>
-            <p><a href="/dashboard/integrations">Return to Dashboard</a></p>
-            <script>
-                // If this is opened in a popup, close it
-                if (window.opener) {{
-                    window.opener.postMessage({{
-                        type: 'oauth_callback',
-                        code: '{code}',
-                        state: '{state or ""}'
-                    }}, '*');
-                    window.close();
-                }} else {{
-                    // Redirect to dashboard
-                    window.location.href = '/dashboard/integrations';
-                }}
-            </script>
-        </body>
-        </html>
-        """,
-        status_code=200
-    )
-
-
 @router.post("/meta/oauth/callback")
 async def meta_oauth_callback_post(
     payload: MetaOAuthCallbackRequest,
@@ -562,11 +492,10 @@ async def meta_oauth_callback_post(
                            uses the first phone number on the WABA when absent)
       - business_id      : business portfolio ID (optional)
 
-    In the current production flow Meta delivers ONLY the exchangeable code
-    (via the SDK_QUERY_STRING handshake and the FB.login callback); the asset
-    IDs are NOT present in that payload. The backend therefore performs the
-    code exchange and then discovers/validates the connected WhatsApp Business
-    information server-side.
+    In the current production flow Meta delivers the exchangeable code via the
+    FB.login callback (response.authResponse.code) and the asset IDs via the
+    WA_EMBEDDED_SIGNUP session message event. The backend performs the code
+    exchange and then discovers/validates any missing asset IDs server-side.
 
     Note on redirect_uri: the current Meta Embedded Signup flow uses the JS SDK
     + config_id popup, which returns the code directly to the FB.login callback
