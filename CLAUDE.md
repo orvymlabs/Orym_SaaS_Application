@@ -1,109 +1,245 @@
-We now have detailed production logs. DO NOT rebuild the existing implementation.
+I need you to properly fix the existing Meta WhatsApp Embedded Signup integration in my SaaS application.
 
-The previous OAuth/token exchange problem is FIXED.
+DO NOT rebuild the integration from scratch.
+DO NOT change unrelated application functionality.
+DO NOT hide errors.
+DO NOT use fake/mock WABA IDs.
+DO NOT blindly add random permissions.
 
-The logs prove:
+The OAuth/token exchange is already WORKING and must remain untouched.
 
-Step 1/5 - Meta token exchange started
-→ Meta returned HTTP 200
-→ Access token received: YES
-→ Token exchange successful
+CURRENT SUCCESSFUL FLOW:
 
-So DO NOT modify the successful token exchange unless absolutely necessary.
+Embedded Signup
+→ OAuth code received
+→ backend receives code
+→ Meta /oauth/access_token
+→ HTTP 200
+→ access token received
 
-The CURRENT failure is specifically WABA discovery.
+Production log confirms:
 
-Production logs:
+Status Code: 200
+Access token received: YES
+Token exchange successful
 
-Step 2/5 - No WABA ID supplied, discovering via debug_token
+So DO NOT modify the successful token exchange logic unless your investigation proves it is required.
 
-debug_token response:
-- Debug token OK
-- granular scopes found
-- WABA IDs identified: []
+==================================================
+PROBLEM 1 — WABA DISCOVERY IS WRONG
+==================================================
 
-Then:
-"No WABA IDs found in debug_token granular_scopes"
+After successful token exchange, the backend currently does:
 
-And the backend returns:
+GET
+https://graph.facebook.com/v26.0/me/businesses
+fields=id,name
 
-HTTP 400:
-"No WhatsApp Business Account found. Complete WhatsApp Business setup and try again."
+This returns:
 
-Frontend logs also show:
+(#100) Missing Permission
+
+The backend then returns:
+
+HTTP 400
+(#100) Missing Permission
+
+The current code is trying to discover the WABA through /me/businesses.
+
+I need you to inspect the existing Meta WhatsApp Embedded Signup implementation and implement the CORRECT WABA discovery flow for Embedded Signup.
+
+Do NOT simply add a random permission to make /me/businesses work.
+
+First inspect the complete flow:
+
+FRONTEND:
+- FB.login()
+- config_id
+- response_type
+- override_default_response_type
+- extras
+- WA_EMBEDDED_SIGNUP postMessage listener
+- OAuth redirect-back handling
+- state/code handling
+- callback request
+
+BACKEND:
+- /api/integrations/meta/oauth/callback
+- token exchange
+- WABA discovery
+- phone number discovery
+- business ID resolution
+- final WhatsApp connection save
+
+Determine exactly where the WABA ID and phone_number_id are supposed to come from in this Embedded Signup flow.
+
+If Meta provides the WABA ID / phone number ID through the Embedded Signup completion event, capture those values on the frontend and send them securely to the backend.
+
+The frontend currently logs:
 
 waba_id: not provided - backend will resolve
 phone_number_id: not provided - backend will resolve
 business_id: not provided - backend will resolve
 
-THIS IS THE ISSUE TO FIX.
+This must be fixed.
 
-Do not rebuild Meta Embedded Signup.
-Do not redesign the UI.
-Do not change unrelated SaaS functionality.
-Do not change the already-working OAuth token exchange.
+Do not leave these values empty if the Embedded Signup event provides them.
 
-Inspect the existing Embedded Signup event handling and determine why the WhatsApp Business information is not being captured.
+Inspect the actual postMessage event payload received from Meta.
 
-Specifically inspect:
+Add safe diagnostic logging that shows the EVENT TYPE and NON-SENSITIVE ID fields only.
 
-1. WA_EMBEDDED_SIGNUP postMessage listener
-2. The exact event payload received after Embedded Signup
-3. How the frontend extracts:
-   - waba_id
-   - phone_number_id
-   - business_id
-4. Whether the event listener is registered before FB.login()
-5. Whether the listener is filtering the wrong event name
-6. Whether the listener is reading the wrong payload structure
-7. Whether the Meta event contains the WABA/phone information under a different field
-8. Whether the values are lost during the OAuth redirect-back
-9. Whether the OAuth callback is being processed before the Embedded Signup completion event
-10. The exact JSON payload sent from frontend to:
-   POST /api/integrations/meta/oauth/callback
+Never log:
+- access tokens
+- client secrets
+- OAuth codes
+- authorization headers
 
-IMPORTANT:
+The backend request should contain the actual IDs when available.
 
-The current backend fallback:
+Expected data flow:
 
-"No WABA ID supplied → discover via debug_token"
+Meta Embedded Signup
+→ completion event
+→ extract real WABA ID
+→ extract real Phone Number ID
+→ extract business ID if available
+→ OAuth code
+→ backend
+→ token exchange
+→ validate/access the supplied WABA
+→ get/verify phone number
+→ save WhatsApp integration
 
-is failing because debug_token returns:
+==================================================
+PROBLEM 2 — PERMISSIONS
+==================================================
 
-WABA IDs identified: []
+Inspect the Meta App configuration and Embedded Signup configuration used by this application.
 
-Do not simply suppress this error.
+Verify the exact permissions/scopes requested by the Embedded Signup configuration and the permissions actually present on the returned access token.
 
-Do not fabricate a WABA ID.
+Do not assume that /me/businesses is the correct endpoint.
 
-Do not use a fake phone number ID.
+Use the correct Meta-supported WhatsApp Business / Embedded Signup Graph API flow for the WABA and phone number IDs obtained from Embedded Signup.
 
-Find the correct Meta-supported source for the WABA/phone information produced by the existing Embedded Signup flow.
+If a specific permission is genuinely required for the API operation we actually need, identify it explicitly and update the implementation/configuration accordingly.
 
-If the Embedded Signup completion event provides the IDs, capture them and send them to the backend.
+Do not add unrelated permissions.
 
-If the IDs are supposed to be obtained server-side after the successful token exchange, implement the correct Meta API request/edge for the current Embedded Signup flow rather than relying on debug_token granular_scopes.
+The final implementation must work with the access token actually returned by Embedded Signup.
 
-The successful Step 1 token exchange must remain intact.
+==================================================
+PROBLEM 3 — POPUP / WINDOW BEHAVIOR
+==================================================
 
-Desired flow:
+The current Meta Embedded Signup opens as a large/full-page browser-style experience.
 
-Embedded Signup
-→ user completes WhatsApp setup
-→ capture the correct WABA/phone/business information
-→ OAuth code received
-→ token exchange succeeds (already working)
-→ identify WABA
-→ identify phone number
-→ save connection
-→ successful WhatsApp integration.
+I want it to behave as a proper Meta Embedded Signup popup/window:
 
-Before changing code, show me:
-- the exact current event payload received from Meta (with tokens/secrets redacted)
-- the exact frontend callback payload
-- why waba_id is currently missing
-- why debug_token returns an empty WABA list
+User clicks:
+"Connect WhatsApp"
 
-Then make the minimum required fix.
+→ Meta Embedded Signup opens in a centered popup/window
+→ SaaS page stays open behind it
+→ user completes Meta WhatsApp onboarding
+→ result is returned to the SaaS application
+→ popup closes/returns
+→ integration becomes connected
 
-Do not modify unrelated application functionality.
+Inspect the current FB.login implementation and determine why it is opening as a full-page experience.
+
+Do NOT create a fake popup with an iframe.
+Do NOT recreate Meta's UI.
+Do NOT use an iframe to bypass Meta's OAuth restrictions.
+
+Use the official supported Meta/Facebook Login + Embedded Signup popup flow.
+
+Preserve:
+- config_id
+- response_type
+- override_default_response_type
+- extras
+- OAuth callback handling
+- postMessage handling
+
+Only change the launch mechanism/configuration required for the correct popup behavior.
+
+If the current implementation uses a redirect URI that causes the whole browser page to navigate, correct the flow while preserving the already-working OAuth exchange.
+
+==================================================
+PROBLEM 4 — PREVENT DUPLICATE CALLBACKS
+==================================================
+
+Ensure one user click results in:
+
+ONE Embedded Signup session
+ONE OAuth code
+ONE backend callback
+ONE token exchange
+
+Prevent duplicate:
+- FB.login calls
+- message listeners
+- OAuth callback requests
+- token exchanges
+
+The OAuth exchangeable code expires quickly, so do not retry the same code multiple times.
+
+==================================================
+IMPORTANT — DO NOT BREAK EXISTING SYSTEM
+==================================================
+
+Do not modify:
+- authentication
+- dashboard
+- billing
+- existing WhatsApp bot functionality
+- unrelated integrations
+- database tables unrelated to Meta integration
+- existing UI outside the Connect WhatsApp flow
+
+Make the smallest safe changes required.
+
+==================================================
+DEBUGGING REQUIREMENT
+==================================================
+
+Before changing the code, inspect the current implementation and tell me:
+
+1. Exact source of the WABA ID in the current Embedded Signup flow
+2. Exact source of phone_number_id
+3. Why frontend currently sends:
+   waba_id: not provided
+   phone_number_id: not provided
+4. Why backend falls back to /me/businesses
+5. Why /me/businesses returns Missing Permission
+6. What exact API/edge should be used instead
+7. Why the current launch opens full-page instead of popup
+8. Which exact frontend/backend files/functions will be modified
+
+Then implement the fix.
+
+==================================================
+FINAL ACCEPTANCE TEST
+==================================================
+
+Do not consider the task complete until this flow works:
+
+1. Open SaaS dashboard
+2. Click Connect WhatsApp
+3. Small centered Meta Embedded Signup popup/window opens
+4. Complete Meta WhatsApp Business setup
+5. Real WABA ID is captured
+6. Real Phone Number ID is captured
+7. OAuth code is received
+8. Backend receives code + required IDs
+9. Meta token exchange returns HTTP 200
+10. No /me/businesses Missing Permission error
+11. WABA is successfully verified/accessed
+12. Phone number is successfully verified/accessed
+13. WhatsApp integration is saved to the correct user
+14. Popup closes/returns to SaaS
+15. UI shows WhatsApp as connected
+
+If any step fails, inspect the actual Meta response and fix the root cause instead of suppressing the error.

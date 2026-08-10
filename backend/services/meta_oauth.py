@@ -2,47 +2,42 @@
 Meta Embedded Signup OAuth Service
 Handles WhatsApp Business API authentication via Meta Embedded Signup
 
-IMPORTANT - How redirect_uri works in this flow:
+IMPORTANT - How the code exchange works in this flow:
 
-The WhatsApp Embedded Signup is invoked through the OAuth dialog with
-response_type=code + config_id. Meta binds the returned authorization code to
-the exact redirect_uri used in that dialog request. The code exchange
-(GET /oauth/access_token) therefore MUST send redirect_uri = the EXACT value
-used in the dialog request.
+The WhatsApp Embedded Signup is launched with the JavaScript SDK via
+FB.login({config_id, response_type: 'code', override_default_response_type:
+true, extras: {setup: {}}}). FB.login opens the Embedded Signup in a centered
+POPUP window; the code is returned directly to the JS callback
+(response.authResponse.code) and the customer's asset IDs are delivered via the
+WA_EMBEDDED_SIGNUP message posted to the window that spawned the flow.
 
-This is why the flow is launched with a FRONTEND-BUILT dialog URL (Meta's
-"Manually Build a Login Flow" for Facebook Login for Business), so the app
-owns the redirect_uri and the exchange can always reproduce it byte-for-byte.
+Because there is NO redirect in the FB.login popup flow, Meta does NOT record a
+redirect_uri for the code. The server-side exchange
+(GET /oauth/access_token) must therefore NOT send redirect_uri - sending any
+value fails with error_subcode 36008 ("make sure your redirect_uri is
+identical to the one you used in the OAuth dialog request"). Per Meta's
+Embedded Signup docs the exchange is exactly:
 
-Why the JS SDK popup is NOT used for the launch: FB.login() opens the dialog
-with Meta's internal redirect_uri
-    https://staticxx.facebook.com/x/connect/xd_arbiter/?version=v46#cb=<random>
-whose cb fragment is random on every login. That value can never be reproduced
-in the exchange, so ANY redirect_uri sent server-side fails with error_subcode
-36008 ("make sure your redirect_uri is identical to the one you used in the
-OAuth dialog request"). By building the dialog URL ourselves we guarantee the
-code is bound to OUR registered redirect_uri.
+    GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>
 
-When redirect_uri is provided it MUST be a real, non-empty URL. NEVER send redirect_uri="" (empty string). An empty-string redirect_uri is not identical
-to any value Meta recorded in the dialog and triggers:
-    "Error validating verification code. Please make sure your redirect_uri is
-     identical to the one you used in the OAuth dialog request"
-When no redirect_uri is supplied (legacy callers), the parameter is omitted
-entirely - never constructed, never sent empty.
+redirect_uri is only sent (verbatim, byte-for-byte) for legacy codes produced
+by the manual dialog-URL flow. When redirect_uri is None the parameter is
+omitted entirely - NEVER constructed, never sent empty. An empty-string
+redirect_uri is not identical to any value Meta recorded and triggers error
+36008.
 
-IMPORTANT - How the WABA ID is identified (business portfolio edges):
+IMPORTANT - Where the WABA ID and phone number ID come from:
 
-The access token obtained from Embedded Signup is a customer-scoped business
-token. GET /me returns the TOKEN OWNER (business / system user), NOT the
-WhatsApp Business Account (WABA). Calling /<owner_id>/phone_numbers therefore
-fails with:
-    (#100) Tried accessing nonexisting field (phone_numbers)
-because phone_numbers is an EDGE of the WhatsAppBusinessAccount node, not a
-field of a Business node.
+The WABA ID, phone number ID and business portfolio ID are returned by the
+Embedded Signup completion event (the WA_EMBEDDED_SIGNUP FINISH message) and
+forwarded from the frontend in the callback payload. The backend uses those
+supplied IDs directly: GET /<WABA_ID> to validate the WABA, GET
+/<WABA_ID>/phone_numbers to retrieve the phone number, and POST
+/<WABA_ID>/subscribed_apps to subscribe the app.
 
-Per Meta's WhatsApp Embedded Signup docs ("Manage WhatsApp Business Accounts")
-the WABA IDs shared with the app are discovered through the BUSINESS portfolio
-edges - the documented "Get list of shared WABAs" fallback:
+When the asset IDs are NOT present in the payload (an edge case - e.g. the
+popup's session message did not arrive), the backend falls back to resolving
+them from the token via the business portfolio edges:
 
     1. GET /me/businesses?fields=id,name
        -> the business portfolio(s) the token can access
@@ -57,9 +52,7 @@ entries list permission scopes, and for a Business Integration System User
 token inspected with the app access token (access_token=<APP_ID>|<APP_SECRET>)
 the whatsapp_business_management / whatsapp_business_messaging scopes come back
 WITHOUT the WABA target_ids populated (Meta's docs call /debug_token for this
-purpose with a System User token in the Authorization header). The business
-portfolio edges above are the documented, reliable source for the current
-Embedded Signup flow.
+purpose with a System User token in the Authorization header).
 """
 import httpx
 import logging
@@ -193,22 +186,23 @@ class MetaOAuthService:
         """
         Exchange the Embedded Signup authorization code for an access token.
 
-        The flow is launched with a frontend-built OAuth dialog URL (see the
-        module docstring) so the app OWNS the redirect_uri. Meta binds the code
-        to that exact redirect_uri, so the exchange MUST send the identical
-        value:
+        For the FB.login popup flow (the official Embedded Signup flow) the
+        code is returned directly to the JS callback - there is NO redirect, so
+        Meta does not record a redirect_uri. Per Meta's docs the exchange is
+        exactly client_id + client_secret + code, WITHOUT redirect_uri:
 
-            GET /oauth/access_token?client_id&client_secret&code&redirect_uri
+            GET /oauth/access_token?client_id&client_secret&code
 
-        Only an explicit, non-empty redirect_uri is ever sent. An empty string
-        is never sent (it can never match the value Meta recorded, causing
-        error_subcode 36008). When redirect_uri is None (legacy callers) the
-        parameter is omitted entirely.
+        redirect_uri is only sent (verbatim) for legacy codes produced by a
+        manual dialog-URL flow. Only an explicit, non-empty redirect_uri is
+        ever sent. An empty string is never sent (it can never match the value
+        Meta recorded, causing error_subcode 36008). When redirect_uri is None
+        the parameter is omitted entirely.
 
         Args:
             code: The exchangeable authorization code from Meta Embedded Signup.
-            redirect_uri: The EXACT redirect_uri used in the OAuth dialog
-                request (from the frontend-built dialog URL). Omitted when None.
+            redirect_uri: Only for legacy manual-dialog codes - the EXACT
+                redirect_uri used in the dialog request. Omitted when None.
 
         Returns:
             (success, data, error_message)
@@ -689,25 +683,26 @@ class MetaOAuthService:
         """
         Complete WhatsApp integration setup from the Embedded Signup data.
 
-        The WABA ID and phone number ID MAY be returned by Meta Embedded Signup
-        in the WA_EMBEDDED_SIGNUP session message. In the current production
-        flow Meta delivers ONLY the exchangeable code (via the OAuth redirect
-        back), so when the asset IDs are not provided the backend discovers
-        them server-side from the token using Meta's documented business
-        portfolio edges (NOT debug_token granular_scopes):
+        The WABA ID and phone number ID are returned by Meta Embedded Signup
+        in the WA_EMBEDDED_SIGNUP session message (captured on the frontend and
+        forwarded here). The backend uses those supplied IDs directly. Only
+        when they are NOT provided does the backend discover them server-side
+        from the token using Meta's documented business portfolio edges (NOT
+        debug_token granular_scopes):
         GET /me/businesses -> the business portfolio, then
         GET /<business_id>/client_whatsapp_business_accounts -> the WABA IDs
         shared with the portfolio by Embedded Signup. The code is never used to
         guess the WABA - only to obtain the token, which is then inspected.
 
-        The code exchange includes the EXACT redirect_uri that was used in the
-        frontend-built OAuth dialog URL (the app owns it, so the exchange can
-        always match it). redirect_uri is only ever sent as a real non-empty
-        URL; an empty string is never sent.
+        The code exchange for the FB.login popup flow sends client_id +
+        client_secret + code with NO redirect_uri (the code is returned
+        directly to the JS callback - no redirect, so no redirect_uri is
+        recorded). redirect_uri is only forwarded verbatim (never empty) for
+        legacy manual-dialog codes; an empty string is never sent.
 
         Flow:
-        1. Exchange code for access token (server-side, with the exact dialog
-           redirect_uri)
+        1. Exchange code for access token (server-side; redirect_uri omitted
+           for the FB.login popup flow)
         2. If no WABA ID was provided, discover it via the business portfolio
            edges (GET /me/businesses -> /client_whatsapp_business_accounts)
         3. Validate the WABA via GET /<WABA_ID> (only supported fields: id,name)
@@ -725,8 +720,8 @@ class MetaOAuthService:
             business_id: Business portfolio ID returned by Embedded Signup
                 (optional - falls back to the portfolio resolved from the token
                 when omitted).
-            redirect_uri: The EXACT redirect_uri used in the OAuth dialog
-                request (from the frontend-built dialog URL). Forwarded
+            redirect_uri: Only for legacy manual-dialog codes - the EXACT
+                redirect_uri used in the OAuth dialog request. Forwarded
                 verbatim to the code exchange. Omitted when None.
 
         Returns:
@@ -744,9 +739,10 @@ class MetaOAuthService:
         - verified_name: Verified display name
         """
         try:
-            # Step 1: Exchange code for token. The exact dialog redirect_uri
-            # (from the frontend-built dialog URL) is forwarded verbatim so
-            # Meta's "redirect_uri identical" check passes (see
+            # Step 1: Exchange code for token. For the FB.login popup flow the
+            # code is returned directly to the JS callback (no redirect), so
+            # Meta records no redirect_uri and the exchange omits it. Legacy
+            # manual-dialog codes still forward their exact redirect_uri (see
             # exchange_code_for_token).
             logger.info(f"[EmbeddedSignup] Step 1/5 - Meta token exchange started (code length: {len(code)})")
             success, token_data, error = await self.exchange_code_for_token(code, redirect_uri=redirect_uri)

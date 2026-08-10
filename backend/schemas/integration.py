@@ -11,9 +11,11 @@ class MetaOAuthCallbackRequest(BaseModel):
     required field (code) before processing.
 
     Only the exchangeable code is required. The WABA ID, phone number ID and
-    business ID are optional: when they are not present (production payload
-    carries only the code) the backend resolves them server-side from the
-    token after the exchange.
+    business ID come from the WA_EMBEDDED_SIGNUP completion event (captured on
+    the frontend); when they are not present the backend resolves them
+    server-side from the token after the exchange. redirect_uri is sent as
+    null for the FB.login popup flow (no redirect, so the exchange must omit
+    it) and is only forwarded for legacy manual-dialog codes.
     """
     code: Optional[str] = None
     redirect_uri: Optional[str] = None

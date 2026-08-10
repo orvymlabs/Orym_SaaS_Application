@@ -659,32 +659,33 @@ async def meta_oauth_callback_post(
     """
     Handle Meta Embedded Signup callback via POST.
 
-    The frontend extracts the following from Meta's messages and forwards them
-    here:
-      - code             : exchangeable authorization code (REQUIRED)
-      - waba_id          : WhatsApp Business Account ID (optional - the backend
-                           discovers it server-side from the token when absent)
-      - phone_number_id  : business phone number ID (optional - the backend
-                           uses the first phone number on the WABA when absent)
-      - business_id      : business portfolio ID (optional)
+    The frontend launches the WhatsApp Embedded Signup with the official
+    FB.login popup flow (config_id + response_type=code +
+    override_default_response_type=true + extras), which delivers:
+      - code             : exchangeable authorization code via the FB.login
+                           callback (REQUIRED)
+      - waba_id          : WhatsApp Business Account ID from the
+                           WA_EMBEDDED_SIGNUP completion event (optional - the
+                           backend uses it directly when present)
+      - phone_number_id  : business phone number ID from the completion event
+                           (optional - the backend uses the first phone number
+                           on the WABA when absent)
+      - business_id      : business portfolio ID from the completion event
+                           (optional)
 
-    In the current production flow the frontend launches the WhatsApp Embedded
-    Signup through a frontend-built OAuth dialog URL (the app OWNS the
-    redirect_uri) and Meta redirects the browser back to the app page with the
-    exchangeable code. The asset IDs arrive via the WA_EMBEDDED_SIGNUP session
-    message event when present; the backend discovers/validates any missing
-    asset IDs server-side.
-
-    Note on redirect_uri: the frontend-built dialog URL binds the code to the
-    app's own redirect_uri, so the exchange MUST send that exact value. The
-    redirect_uri received here is forwarded verbatim to the code exchange. It
-    is only ever sent as a real non-empty URL; an empty string is never sent.
+    Note on redirect_uri: in the FB.login popup flow the code is returned
+    directly to the JS callback (no redirect), so Meta does not record a
+    redirect_uri and the exchange must NOT send one. The frontend therefore
+    sends redirect_uri as null and the backend omits it from the exchange.
+    redirect_uri is only forwarded verbatim (never empty) for legacy
+    manual-dialog codes.
 
     The backend then:
       1. Exchanges the code server-side for the customer business token
-         (with the exact dialog redirect_uri)
-      2. Resolves the WABA ID (from Embedded Signup, or discovered from the
-         token via the business portfolio edges when not provided:
+         (client_id + client_secret + code; redirect_uri omitted for the
+         FB.login popup flow)
+      2. Uses the WABA ID from the Embedded Signup event (or discovers it from
+         the token via the business portfolio edges when not provided:
          GET /me/businesses -> /<business_id>/client_whatsapp_business_accounts)
       3. Validates the WABA via GET /<WABA_ID>
       4. Retrieves the phone number via GET /<WABA_ID>/phone_numbers
