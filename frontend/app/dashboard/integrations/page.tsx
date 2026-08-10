@@ -127,6 +127,19 @@ export default function IntegrationsPage() {
   // before React re-renders the disabled state). It is cleared again when the
   // flow finishes, cancels or errors, so reconnect/retry keeps working.
   const launchingRef = useRef(false);
+  // Hard wait timeout for the WA_EMBEDDED_SIGNUP session counterpart. The code
+  // and the session message can arrive in either order; if one half lands
+  // without the other, we wait (with this ~12s timeout) for the missing piece
+  // instead of discarding the code. If the FINISH session event never arrives,
+  // a clear onboarding error is shown.
+  const sessionWaitTimeoutRef = useRef<number | null>(null);
+
+  const clearSessionWaitTimeout = () => {
+    if (sessionWaitTimeoutRef.current != null) {
+      window.clearTimeout(sessionWaitTimeoutRef.current);
+      sessionWaitTimeoutRef.current = null;
+    }
+  };
 
   // Complete the connection exactly once, as soon as BOTH the single-use
   // exchangeable code AND the WA_EMBEDDED_SIGNUP session asset IDs are
@@ -134,25 +147,46 @@ export default function IntegrationsPage() {
   // single owner is called from both paths and only fires when both are
   // present. The WABA ID and phone number ID MUST come from the session event
   // (the source of truth) - the backend NEVER discovers or guesses them, so the
-  // exchange is never sent without them. There is NO retry and NO setTimeout -
-  // the same code is never sent to the backend more than once.
+  // exchange is never sent without them. When only the code has arrived, we do
+  // NOT discard it: we wait a hard ~12s for the session IDs to land, then show
+  // a clear onboarding error if the FINISH event never arrives. The same code
+  // is never sent to the backend more than once.
   const completeEmbeddedSignup = () => {
     if (completingRef.current) return;
     const code = signupCodeRef.current;
     if (!code) return;
     const { waba_id, phone_number_id } = signupDataRef.current;
     if (!waba_id || !phone_number_id) {
-      // Session asset IDs not received yet (or the WA_EMBEDDED_SIGNUP session
-      // event never arrived). Never exchange the code without them - the code
-      // is single-use and will simply be discarded; a fresh flow is required.
-      console.warn(
-        '[EmbeddedSignup] Exchange skipped - session asset IDs not received yet ' +
-        '(waba_id:', waba_id || 'missing', ', phone_number_id:', phone_number_id || 'missing', ')'
-      );
+      // The code arrived but the WA_EMBEDDED_SIGNUP FINISH session message has
+      // not delivered the asset IDs yet. Keep the code (it is NOT discarded)
+      // and start a single hard timeout: if the IDs still have not arrived when
+      // it fires, surface a clear onboarding error instead of silently skipping
+      // the exchange.
+      if (sessionWaitTimeoutRef.current == null) {
+        console.log('[EmbeddedSignup] code received, waiting for WA_EMBEDDED_SIGNUP session asset IDs (waba_id / phone_number_id)');
+        sessionWaitTimeoutRef.current = window.setTimeout(() => {
+          sessionWaitTimeoutRef.current = null;
+          // If the session event still has not arrived, the popup was closed
+          // before FINISH or the session could not complete - guide the user
+          // to start a fresh flow rather than dropping the code silently.
+          if (!signupDataRef.current.waba_id || !signupDataRef.current.phone_number_id) {
+            console.warn('[EmbeddedSignup] WA_EMBEDDED_SIGNUP FINISH event never arrived - showing onboarding error');
+            launchingRef.current = false;
+            setIsExchangeInProgress(false);
+            setConnectingWhatsApp(false);
+            showToast(
+              "We could not retrieve your WhatsApp Business Account details from Meta. Please try connecting again.",
+              "error"
+            );
+          }
+        }, 12000);
+      }
       return;
     }
+    clearSessionWaitTimeout();
     completingRef.current = true;
     setIsExchangeInProgress(true);
+    console.log('[EmbeddedSignup] READY_FOR_BACKEND_EXCHANGE');
     signupCodeRef.current = null; // clear code immediately after capture
     handleMetaOAuthCallback(code, { ...signupDataRef.current });
   };
@@ -257,6 +291,7 @@ export default function IntegrationsPage() {
             session_id: dataObj.session_id,
             timestamp: dataObj.timestamp,
           });
+          clearSessionWaitTimeout();
           launchingRef.current = false;
           setIsExchangeInProgress(false);
           setConnectingWhatsApp(false);
@@ -266,6 +301,7 @@ export default function IntegrationsPage() {
           );
         } else {
           console.log('[EmbeddedSignup] Flow cancelled. current_step:', dataObj.current_step || 'unknown');
+          clearSessionWaitTimeout();
           launchingRef.current = false;
           setIsExchangeInProgress(false);
           setConnectingWhatsApp(false);
@@ -279,6 +315,7 @@ export default function IntegrationsPage() {
         const errorMessage = dataObj.error_message;
         const errorCode = dataObj.error_code;
         console.log('[EmbeddedSignup] Flow error:', errorCode, errorMessage);
+        clearSessionWaitTimeout();
         launchingRef.current = false;
         setIsExchangeInProgress(false);
         setConnectingWhatsApp(false);
@@ -293,17 +330,16 @@ export default function IntegrationsPage() {
       // FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING, FINISH_OBO_MIGRATION,
       // FINISH_GRANT_ONLY_API_ACCESS. Extract the asset IDs when they are
       // provided - never fabricate missing values. The WABA ID and phone
-      // number ID are the source of truth for the customer onboarding session:
-      // if they are missing, the exchange is skipped and the user is prompted
-      // to start a completely fresh Embedded Signup flow.
+      // number ID are the source of truth for the customer onboarding session.
+      console.log('[EmbeddedSignup] SESSION_FINISH_RECEIVED');
       const waba_id = dataObj.waba_id ||
         (Array.isArray(dataObj.waba_ids) && dataObj.waba_ids.length > 0 ? String(dataObj.waba_ids[0]) : undefined);
       const phone_number_id = dataObj.phone_number_id || undefined;
       const business_id = dataObj.business_id || undefined;
 
-      console.log('[EmbeddedSignup] waba_id captured:', waba_id || 'not provided');
-      console.log('[EmbeddedSignup] phone_number_id captured:', phone_number_id || 'not provided');
-      console.log('[EmbeddedSignup] business_id captured:', business_id || 'not provided');
+      if (waba_id) console.log('[EmbeddedSignup] WABA_ID_RECEIVED:', waba_id);
+      if (phone_number_id) console.log('[EmbeddedSignup] PHONE_NUMBER_ID_RECEIVED:', phone_number_id);
+      if (business_id) console.log('[EmbeddedSignup] BUSINESS_ID_RECEIVED:', business_id);
 
       // Persist the asset IDs so they can be combined with the exchangeable
       // code once it arrives (whichever arrives last triggers the ONE request).
@@ -348,6 +384,7 @@ export default function IntegrationsPage() {
     // a duplicate listener or processes the same event twice.
     return () => {
       window.removeEventListener('message', handleEmbeddedSignupMessage);
+      clearSessionWaitTimeout();
     };
   }, []);
 
@@ -395,6 +432,7 @@ export default function IntegrationsPage() {
     // short-lived code is never exchanged more than once.
     completingRef.current = false;
     setIsExchangeInProgress(false);
+    clearSessionWaitTimeout();
     sessionStorage.removeItem("meta_embedded_signup");
     signupDataRef.current = {};
     signupCodeRef.current = null;
@@ -411,7 +449,7 @@ export default function IntegrationsPage() {
       try {
         if (response?.authResponse?.code) {
           const code = response.authResponse.code;
-          console.log('[EmbeddedSignup] exchangeable code received via FB.login callback (length:', code.length, ')');
+          console.log('[EmbeddedSignup] LOGIN_CODE_RECEIVED (length:', code.length, ')');
           // Store the single-use code; it is consumed exactly once by
           // completeEmbeddedSignup (the one-time guard never sends it twice,
           // whether or not the WA_EMBEDDED_SIGNUP asset IDs have arrived yet).
@@ -422,6 +460,7 @@ export default function IntegrationsPage() {
           const status = response?.status || 'unknown';
           const fbError = response?.error;
           console.log('[EmbeddedSignup] FB.login returned without a code. status:', status, fbError || '');
+          clearSessionWaitTimeout();
           launchingRef.current = false;
           setIsExchangeInProgress(false);
           setConnectingWhatsApp(false);
@@ -433,6 +472,7 @@ export default function IntegrationsPage() {
         }
       } catch (err: any) {
         console.error('[EmbeddedSignup] FB.login callback error:', err);
+        clearSessionWaitTimeout();
         launchingRef.current = false;
         setIsExchangeInProgress(false);
         setConnectingWhatsApp(false);
@@ -467,7 +507,7 @@ export default function IntegrationsPage() {
       const phoneNumberId = metaData?.phone_number_id;
       const businessId = metaData?.business_id;
 
-      console.log('[EmbeddedSignup] OAuth callback started');
+      console.log('[EmbeddedSignup] BACKEND_EXCHANGE_STARTED');
       console.log('  Code length:', code.length);
       console.log('  Frontend redirect_uri:', CANONICAL_REDIRECT_URI);
       console.log('  waba_id:', wabaId || 'not provided');
@@ -483,7 +523,11 @@ export default function IntegrationsPage() {
         business_id: businessId || null,
       });
 
-      console.log('[EmbeddedSignup] backend request succeeded:', result.success ? 'SUCCESS' : 'FAILED');
+      if (result.success) {
+        console.log('[EmbeddedSignup] BACKEND_EXCHANGE_SUCCESS');
+      } else {
+        console.log('[EmbeddedSignup] backend request failed:', result.message || 'unknown error');
+      }
 
       if (result.success) {
         sessionStorage.removeItem("meta_embedded_signup");
@@ -497,6 +541,7 @@ export default function IntegrationsPage() {
           whatsapp_number: updatedInteg.whatsapp_number || "",
           verify_token: updatedInteg.verify_token || "",
         });
+        console.log('[EmbeddedSignup] EMBEDDED_SIGNUP_COMPLETE');
       } else {
         showToast(result.message || "Failed to connect WhatsApp", "error");
       }
