@@ -139,9 +139,12 @@ export default function IntegrationsPage() {
   const launchingRef = useRef(false);
   // Hard wait timeout for the WA_EMBEDDED_SIGNUP session counterpart. The code
   // and the session message can arrive in either order; if one half lands
-  // without the other, we wait (with this ~12s timeout) for the missing piece
-  // instead of discarding the code. If the FINISH session event never arrives,
-  // a clear onboarding error is shown.
+  // without the other, we wait (with this generous ~5 min timeout) for the
+  // missing piece instead of discarding the code. The Meta popup/user
+  // interaction can legitimately take much longer than a few seconds, so a 5
+  // minute safety net is used only to avoid an infinite wait - it never fires
+  // merely because the OAuth code arrived first. If the FINISH session event
+  // truly never arrives, a clear onboarding error is shown.
   const sessionWaitTimeoutRef = useRef<number | null>(null);
 
   const clearSessionWaitTimeout = () => {
@@ -158,9 +161,9 @@ export default function IntegrationsPage() {
   // present. The WABA ID and phone number ID MUST come from the session event
   // (the source of truth) - the backend NEVER discovers or guesses them, so the
   // exchange is never sent without them. When only the code has arrived, we do
-  // NOT discard it: we wait a hard ~12s for the session IDs to land, then show
-  // a clear onboarding error if the FINISH event never arrives. The same code
-  // is never sent to the backend more than once.
+  // NOT discard it: we wait a safe timeout (5 min) for the session IDs to land,
+  // then show a clear onboarding error only if the FINISH event truly never
+  // arrives. The same code is never sent to the backend more than once.
   const completeEmbeddedSignup = () => {
     if (completingRef.current) return;
     const code = signupCodeRef.current;
@@ -169,9 +172,9 @@ export default function IntegrationsPage() {
     if (!waba_id || !phone_number_id) {
       // The code arrived but the WA_EMBEDDED_SIGNUP FINISH session message has
       // not delivered the asset IDs yet. Keep the code (it is NOT discarded)
-      // and start a single hard timeout: if the IDs still have not arrived when
+      // and start a single long timeout: if the IDs still have not arrived when
       // it fires, surface a clear onboarding error instead of silently skipping
-      // the exchange.
+      // the exchange. The 5 minute window covers the whole popup interaction.
       if (sessionWaitTimeoutRef.current == null) {
         console.log('[EmbeddedSignup] code received, waiting for WA_EMBEDDED_SIGNUP session asset IDs (waba_id / phone_number_id)');
         sessionWaitTimeoutRef.current = window.setTimeout(() => {
@@ -183,7 +186,7 @@ export default function IntegrationsPage() {
           if (!signupDataRef.current.waba_id || !signupDataRef.current.phone_number_id) {
             console.warn('[EmbeddedSignup] WA_EMBEDDED_SIGNUP FINISH event never arrived - showing onboarding error');
             console.warn('[EmbeddedSignup] Timeout diagnostics:');
-            console.warn('  popup_since: attempt started, WA_EMBEDDED_SIGNUP session not delivered within 12s');
+            console.warn('  popup_since: attempt started, WA_EMBEDDED_SIGNUP session not delivered within 5 min');
             console.warn('  messages_received:', JSON.stringify(messageDiagnosticsRef.current));
             const sawSignup = messageDiagnosticsRef.current.some(m => m.type === 'WA_EMBEDDED_SIGNUP');
             const sawCancel = messageDiagnosticsRef.current.some(m => m.event === 'CANCEL');
@@ -201,7 +204,7 @@ export default function IntegrationsPage() {
               "error"
             );
           }
-        }, 12000);
+        }, 300000);
       }
       return;
     }
@@ -338,8 +341,26 @@ export default function IntegrationsPage() {
         try {
           data = JSON.parse(data);
         } catch {
+          // Do NOT discard non-JSON messages (Part 4/5 of the spec). The OAuth
+          // redirect-back message from oauth.facebook.com is a URL-query-string
+          // like cb=...&domain=apps.orvym.com&...&code=... - NOT JSON. Extract
+          // the exchangeable code from it as a parallel/fallback path to the
+          // FB.login callback (the code value is never logged).
           if (attemptActive) {
-            console.log('[EmbeddedSignup] PARSED MESSAGE: non-JSON string (ignored)');
+            messageDiagnosticsRef.current.push({ origin, type: 'non-json-string' });
+            const raw = event.data as string;
+            const codeMatch = /(?:[?&]code=)([^&\s]+)/.exec(raw);
+            if (codeMatch && codeMatch[1]) {
+              let codeVal = codeMatch[1];
+              try { codeVal = decodeURIComponent(codeVal); } catch { /* keep raw */ }
+              console.log('[EmbeddedSignup] OAuth code detected in non-JSON redirect message (fallback path)');
+              if (codeVal && !signupCodeRef.current) {
+                signupCodeRef.current = codeVal;
+                completeEmbeddedSignup();
+              }
+            } else {
+              console.log('[EmbeddedSignup] PARSED MESSAGE: non-JSON string (no code param) - ignored');
+            }
           }
           return;
         }
@@ -356,7 +377,17 @@ export default function IntegrationsPage() {
         console.log('  data keys:', dataKeys.join(', ') || '(none)');
       }
 
-      if (!data || typeof data !== 'object' || data.type !== 'WA_EMBEDDED_SIGNUP') {
+      // Detect the Embedded Signup session message (Part 8 of the spec). The
+      // documented format uses data.type === 'WA_EMBEDDED_SIGNUP' with the event
+      // name in data.event, but some Meta payloads mark the message type in the
+      // event field instead - accept BOTH so no official session event is
+      // discarded, while still rejecting arbitrary messages.
+      const isSignupMessage =
+        !!data &&
+        typeof data === 'object' &&
+        (data.type === 'WA_EMBEDDED_SIGNUP' || data.event === 'WA_EMBEDDED_SIGNUP');
+
+      if (!isSignupMessage) {
         if (attemptActive) {
           console.log('[EmbeddedSignup] Ignored message (not WA_EMBEDDED_SIGNUP). type:', data?.type || 'undefined');
           messageDiagnosticsRef.current.push({ origin, type: data?.type || 'non-wa-embedded-signup' });
@@ -364,7 +395,16 @@ export default function IntegrationsPage() {
         return;
       }
 
-      const eventName = String(data.event || 'UNKNOWN');
+      // Event name: normally data.event is FINISH / CANCEL / ERROR. When the
+      // event field itself is the WA_EMBEDDED_SIGNUP type marker, treat a
+      // payload carrying asset IDs as FINISH and one carrying an error_message
+      // as ERROR - never silently drop the session.
+      let eventName = String(data.event || 'UNKNOWN');
+      if (eventName === 'WA_EMBEDDED_SIGNUP') {
+        const payload = data.data || {};
+        const hasAssets = !!(payload.waba_id || payload.phone_number_id || payload.waba_ids || payload.business_id);
+        eventName = hasAssets ? 'FINISH' : (payload.error_message ? 'ERROR' : 'UNKNOWN');
+      }
       const dataObj = data.data || {};
 
       if (attemptActive) {
