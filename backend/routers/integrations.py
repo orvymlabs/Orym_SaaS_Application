@@ -1,16 +1,21 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Body, BackgroundTasks
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Integration, Bot
+from models import Integration, Bot, MetaOAuthCode
 from schemas.integration import IntegrationUpdate, IntegrationResponse, WooCommerceFetchStatus, MetaOAuthCallbackRequest
 from services import decode_token
 from services.encryption import encrypt_value, decrypt_value
 from services.website_fetcher import fetch_website_content as fetch_website_service
 from services.universal_website_fetcher import UniversalWebsiteFetcher
-from services.meta_oauth import MetaOAuthService, CANONICAL_REDIRECT_URI
+from services.meta_oauth import (
+    MetaOAuthService,
+    CANONICAL_REDIRECT_URI,
+    OAUTH_CODE_ALREADY_PROCESSED,
+)
 from config import get_settings
 import logging
 import json
+import hashlib
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
@@ -665,23 +670,24 @@ async def meta_oauth_callback_post(
                            (https://apps.orvym.com/dashboard/integrations/) -
                            REQUIRED, never empty, never null
       - waba_id          : WhatsApp Business Account ID from the
-                           WA_EMBEDDED_SIGNUP completion event (optional - the
-                           backend discovers it server-side when absent)
+                           WA_EMBEDDED_SIGNUP completion event (REQUIRED - the
+                           Embedded Signup session is the source of truth; the
+                           backend NEVER guesses or discovers it)
       - phone_number_id  : business phone number ID from the completion event
-                           (optional - the backend uses the first phone number
-                           on the WABA when absent)
+                           (REQUIRED - never replaced with the first number)
       - business_id      : business portfolio ID from the completion event
                            (optional)
 
     The backend then:
-      1. Exchanges the code server-side for the customer business token
+      1. Rejects duplicate authorization codes (SHA-256 hash ledger) - a code
+         is NEVER exchanged twice.
+      2. Exchanges the code server-side for the customer business token
          (client_id + client_secret + code + redirect_uri - redirect_uri is
          ALWAYS the canonical value, never omitted, never empty)
-      2. Uses the WABA ID from the Embedded Signup event (or discovers it from
-         the token via the business portfolio edges when not provided:
-         GET /me/businesses -> /<business_id>/client_whatsapp_business_accounts)
-      3. Validates the WABA via GET /<WABA_ID>
-      4. Retrieves the phone number via GET /<WABA_ID>/phone_numbers
+      3. Validates the exchanged token via /debug_token (app_id + scopes)
+      4. Validates the WABA via GET /<WABA_ID> and the phone number via
+         GET /<WABA_ID>/phone_numbers - using ONLY the IDs returned by the
+         Embedded Signup session (never /me/businesses)
       5. Subscribes the WABA to the app via POST /<WABA_ID>/subscribed_apps
       6. Saves credentials (never exposes the access token to the frontend)
     """
@@ -715,6 +721,23 @@ async def meta_oauth_callback_post(
             "value everywhere.",
         )
 
+    # Idempotency guard: a Meta authorization code is single-use and short-lived.
+    # Only the SHA-256 hash is stored (never the raw code). If the same code
+    # reaches the backend again, it is rejected BEFORE any exchange attempt.
+    code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
+    existing_code = db.query(MetaOAuthCode).filter(MetaOAuthCode.code_hash == code_hash).first()
+    if existing_code:
+        logger.warning(
+            f"Duplicate Meta OAuth authorization code rejected for user {user_id} "
+            f"(hash {code_hash[:12]}...) - OAUTH_CODE_ALREADY_PROCESSED"
+        )
+        raise HTTPException(
+            409,
+            f"{OAUTH_CODE_ALREADY_PROCESSED}: this authorization code has already "
+            "been processed. Authorization codes are single-use. Please restart "
+            "WhatsApp Embedded Signup to get a fresh code.",
+        )
+
     # Mask the code in ALL logs. Never log the full code, access tokens or secrets.
     masked_code = f"{code[:8]}...{code[-4:]} (length {len(code)})"
     logger.info("=" * 80)
@@ -723,9 +746,9 @@ async def meta_oauth_callback_post(
     logger.info(f"User ID: {user_id}")
     logger.info(f"Code received: {masked_code}")
     logger.info(f"Redirect URI: {redirect_uri}")
-    logger.info(f"WABA ID: {waba_id or '(not provided - will be discovered server-side)'}")
-    logger.info(f"Phone Number ID: {phone_number_id or '(not provided - first WABA phone number will be used)'}")
-    logger.info(f"Business ID: {business_id or '(not provided - will be resolved server-side)'}")
+    logger.info(f"WABA ID: {waba_id or '(NOT provided - session info missing)'}")
+    logger.info(f"Phone Number ID: {phone_number_id or '(NOT provided - session info missing)'}")
+    logger.info(f"Business ID: {business_id or '(not provided)'}")
     logger.info("=" * 80)
 
     if not settings.META_APP_ID or not settings.META_APP_SECRET:
@@ -743,9 +766,34 @@ async def meta_oauth_callback_post(
         logger.error(f"Integration not found for bot {bot.id}")
         raise HTTPException(404, "Integration not found")
 
-    # Initialize OAuth service and complete the Embedded Signup setup using the
-    # WABA ID / phone number ID / business ID when provided (the backend
-    # discovers any missing ones server-side after the token exchange).
+    # Record the code as processed BEFORE the exchange so the same single-use
+    # code can never be exchanged twice, even if the exchange itself fails (a
+    # failed exchange attempt still burns the code).
+    processed = MetaOAuthCode(code_hash=code_hash, user_id=user_id)
+    db.add(processed)
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        duplicate = db.query(MetaOAuthCode).filter(MetaOAuthCode.code_hash == code_hash).first()
+        if duplicate:
+            logger.warning(
+                f"Concurrent duplicate Meta OAuth code rejected for user {user_id} "
+                f"- OAUTH_CODE_ALREADY_PROCESSED"
+            )
+            raise HTTPException(
+                409,
+                f"{OAUTH_CODE_ALREADY_PROCESSED}: this authorization code has "
+                "already been processed. Authorization codes are single-use. "
+                "Please restart WhatsApp Embedded Signup to get a fresh code.",
+            )
+        logger.error(f"Failed to persist OAuth code ledger entry: {e}")
+        raise HTTPException(500, "Failed to record the authorization code")
+
+    # Initialize OAuth service and complete the Embedded Signup setup using ONLY
+    # the WABA ID / phone number ID / business ID returned by the Embedded
+    # Signup session event. The backend NEVER discovers or guesses missing IDs
+    # (no /me/businesses fallback) - it returns a controlled error instead.
     oauth_service = MetaOAuthService(settings.META_APP_ID, settings.META_APP_SECRET)
     success, integration_data, error = await oauth_service.setup_whatsapp_integration(
         code,
@@ -796,7 +844,10 @@ async def meta_oauth_callback_post(
 
         return {
             "success": True,
-            "message": "WhatsApp connected successfully",
+            "status": "connected",
+            "waba_id": integration_data["waba_id"],
+            "phone_number_id": integration_data["phone_number_id"],
+            "business_id": integration_data.get("business_id") or "",
             "data": {
                 "business_name": integration_data.get("business_name", ""),
                 "phone_number": integration_data["display_phone_number"],

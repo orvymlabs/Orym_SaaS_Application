@@ -35,6 +35,10 @@ export default function IntegrationsPage() {
   const [facebookSdkReady, setFacebookSdkReady] = useState(false);
   const [connectingWhatsApp, setConnectingWhatsApp] = useState(false);
   const [disconnectingWhatsApp, setDisconnectingWhatsApp] = useState(false);
+  // True while the single-use authorization code is being exchanged. The
+  // Connect button is disabled for the whole exchange so the same code can
+  // never be submitted twice from the UI.
+  const [isExchangeInProgress, setIsExchangeInProgress] = useState(false);
 
   const generateVerifyToken = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -102,7 +106,7 @@ export default function IntegrationsPage() {
   // MUST send this exact value (never window.location.origin, never a
   // dynamically-built URI, never a value without the trailing slash). The
   // frontend and backend use exactly the same constant.
-  const META_REDIRECT_URI = "https://apps.orvym.com/dashboard/integrations/";
+  const CANONICAL_REDIRECT_URI = "https://apps.orvym.com/dashboard/integrations/";
 
   // Official Meta Embedded Signup flow (JS SDK): FB.login() opens the Embedded
   // Signup in a centered popup window and the SaaS page stays open behind it.
@@ -124,18 +128,32 @@ export default function IntegrationsPage() {
   // flow finishes, cancels or errors, so reconnect/retry keeps working.
   const launchingRef = useRef(false);
 
-  // Complete the connection exactly once, as soon as the single-use
-  // exchangeable code is available. The asset IDs (WA_EMBEDDED_SIGNUP message)
-  // may arrive before or after the code; when they have not arrived yet the
-  // backend receives only code + redirect_uri and resolves the WABA / phone
-  // number server-side. There is NO retry or setTimeout polling - the same code
-  // is never sent to the backend more than once.
+  // Complete the connection exactly once, as soon as BOTH the single-use
+  // exchangeable code AND the WA_EMBEDDED_SIGNUP session asset IDs are
+  // available. The code and the session message can arrive in any order; this
+  // single owner is called from both paths and only fires when both are
+  // present. The WABA ID and phone number ID MUST come from the session event
+  // (the source of truth) - the backend NEVER discovers or guesses them, so the
+  // exchange is never sent without them. There is NO retry and NO setTimeout -
+  // the same code is never sent to the backend more than once.
   const completeEmbeddedSignup = () => {
     if (completingRef.current) return;
     const code = signupCodeRef.current;
     if (!code) return;
+    const { waba_id, phone_number_id } = signupDataRef.current;
+    if (!waba_id || !phone_number_id) {
+      // Session asset IDs not received yet (or the WA_EMBEDDED_SIGNUP session
+      // event never arrived). Never exchange the code without them - the code
+      // is single-use and will simply be discarded; a fresh flow is required.
+      console.warn(
+        '[EmbeddedSignup] Exchange skipped - session asset IDs not received yet ' +
+        '(waba_id:', waba_id || 'missing', ', phone_number_id:', phone_number_id || 'missing', ')'
+      );
+      return;
+    }
     completingRef.current = true;
-    signupCodeRef.current = null;
+    setIsExchangeInProgress(true);
+    signupCodeRef.current = null; // clear code immediately after capture
     handleMetaOAuthCallback(code, { ...signupDataRef.current });
   };
 
@@ -240,6 +258,7 @@ export default function IntegrationsPage() {
             timestamp: dataObj.timestamp,
           });
           launchingRef.current = false;
+          setIsExchangeInProgress(false);
           setConnectingWhatsApp(false);
           showToast(
             "WhatsApp setup failed: " + (errorMessage || "An error occurred during WhatsApp setup"),
@@ -248,6 +267,7 @@ export default function IntegrationsPage() {
         } else {
           console.log('[EmbeddedSignup] Flow cancelled. current_step:', dataObj.current_step || 'unknown');
           launchingRef.current = false;
+          setIsExchangeInProgress(false);
           setConnectingWhatsApp(false);
           showToast("WhatsApp signup was cancelled. No changes were made.", "info");
         }
@@ -260,6 +280,7 @@ export default function IntegrationsPage() {
         const errorCode = dataObj.error_code;
         console.log('[EmbeddedSignup] Flow error:', errorCode, errorMessage);
         launchingRef.current = false;
+        setIsExchangeInProgress(false);
         setConnectingWhatsApp(false);
         showToast(
           "WhatsApp setup failed: " + (errorMessage || "An error occurred during WhatsApp setup"),
@@ -271,8 +292,10 @@ export default function IntegrationsPage() {
       // Successful flow finish types: FINISH, FINISH_ONLY_WABA,
       // FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING, FINISH_OBO_MIGRATION,
       // FINISH_GRANT_ONLY_API_ACCESS. Extract the asset IDs when they are
-      // provided - never fabricate missing values (the backend resolves any
-      // missing ones server-side after the token exchange).
+      // provided - never fabricate missing values. The WABA ID and phone
+      // number ID are the source of truth for the customer onboarding session:
+      // if they are missing, the exchange is skipped and the user is prompted
+      // to start a completely fresh Embedded Signup flow.
       const waba_id = dataObj.waba_id ||
         (Array.isArray(dataObj.waba_ids) && dataObj.waba_ids.length > 0 ? String(dataObj.waba_ids[0]) : undefined);
       const phone_number_id = dataObj.phone_number_id || undefined;
@@ -282,8 +305,8 @@ export default function IntegrationsPage() {
       console.log('[EmbeddedSignup] phone_number_id captured:', phone_number_id || 'not provided');
       console.log('[EmbeddedSignup] business_id captured:', business_id || 'not provided');
 
-      // Persist the asset IDs (covers the popup-closed-early case) so they can
-      // be combined with the exchangeable code once it arrives.
+      // Persist the asset IDs so they can be combined with the exchangeable
+      // code once it arrives (whichever arrives last triggers the ONE request).
       if (waba_id || phone_number_id || business_id) {
         signupDataRef.current = { waba_id, phone_number_id, business_id };
         sessionStorage.setItem("meta_embedded_signup", JSON.stringify({
@@ -294,7 +317,8 @@ export default function IntegrationsPage() {
       }
 
       // The exchangeable code is delivered via the FB.login callback. If it has
-      // already arrived, complete the connection now; otherwise retry briefly.
+      // already arrived, complete the connection now; otherwise this call
+      // returns and the FB.login callback triggers it once the code lands.
       completeEmbeddedSignup();
     };
 
@@ -370,6 +394,7 @@ export default function IntegrationsPage() {
     // is ONLY reset here - never inside the callback machinery - so a
     // short-lived code is never exchanged more than once.
     completingRef.current = false;
+    setIsExchangeInProgress(false);
     sessionStorage.removeItem("meta_embedded_signup");
     signupDataRef.current = {};
     signupCodeRef.current = null;
@@ -398,6 +423,7 @@ export default function IntegrationsPage() {
           const fbError = response?.error;
           console.log('[EmbeddedSignup] FB.login returned without a code. status:', status, fbError || '');
           launchingRef.current = false;
+          setIsExchangeInProgress(false);
           setConnectingWhatsApp(false);
           if (fbError) {
             showToast("WhatsApp setup failed: " + (fbError.message || "An error occurred during WhatsApp setup"), "error");
@@ -408,6 +434,7 @@ export default function IntegrationsPage() {
       } catch (err: any) {
         console.error('[EmbeddedSignup] FB.login callback error:', err);
         launchingRef.current = false;
+        setIsExchangeInProgress(false);
         setConnectingWhatsApp(false);
         showToast("Error launching WhatsApp signup: " + err.message, "error");
       }
@@ -422,8 +449,9 @@ export default function IntegrationsPage() {
   // Handle Embedded Signup completion - send the exchangeable code, the
   // canonical redirect_uri and the asset IDs captured from the official
   // WA_EMBEDDED_SIGNUP message to the backend. The backend uses the supplied
-  // IDs directly to validate the WABA and phone number (server-side
-  // /me/businesses discovery is only used when an ID is missing).
+  // IDs directly to validate the WABA and phone number; the IDs MUST come from
+  // the Embedded Signup session event (the source of truth) - the backend never
+  // discovers or guesses them, so this is only called when they are present.
   //
   // redirect_uri is the canonical production constant
   // (https://apps.orvym.com/dashboard/integrations/). It is NEVER omitted,
@@ -435,18 +463,13 @@ export default function IntegrationsPage() {
     metaData?: { waba_id?: string; phone_number_id?: string; business_id?: string }
   ) => {
     try {
-      // The WABA / phone / business IDs come from the WA_EMBEDDED_SIGNUP
-      // FINISH message event. Fall back to any persisted value (covers a popup
-      // that closed before the listener stored them).
-      const stored = sessionStorage.getItem("meta_embedded_signup");
-      const parsed = stored ? JSON.parse(stored) : {};
-      const wabaId = metaData?.waba_id || parsed.waba_id;
-      const phoneNumberId = metaData?.phone_number_id || parsed.phone_number_id;
-      const businessId = metaData?.business_id || parsed.business_id;
+      const wabaId = metaData?.waba_id;
+      const phoneNumberId = metaData?.phone_number_id;
+      const businessId = metaData?.business_id;
 
       console.log('[EmbeddedSignup] OAuth callback started');
       console.log('  Code length:', code.length);
-      console.log('  Frontend redirect_uri:', META_REDIRECT_URI);
+      console.log('  Frontend redirect_uri:', CANONICAL_REDIRECT_URI);
       console.log('  waba_id:', wabaId || 'not provided');
       console.log('  phone_number_id:', phoneNumberId || 'not provided');
       console.log('  business_id:', businessId || 'not provided');
@@ -454,7 +477,7 @@ export default function IntegrationsPage() {
 
       const result = await apiPost("/api/integrations/meta/oauth/callback", {
         code,
-        redirect_uri: META_REDIRECT_URI,
+        redirect_uri: CANONICAL_REDIRECT_URI,
         waba_id: wabaId || null,
         phone_number_id: phoneNumberId || null,
         business_id: businessId || null,
@@ -486,59 +509,10 @@ export default function IntegrationsPage() {
       // completely new Embedded Signup session, guaranteeing the same
       // single-use code can never be exchanged a second time.
       launchingRef.current = false;
+      setIsExchangeInProgress(false);
       setConnectingWhatsApp(false);
     }
   };
-
-  // Redirect-back fallback handler (legacy). The official FB.login popup flow
-  // returns the code to the JS callback and does NOT redirect back to this
-  // page, so this normally never fires. It only covers a leftover manual-dialog
-  // tab from an older deployment: if the page loads with ?code=...&state=...
-  // (or ?error=...), the CSRF state is verified against the value stored at
-  // launch, the params are stripped from the URL immediately (so a refresh can
-  // NEVER re-submit the single-use code), and the code is sent to the backend
-  // exactly once.
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('code');
-    const state = params.get('state');
-    const oauthError = params.get('error');
-
-    if (!code && !oauthError) return;
-
-    const expectedState = sessionStorage.getItem("meta_embedded_signup_state");
-    sessionStorage.removeItem("meta_embedded_signup_state");
-    const cleanUrl = window.location.origin + window.location.pathname;
-    window.history.replaceState({}, "", cleanUrl);
-
-    if (expectedState && state && state !== expectedState) {
-      // CSRF mismatch - the code does not belong to this launch. Abort.
-      console.warn('[EmbeddedSignup] state mismatch on OAuth redirect-back - ignoring code');
-      launchingRef.current = false;
-      setConnectingWhatsApp(false);
-      showToast("WhatsApp signup validation failed. Please try again.", "error");
-      return;
-    }
-
-    if (oauthError) {
-      console.log('[EmbeddedSignup] OAuth dialog returned error:', oauthError);
-      launchingRef.current = false;
-      setConnectingWhatsApp(false);
-      showToast("WhatsApp signup was cancelled. No changes were made.", "info");
-      return;
-    }
-
-    if (code) {
-      console.log('[EmbeddedSignup] exchangeable code received via OAuth redirect-back (length:', code.length, ')');
-      // Mark the single exchange as in progress so the message-driven retry
-      // machinery can never submit this code a second time.
-      completingRef.current = true;
-      setConnectingWhatsApp(true);
-      handleMetaOAuthCallback(code);
-    }
-  }, []);
 
   // Disconnect WhatsApp
   const handleDisconnectWhatsApp = async () => {
@@ -872,10 +846,10 @@ export default function IntegrationsPage() {
                     {metaConfig && (
                       <button
                             onClick={launchWhatsAppSignup}
-                        disabled={connectingWhatsApp}
+                        disabled={connectingWhatsApp || isExchangeInProgress}
                         className="btn-secondary flex-1"
                       >
-                        {connectingWhatsApp ? <div className="w-4 h-4 border-2 border-slate-600/30 border-t-slate-600 rounded-full animate-spin" /> : "Reconnect"}
+                        {connectingWhatsApp || isExchangeInProgress ? <div className="w-4 h-4 border-2 border-slate-600/30 border-t-slate-600 rounded-full animate-spin" /> : "Reconnect"}
                       </button>
                     )}
                     <button
@@ -957,14 +931,14 @@ export default function IntegrationsPage() {
                         <div className="space-y-4">
                           <button
                         onClick={launchWhatsAppSignup}
-                            disabled={connectingWhatsApp}
+                            disabled={connectingWhatsApp || isExchangeInProgress}
                             className={`w-full py-4 px-6 rounded-xl font-semibold text-base transition-all duration-200 transform ${
-                              connectingWhatsApp
+                              connectingWhatsApp || isExchangeInProgress
                                 ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white cursor-not-allowed opacity-70'
                                 : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-lg shadow-green-500/25 hover:shadow-xl hover:shadow-green-500/30 hover:scale-[1.02] active:scale-[0.98]'
                             }`}
                           >
-                            {connectingWhatsApp ? (
+                            {connectingWhatsApp || isExchangeInProgress ? (
                               <div className="flex items-center justify-center gap-3">
                                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                                 <span>Connecting...</span>

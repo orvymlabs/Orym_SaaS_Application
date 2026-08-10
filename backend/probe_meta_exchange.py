@@ -131,21 +131,26 @@ async def run_exchange(svc: MetaOAuthService, code: str) -> None:
     print(f"  Token type: {data.get('token_type', '')}")
     print(f"  Expires in: {data.get('expires_in', '')}")
 
-    # Discover the WABA IDs the token was granted via Meta's documented
-    # business portfolio edges (GET /me/businesses ->
-    # /<business_id>/client_whatsapp_business_accounts). debug_token
-    # granular_scopes is NOT used - for a Business Integration System User
-    # token inspected with the app access token the WABA target_ids are empty.
+    # Validate the exchanged token via /debug_token (app_id + granted scopes).
+    # The token itself is never printed. This is validation ONLY - the WABA ID
+    # and phone number ID are NEVER discovered server-side: they come from the
+    # WA_EMBEDDED_SIGNUP session event (the source of truth) and are forwarded
+    # by the frontend in the callback payload. /me/businesses is never used.
     print_sep()
-    print("WABA DISCOVERY (business portfolio edges)")
+    print("TOKEN VALIDATION (debug_token - never used for WABA discovery)")
     print_sep()
-    ok, token_info, tok_error = await svc.discover_shared_waba_from_token(token)
+    ok, token_info, tok_error = await svc.validate_access_token(token)
     if not ok:
-        print(f"[WARN] WABA discovery failed: {redact(tok_error)}")
+        print(f"[WARN] Token validation failed: {redact(tok_error)}")
         return
-    print(f"  Business portfolio ID: {token_info.get('business_id') or 'none'}")
-    print(f"  Business portfolio name: {token_info.get('business_name') or 'none'}")
-    print(f"  WABA IDs: {token_info.get('waba_ids') or 'none'}")
+    print(f"  App ID: {token_info.get('app_id')}")
+    print(f"  Token type: {token_info.get('type')}")
+    print(f"  Granted scopes: {token_info.get('scopes') or 'none'}")
+    print(f"  Missing WhatsApp scopes: {token_info.get('missing_scopes') or 'none'}")
+    print()
+    print("  WABA ID / phone number ID are NOT discoverable server-side.")
+    print("  They are captured from the WA_EMBEDDED_SIGNUP session event and")
+    print("  forwarded by the frontend in POST /api/integrations/meta/oauth/callback.")
 
 
 async def main(args: argparse.Namespace) -> int:

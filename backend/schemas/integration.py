@@ -14,10 +14,11 @@ class MetaOAuthCallbackRequest(BaseModel):
     be the canonical production value (https://apps.orvym.com/dashboard/integrations/)
     - never empty, never null - because Meta's code exchange fails with
     error_subcode 36008 when redirect_uri is omitted or differs from the dialog
-    request. The WABA ID, phone number ID and business ID come from the
-    WA_EMBEDDED_SIGNUP completion event (captured on the frontend); when they
-    are not present the backend resolves them server-side from the token after
-    the exchange.
+    request. The WABA ID and phone number ID come from the WA_EMBEDDED_SIGNUP
+    completion event (captured on the frontend) and are REQUIRED by the
+    backend - the Embedded Signup session is the source of truth. The backend
+    NEVER discovers or guesses missing IDs; it returns a controlled
+    WABA_NOT_RETURNED / PHONE_NUMBER_NOT_RETURNED error when they are absent.
     """
     code: Optional[str] = None
     redirect_uri: Optional[str] = None

@@ -167,7 +167,7 @@ def init_db():
     try:
         # Import all models here to ensure they are registered with Base.metadata
         # This is CRITICAL for Base.metadata.create_all to work.
-        from models import User, Plan, Subscription, Bot, BotSettings, Integration, Message, Lead, Usage, SiteInfoCache, Announcement, Order, UserTemplate, AuditLog, SystemSetting, Notification
+        from models import User, Plan, Subscription, Bot, BotSettings, Integration, Message, Lead, Usage, SiteInfoCache, Announcement, Order, UserTemplate, AuditLog, SystemSetting, Notification, MetaOAuthCode
         
         db_type = "PostgreSQL" if "postgresql" in str(engine.url) else "SQLite"
         if ":memory:" in str(engine.url):

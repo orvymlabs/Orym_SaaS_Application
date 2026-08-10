@@ -122,9 +122,9 @@ def test_verify_app_credentials_unsupported_version():
 
 def test_exchange_36008_error_includes_actionable_hint():
     """
-    When Meta returns error_subcode 36008 the surfaced error must retain the
-    original Meta message AND include an actionable hint that never suggests
-    changing redirect_uri.
+    When Meta returns error_subcode 36008 the surfaced error is the
+    CLAUDE.md-approved user-facing message (never suggesting changing
+    redirect_uri) and the exchange STILL carried the canonical redirect_uri.
     """
     captured = {}
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
@@ -144,12 +144,12 @@ def test_exchange_36008_error_includes_actionable_hint():
         ok, data, err = run(svc.exchange_code_for_token("AQ" + "x" * 449))
 
     assert ok is False
-    assert "redirect_uri is identical" in err
-    assert "hint:" in err
-    assert "Facebook Login for Business" in err
-    assert "add redirect_uri" not in err.lower() or "never suggests adding" in err.lower()
-    assert "redirect_uri" not in captured["params"], "no redirect_uri is ever sent, even on error"
-    print("PASS: 36008 error carries an actionable hint; exchange still sends no redirect_uri")
+    assert "OAUTH_REDIRECT_URI_MISMATCH" in err
+    assert "Please restart WhatsApp Embedded Signup" in err
+    assert "add redirect_uri" not in err.lower()
+    # The canonical redirect_uri is ALWAYS sent in the exchange (even on error)
+    assert captured["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/"
+    print("PASS: 36008 surfaces the approved message; exchange still carried the canonical redirect_uri")
 
 
 if __name__ == "__main__":

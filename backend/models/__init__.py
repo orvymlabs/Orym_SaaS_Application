@@ -333,6 +333,23 @@ class SystemSetting(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class MetaOAuthCode(Base):
+    """
+    Idempotency ledger for Meta Embedded Signup authorization codes.
+
+    Stores a SHA-256 HASH of each processed authorization code (never the raw
+    code itself). If the same single-use code reaches the backend again the
+    request is rejected as a duplicate and the code is NEVER exchanged twice.
+    """
+    __tablename__ = "meta_oauth_codes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code_hash = Column(String(64), unique=True, index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    status = Column(String(30), default="processed")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 # Add back-populates to Bot model
 Bot.orders = relationship("Order", back_populates="bot", cascade="all, delete-orphan")
 

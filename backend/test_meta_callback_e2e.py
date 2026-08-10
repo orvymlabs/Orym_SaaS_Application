@@ -38,12 +38,16 @@ from main import app
 # Mock Meta entirely - never make a network call
 async def fake_setup_success(self, code, redirect_uri=None, waba_id=None, phone_number_id=None, business_id=None):
     assert code, "code must be forwarded to the service"
-    # Mirrors the real service: asset IDs are OPTIONAL. When Embedded Signup
-    # does not deliver them (production payload carries only the code), the
-    # service resolves them server-side from the token.
-    resolved_waba = waba_id or "waba_discovered_888"
-    resolved_phone = phone_number_id or "phone_discovered_999"
-    resolved_biz = business_id or "biz_discovered_777"
+    # Mirrors the real service: the WABA ID and phone number ID MUST come from
+    # the WA_EMBEDDED_SIGNUP session event. When Meta did not return them the
+    # service fails with WABA_NOT_RETURNED - it NEVER discovers/guesses them.
+    if not waba_id:
+        return False, None, "WABA_NOT_RETURNED: the WhatsApp Business Account ID was not returned by Meta Embedded Signup. Please restart WhatsApp Embedded Signup and complete the setup again."
+    if not phone_number_id:
+        return False, None, "PHONE_NUMBER_NOT_RETURNED: the WhatsApp phone number was not returned by Meta Embedded Signup."
+    resolved_waba = waba_id
+    resolved_phone = phone_number_id
+    resolved_biz = business_id or "biz_333"
     return True, {
         "access_token": "EAA_test_token",
         "business_id": resolved_biz,
@@ -150,31 +154,43 @@ def main():
         finally:
             db.close()
 
-    print("=== TEST 4b: POST callback CODE-ONLY (production payload) ===")
+    print("=== TEST 4b: POST callback CODE-ONLY (missing session IDs) ===")
     # Production Meta payload delivers ONLY the exchangeable code - no asset
-    # IDs. The backend must accept the code and resolve WABA/phone/business
-    # server-side (the mocked service resolves them on behalf of the backend).
+    # IDs. Because the WA_EMBEDDED_SIGNUP session event did NOT return the
+    # WABA/phone IDs (the source of truth), the backend must fail with a
+    # controlled 400 WABA_NOT_RETURNED error - it must NEVER fall back to
+    # /me/businesses discovery.
     code_only = "AQ" + "k" * 449
     r = client.post(
         "/api/integrations/meta/oauth/callback",
         json={"code": code_only, "redirect_uri": redirect_uri, "waba_id": "", "phone_number_id": "", "business_id": ""},
         headers=headers,
     )
-    check("code-only callback returns 200", r.status_code == 200, f"{r.status_code} {r.text[:300]}")
-    if r.status_code == 200:
-        body = r.json()
-        check("code-only success true", body.get("success") is True, str(body))
-        check("code-only waba_id resolved server-side", body.get("data", {}).get("waba_id") == "waba_discovered_888", str(body))
-        check("code-only phone echoed", body.get("data", {}).get("phone_number") == "+15551234567", str(body))
+    check("code-only callback returns 400 (missing session IDs)", r.status_code == 400, f"{r.status_code} {r.text[:300]}")
+    if r.status_code == 400:
+        detail = r.json().get("detail", "")
+        check("code-only error is WABA_NOT_RETURNED", "WABA_NOT_RETURNED" in detail, detail[:120])
 
-        db = SessionLocal()
-        try:
-            saved = db.query(Integration).filter(Integration.bot_id == bot.id).first()
-            check("code-only waba_id saved", saved.waba_id == "waba_discovered_888", str(saved.waba_id))
-            check("code-only phone_number_id saved", saved.phone_number_id == "phone_discovered_999", str(saved.phone_number_id))
-            check("code-only business_id saved", saved.business_id == "biz_discovered_777", str(saved.business_id))
-        finally:
-            db.close()
+    print("=== TEST 4c: POST callback - duplicate authorization code rejected ===")
+    # A Meta authorization code is single-use. The same code must NEVER reach
+    # the backend twice. The idempotency ledger records the code hash before the
+    # exchange, so a duplicate callback is rejected with 409
+    # OAUTH_CODE_ALREADY_PROCESSED and the code is never exchanged twice.
+    RouterMetaOAuthService.setup_whatsapp_integration = fake_setup_success
+    dup_code = "AQ" + "p" * 449
+    payload_dup = {
+        "code": dup_code,
+        "redirect_uri": redirect_uri,
+        "waba_id": "waba_dup_111",
+        "phone_number_id": "phone_dup_222",
+        "business_id": "biz_dup_333",
+    }
+    r1 = client.post("/api/integrations/meta/oauth/callback", json=payload_dup, headers=headers)
+    check("first submission of code returns 200", r1.status_code == 200, f"{r1.status_code} {r1.text[:200]}")
+    r2 = client.post("/api/integrations/meta/oauth/callback", json=payload_dup, headers=headers)
+    check("duplicate code rejected with 409", r2.status_code == 409, f"{r2.status_code} {r2.text[:200]}")
+    if r2.status_code == 409:
+        check("duplicate detail is OAUTH_CODE_ALREADY_PROCESSED", "OAUTH_CODE_ALREADY_PROCESSED" in r2.json().get("detail", ""), r2.json().get("detail", "")[:120])
 
     print("=== TEST 5: POST callback ERROR path (Meta 400 style) ===")
     RouterMetaOAuthService.setup_whatsapp_integration = fake_setup_error
@@ -195,7 +211,7 @@ def main():
         calls["redirect_uri"] = redirect_uri
         calls["waba_id"] = waba_id
         return True, {
-            "access_token": "EAA_t2", "business_id": "biz_444", "waba_id": waba_id,
+            "access_token": "EAA_t2", "business_id": "biz_444", "waba_id": waba_id or "waba_555",
             "phone_number_id": "phone_444", "display_phone_number": "+19998887777",
             "verified_name": "Verified Co",
         }, None

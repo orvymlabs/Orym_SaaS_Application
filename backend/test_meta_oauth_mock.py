@@ -158,7 +158,8 @@ def test_exchange_meta_error_returned():
 
     assert ok is False
     assert data is None
-    assert "redirect_uri is identical" in err
+    assert "OAUTH_REDIRECT_URI_MISMATCH" in err, err
+    assert "redirect_uri" in err.lower() or "redirect URI" in err, err
     assert captured["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/", \
         "the canonical redirect_uri is always sent, even on error"
     print("PASS: Meta 400 error propagated, exchange still carried the canonical redirect_uri")
@@ -190,9 +191,11 @@ def build_client(get_responses, post_responses):
 
 def test_setup_whatsapp_integration_full_flow():
     """Full Embedded Signup flow using the WABA ID returned by Embedded Signup:
-    exchange -> GET /<WABA> (validate) -> GET /<WABA>/phone_numbers -> POST /<WABA>/subscribed_apps.
+    exchange -> /debug_token validation -> GET /<WABA> (validate) ->
+    GET /<WABA>/phone_numbers -> POST /<WABA>/subscribed_apps.
 
-    The WABA ID is NEVER guessed/discovered from the token (no debug_token call).
+    The WABA ID and phone number ID come ONLY from the Embedded Signup session
+    (never /me/businesses or debug_token discovery).
     """
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
     svc.GRAPH_API_BASE = GRAPH_BASE
@@ -203,6 +206,12 @@ def test_setup_whatsapp_integration_full_flow():
 
     get_responses = [
         FakeResponse(200, {"access_token": "EAA_business_token", "token_type": "bearer", "expires_in": 5184000}),
+        FakeResponse(200, {"data": {
+            "app_id": "3862862217342382", "type": "BUSINESS",
+            "scopes": ["whatsapp_business_messaging", "whatsapp_business_management"],
+            "granular_scopes": [],
+            "expires_at": 1893456000,
+        }}),
         FakeResponse(200, {"id": waba_id, "name": "My Business"}),
         FakeResponse(200, {"data": [{
             "id": phone_number_id,
@@ -241,154 +250,152 @@ def test_setup_whatsapp_integration_full_flow():
         "canonical redirect_uri must ALWAYS be sent in the exchange"
     assert exchange["params"]["code"] == code
 
-    # 2) WABA validated first: GET /<WABA_ID> with supported fields only
-    waba_req = requests_log[1]
+    # 2) Token validated via /debug_token (input_token + app access token)
+    dbg = requests_log[1]
+    assert dbg["method"] == "GET"
+    assert dbg["url"] == f"{GRAPH_BASE}/debug_token"
+    assert "input_token" in dbg["params"]
+
+    # 3) WABA validated next: GET /<WABA_ID> with supported fields only
+    waba_req = requests_log[2]
     assert waba_req["method"] == "GET"
     assert waba_req["url"] == f"{GRAPH_BASE}/{waba_id}"
     assert waba_req["params"]["fields"] == "id,name"
 
-    # 3) phone_numbers called against the Embedded Signup WABA ID as an EDGE
+    # 4) phone_numbers called against the Embedded Signup WABA ID as an EDGE
     #    and NEVER as a fields=phone_numbers lookup
-    phone_req = requests_log[2]
+    phone_req = requests_log[3]
     assert phone_req["method"] == "GET"
     assert phone_req["url"] == f"{GRAPH_BASE}/{waba_id}/phone_numbers"
     assert "fields" not in phone_req["params"] or phone_req["params"]["fields"] != "phone_numbers"
 
-    # 4) subscribed_apps POSTed against the same WABA ID
-    sub_req = requests_log[3]
+    # 5) subscribed_apps POSTed against the same WABA ID
+    sub_req = requests_log[4]
     assert sub_req["method"] == "POST"
     assert sub_req["url"] == f"{GRAPH_BASE}/{waba_id}/subscribed_apps"
 
-    # 5) The service must NEVER guess the WABA (no debug_token, no /me)
+    # 6) The service must NEVER guess the WABA (no /me/businesses, no /me edge)
     urls = [r["url"] for r in requests_log]
-    assert all("/debug_token" not in u for u in urls), "WABA must come from Embedded Signup, never debug_token"
+    assert all("/me/businesses" not in u for u in urls), "WABA must NEVER come from /me/businesses"
     assert all("/me" not in u for u in urls), "/me must not be used"
-    print("PASS: WABA ID from Embedded Signup used directly; phone_numbers + subscribed_apps on the WABA edge")
+    print("PASS: WABA ID from Embedded Signup used directly; debug_token validation + phone_numbers + subscribed_apps on the WABA edge")
 
 
-def test_setup_whatsapp_integration_code_only_discovery():
+def test_setup_whatsapp_integration_code_only_returns_waba_not_returned():
     """
-    Production flow: Meta delivers ONLY the exchangeable code (the OAuth
-    redirect back carries no waba_id / phone_number_id / business_id). The
-    backend must exchange the code and then discover the WABA server-side via
-    Meta's documented business portfolio edges: GET /me/businesses -> the
-    business portfolio, then GET /<business_id>/client_whatsapp_business_accounts
-    -> the WABA IDs shared with the portfolio. debug_token is never used.
+    Production flow where Meta delivers ONLY the exchangeable code (no session
+    asset IDs). The backend exchanges the code and validates the token, but
+    because the WA_EMBEDDED_SIGNUP session did not return a WABA ID, it fails
+    with a controlled WABA_NOT_RETURNED error. It NEVER falls back to
+    /me/businesses or any other discovery mechanism.
     """
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
     svc.GRAPH_API_BASE = GRAPH_BASE
     code = "AQ" + ("w" * 449)
-    discovered_business_id = "biz_portfolio_123"
-    discovered_waba_id = "111222333"
-    discovered_phone_id = "444555666"
 
     get_responses = [
         FakeResponse(200, {"access_token": "EAA_business_token", "token_type": "bearer", "expires_in": 5184000}),
-        # GET /me/businesses - the documented Business edge resolving the
-        # business portfolio(s) the token can access
-        FakeResponse(200, {"data": [{"id": discovered_business_id, "name": "Portfolio Co"}]}),
-        # GET /<business_id>/client_whatsapp_business_accounts - the
-        # documented "Get list of shared WABAs" edge for Embedded Signup
-        FakeResponse(200, {"data": [{"id": discovered_waba_id, "name": "Discovered Business"}]}),
-        FakeResponse(200, {"id": discovered_waba_id, "name": "Discovered Business"}),
-        FakeResponse(200, {"data": [{
-            "id": discovered_phone_id,
-            "display_phone_number": "+19998887777",
-            "verified_name": "Discovered Verified",
-        }]}),
-    ]
-    post_responses = [
-        FakeResponse(200, {"success": True}),
+        FakeResponse(200, {"data": {
+            "app_id": "3862862217342382", "type": "BUSINESS",
+            "scopes": ["whatsapp_business_messaging", "whatsapp_business_management"],
+            "granular_scopes": [],
+        }}),
     ]
 
-    client, requests_log = build_client(get_responses, post_responses)
+    client, requests_log = build_client(get_responses, [])
 
     with mock.patch("httpx.AsyncClient", return_value=client):
         ok, data, err = run(svc.setup_whatsapp_integration(
             code, waba_id=None, phone_number_id=None, business_id=None,
         ))
 
-    assert ok is True, err
-    assert data["access_token"] == "EAA_business_token"
-    assert data["waba_id"] == discovered_waba_id
-    assert data["phone_number_id"] == discovered_phone_id
-    assert data["display_phone_number"] == "+19998887777"
-    assert data["verified_name"] == "Discovered Verified"
-    assert data["business_name"] == "Discovered Business"
-    # business_id falls back to the genuine portfolio resolved from
-    # /me/businesses (never fabricated)
-    assert data["business_id"] == discovered_business_id
-    assert data["business_id"] != data["waba_id"]
+    assert ok is False
+    assert data is None
+    assert "WABA_NOT_RETURNED" in err, err
 
-    # 1) Exchange request carries client_id + client_secret + code + the
-    #    canonical redirect_uri (never omitted, never empty)
+    # 1) Exchange still carried the canonical redirect_uri (never omitted)
     exchange = requests_log[0]
     assert exchange["method"] == "GET"
     assert exchange["url"] == f"{GRAPH_BASE}/oauth/access_token"
     assert exchange["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/", \
         "canonical redirect_uri must ALWAYS be sent in the exchange"
 
-    # 2) Business portfolio resolved via GET /me/businesses (fields=id,name)
-    biz_req = requests_log[1]
-    assert biz_req["method"] == "GET"
-    assert biz_req["url"] == f"{GRAPH_BASE}/me/businesses"
-    assert biz_req["params"]["fields"] == "id,name"
-    assert biz_req["params"]["access_token"] == "EAA_business_token"
+    # 2) Token validated via /debug_token
+    dbg = requests_log[1]
+    assert dbg["url"] == f"{GRAPH_BASE}/debug_token"
 
-    # 3) WABA discovered via the client_whatsapp_business_accounts edge of the
-    #    resolved business portfolio (fields=id,name)
-    client_waba_req = requests_log[2]
-    assert client_waba_req["method"] == "GET"
-    assert client_waba_req["url"] == f"{GRAPH_BASE}/{discovered_business_id}/client_whatsapp_business_accounts"
-    assert client_waba_req["params"]["fields"] == "id,name"
-
-    # 4) WABA validated via GET /<WABA_ID>
-    waba_req = requests_log[3]
-    assert waba_req["method"] == "GET"
-    assert waba_req["url"] == f"{GRAPH_BASE}/{discovered_waba_id}"
-    assert waba_req["params"]["fields"] == "id,name"
-
-    # 5) phone_numbers as an edge on the discovered WABA (never fields=phone_numbers)
-    phone_req = requests_log[4]
-    assert phone_req["method"] == "GET"
-    assert phone_req["url"] == f"{GRAPH_BASE}/{discovered_waba_id}/phone_numbers"
-
-    # 6) subscribed_apps POSTed against the discovered WABA
-    sub_req = requests_log[5]
-    assert sub_req["method"] == "POST"
-    assert sub_req["url"] == f"{GRAPH_BASE}/{discovered_waba_id}/subscribed_apps"
-
-    # debug_token must NEVER be used for WABA discovery
+    # 3) NO /me/businesses, NO /me, NO discovery edges were called
     urls = [r["url"] for r in requests_log]
-    assert all("/debug_token" not in u for u in urls), "WABA must never be discovered via debug_token"
-    print("PASS: code-only flow - WABA discovered via /me/businesses + client_whatsapp_business_accounts; phone_numbers + subscribed_apps on the discovered WABA")
+    assert all("/me/businesses" not in u for u in urls), "NO /me/businesses fallback allowed"
+    assert all("/me" not in u for u in urls), "/me must not be used"
+    print("PASS: code-only flow fails with WABA_NOT_RETURNED (no /me/businesses fallback)")
 
 
-def test_setup_whatsapp_integration_code_only_no_waba():
-    """Code-only flow where the business edges return no WABA IDs must fail clearly."""
+def test_setup_whatsapp_integration_missing_phone_number_returns_error():
+    """WABA present but the session did not return a phone number ID fails with
+    PHONE_NUMBER_NOT_RETURNED (never the first phone number on the WABA)."""
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
     svc.GRAPH_API_BASE = GRAPH_BASE
     code = "AQ" + ("v" * 449)
+    waba_id = "123456789"
 
     get_responses = [
         FakeResponse(200, {"access_token": "EAA_business_token", "token_type": "bearer"}),
-        # Portfolio resolves, but the WABA edges return nothing
-        FakeResponse(200, {"data": [{"id": "biz_portfolio_123", "name": "Portfolio Co"}]}),
-        FakeResponse(200, {"data": []}),  # client_whatsapp_business_accounts
-        FakeResponse(200, {"data": []}),  # owned_whatsapp_business_accounts
+        FakeResponse(200, {"data": {
+            "app_id": "3862862217342382", "type": "BUSINESS",
+            "scopes": ["whatsapp_business_messaging", "whatsapp_business_management"],
+            "granular_scopes": [],
+        }}),
     ]
 
-    client, _ = build_client(get_responses, [])
+    client, requests_log = build_client(get_responses, [])
 
     with mock.patch("httpx.AsyncClient", return_value=client):
         ok, data, err = run(svc.setup_whatsapp_integration(
-            code,
+            code, waba_id=waba_id, phone_number_id=None, business_id=None,
         ))
 
     assert ok is False
     assert data is None
-    assert "No WhatsApp Business Account found" in err
-    print("PASS: code-only flow with no discoverable WABA fails with clear error")
+    assert "PHONE_NUMBER_NOT_RETURNED" in err, err
+
+    urls = [r["url"] for r in requests_log]
+    assert all("/me/businesses" not in u for u in urls), "NO /me/businesses fallback allowed"
+    assert all("/phone_numbers" not in u for u in urls), \
+        "phone_numbers must NOT be called to pick the first number when the session ID is missing"
+    print("PASS: missing phone number ID fails with PHONE_NUMBER_NOT_RETURNED")
+
+
+def test_setup_whatsapp_integration_wrong_app_token_rejected():
+    """A token belonging to a different Meta app must be rejected with
+    META_PERMISSION_MISSING before any WABA/phone work happens."""
+    svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
+    svc.GRAPH_API_BASE = GRAPH_BASE
+    code = "AQ" + ("u" * 449)
+    waba_id = "123456789"
+    phone_number_id = "987654321"
+
+    get_responses = [
+        FakeResponse(200, {"access_token": "EAA_business_token", "token_type": "bearer"}),
+        FakeResponse(200, {"data": {
+            "app_id": "999999999", "type": "BUSINESS",
+            "scopes": ["whatsapp_business_messaging"],
+        }}),
+    ]
+
+    client, requests_log = build_client(get_responses, [])
+
+    with mock.patch("httpx.AsyncClient", return_value=client):
+        ok, data, err = run(svc.setup_whatsapp_integration(
+            code, waba_id=waba_id, phone_number_id=phone_number_id, business_id=None,
+        ))
+
+    assert ok is False
+    assert data is None
+    assert "META_PERMISSION_MISSING" in err, err
+    # Only exchange + debug_token were called - no WABA/phone/subscribe work
+    assert len(requests_log) == 2, requests_log
+    print("PASS: token from a different app rejected with META_PERMISSION_MISSING")
 
 
 def test_phone_numbers_edge_regression():
@@ -407,6 +414,11 @@ def test_phone_numbers_edge_regression():
 
     get_responses = [
         FakeResponse(200, {"access_token": "EAA_t", "token_type": "bearer"}),
+        FakeResponse(200, {"data": {
+            "app_id": "3862862217342382", "type": "BUSINESS",
+            "scopes": ["whatsapp_business_messaging", "whatsapp_business_management"],
+            "granular_scopes": [],
+        }}),
         FakeResponse(200, {"id": waba_id, "name": "WABA A"}),
         FakeResponse(200, {"data": [{
             "id": phone_number_id,
@@ -432,24 +444,28 @@ def test_phone_numbers_edge_regression():
 
     # The exchange (first request) MUST carry the canonical redirect_uri; the
     # other Graph API calls must never include redirect_uri, fields=phone_numbers,
-    # /me, or debug_token.
+    # /me, or /me/businesses.
     assert requests_log[0]["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/", \
         "canonical redirect_uri must ALWAYS be sent in the exchange"
     for req in requests_log[1:]:
         assert "redirect_uri" not in req["params"], f"redirect_uri must not be sent to {req['url']}"
         assert req["params"].get("fields") != "phone_numbers", f"fields=phone_numbers used in {req['url']}"
+        assert "/me/businesses" not in req["url"], "/me/businesses must not be used"
         assert "/me" != req["url"].replace(GRAPH_BASE, "").strip("/"), "/me must not be used"
-        assert "/debug_token" not in req["url"], "WABA must never be discovered via debug_token"
 
-    # WABA is validated first via GET /<WABA_ID>
-    assert requests_log[1]["method"] == "GET"
-    assert requests_log[1]["url"] == f"{GRAPH_BASE}/{waba_id}"
-    # phone_numbers is called only as an edge on the Embedded Signup WABA
+    # debug_token is used ONLY for validation (request 1), never discovery
+    assert requests_log[1]["url"] == f"{GRAPH_BASE}/debug_token"
+    assert "input_token" in requests_log[1]["params"]
+
+    # WABA is validated next via GET /<WABA_ID>
     assert requests_log[2]["method"] == "GET"
-    assert requests_log[2]["url"] == f"{GRAPH_BASE}/{waba_id}/phone_numbers"
+    assert requests_log[2]["url"] == f"{GRAPH_BASE}/{waba_id}"
+    # phone_numbers is called only as an edge on the Embedded Signup WABA
+    assert requests_log[3]["method"] == "GET"
+    assert requests_log[3]["url"] == f"{GRAPH_BASE}/{waba_id}/phone_numbers"
     # subscribed_apps is POSTed to the same WABA
-    assert requests_log[3]["method"] == "POST"
-    assert requests_log[3]["url"] == f"{GRAPH_BASE}/{waba_id}/subscribed_apps"
+    assert requests_log[4]["method"] == "POST"
+    assert requests_log[4]["url"] == f"{GRAPH_BASE}/{waba_id}/subscribed_apps"
     print("PASS: no fields=phone_numbers; WABA validated then phone_numbers + subscribed_apps on the Embedded Signup WABA only")
 
 
