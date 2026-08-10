@@ -1,657 +1,671 @@
-FINAL PRODUCTION FIX — WHATSAPP EMBEDDED SIGNUP
+FINAL TASK — FIX META WHATSAPP EMBEDDED SIGNUP END-TO-END
 
-This is the FINAL attempt to make our WhatsApp Embedded Signup work end-to-end.
+You are working on my existing ORVYM WhatsApp SaaS application.
 
-DO NOT make random OAuth/redirect changes.
-DO NOT replace the Embedded Signup flow with normal OAuth.
-DO NOT hardcode WABA IDs or phone number IDs.
-DO NOT use /me/businesses as the primary way to discover the customer's WABA.
+I need you to FIX the Meta WhatsApp Embedded Signup integration completely and make the REAL end-to-end flow work in production.
 
-CURRENT PRODUCTION APP:
+IMPORTANT:
+Do NOT make another speculative patch.
+Do NOT declare success because the code compiles or FB.login returns a code.
+Do NOT work around Meta's requirements.
+Implement the CURRENT OFFICIAL META FLOW according to the project's requirements/docs and Meta's current official documentation.
+
+==================================================
+1. FIRST: READ THE PROJECT DOCUMENTATION
+==================================================
+
+Before changing code, inspect and read:
+
+- CLAUDE.md
+- IMPLEMENTATION_SUMMARY.md
+- any Meta/WhatsApp integration documentation in the repository
+- existing backend/services/meta_oauth.py
+- existing Meta integration router
+- existing frontend Embedded Signup implementation
+- environment/configuration files (DO NOT expose secrets)
+- existing webhook implementation
+- existing WhatsApp integration/database models
+
+Understand the current architecture before modifying anything.
+
+==================================================
+2. CURRENT PRODUCTION ARCHITECTURE
+==================================================
 
 Frontend:
-https://apps.orvym.com
-
-Dashboard:
-https://apps.orvym.com/dashboard/integrations/
+Hostinger
 
 Backend:
+Render
+
+Backend Render region:
+Ohio, USA
+
+Database:
+Neon
+
+Production frontend:
+https://apps.orvym.com
+
+Production backend:
 https://orym-saas-application.onrender.com
 
 Meta App ID:
 3862862217342382
 
-Embedded Signup Config ID:
+Meta Config ID:
 2432311603846818
 
-CURRENT PRODUCTION LOG:
-
-[EmbeddedSignup] Launching WhatsApp Embedded Signup via FB.login popup (official Meta flow)
-[EmbeddedSignup] Config ID: 2432311603846818
-[EmbeddedSignup] response_type: code
-[EmbeddedSignup] override_default_response_type: true
-[EmbeddedSignup] LOGIN_CODE_RECEIVED (length: 451)
-[EmbeddedSignup] code received, waiting for WA_EMBEDDED_SIGNUP session asset IDs
-[EmbeddedSignup] WA_EMBEDDED_SIGNUP FINISH event never arrived - showing onboarding error
-
-This means:
-
-1. Facebook SDK initializes successfully.
-2. Embedded Signup launches successfully.
-3. Meta returns the exchangeable authorization code successfully.
-4. The current blocker is that the frontend is NOT receiving/capturing the WA_EMBEDDED_SIGNUP session message containing the onboarding result.
-
-FIX THE ACTUAL ROOT CAUSE.
+The application is a WhatsApp SaaS where users should be able to connect their WhatsApp Business account through Meta Embedded Signup without manually entering Phone Number ID/access token.
 
 ==================================================
-PART 1 — IMPLEMENT THE SESSION MESSAGE LISTENER CORRECTLY
+3. CURRENT PROBLEM
 ==================================================
 
-The WA_EMBEDDED_SIGNUP listener MUST be registered BEFORE FB.login() is called.
+The current frontend successfully launches Meta Embedded Signup.
 
-Do not register it after FB.login.
-Do not register it conditionally after the code callback.
-Do not register multiple copies of the listener.
+Current logs show:
 
-Use one stable listener for the entire signup attempt.
-
-The listener must inspect window message events and safely parse event.data.
-
-It must support:
-
-event.type === "WA_EMBEDDED_SIGNUP"
-
-Successful completion:
-
-event === "FINISH"
-
-Also support:
-
-event === "FINISH_ONLY_WABA"
-
-and other legitimate Embedded Signup finish variants relevant to the configured flow.
-
-Also handle:
-
-event === "CANCEL"
-event === "ERROR"
-
-Do NOT assume only FINISH exists.
-
-==================================================
-PART 2 — DO NOT REJECT THE FACEBOOK ORIGIN INCORRECTLY
-==================================================
-
-The current code may be silently rejecting the Meta message because of an incorrect event.origin check.
-
-Implement safe Facebook-origin validation.
-
-Accept the legitimate Facebook origins used by the SDK/Embedded Signup flow.
-
-At minimum handle the actual production origin:
-
-https://www.facebook.com
-
-and any legitimate facebook.com subdomain required by the SDK.
-
-Do NOT blindly accept arbitrary origins.
-
-Log rejected origins during debugging:
-
-[EmbeddedSignup] Ignored message origin: <origin>
-
-This is extremely important.
-
-==================================================
-PART 3 — LOG EVERY MESSAGE DURING EMBEDDED SIGNUP
-==================================================
-
-For debugging, while an Embedded Signup attempt is active, log every window message event in a safe way.
-
-Example:
-
-[EmbeddedSignup] WINDOW MESSAGE RECEIVED
-origin: <origin>
-dataType: <typeof event.data>
-rawData: <safe/truncated data>
-
-If event.data is JSON, parse it and log:
-
-[EmbeddedSignup] PARSED MESSAGE
-type:
-event:
-version:
-data keys:
-
-If event.data contains OAuth code/token/secrets, NEVER print the actual secret.
-
-Redact sensitive values.
-
-We need to know exactly whether Meta is:
-
-A. sending WA_EMBEDDED_SIGNUP but our listener misses it
-B. sending a different event name
-C. sending it from an origin our code rejects
-D. sending an event with an unexpected version
-E. not sending the session event because the Meta configuration is incorrect
-
-DO NOT GUESS.
-
-==================================================
-PART 4 — USE THE CORRECT SESSION INFO CONFIGURATION
-==================================================
-
-The FB.login configuration must explicitly request session information.
-
-Keep:
-
-config_id: "2432311603846818"
-response_type: "code"
+[EmbeddedSignup] Launching WhatsApp Embedded Signup via FB.login popup
+Config ID: 2432311603846818
+response_type: code
 override_default_response_type: true
+extras: {"setup":{},"sessionInfoVersion":3}
 
-Use the correct Embedded Signup extras structure for our current Meta configuration.
+Meta successfully sends an OAuth exchangeable code:
 
-The session information version must be explicitly configured.
+[EmbeddedSignup] LOGIN_CODE_RECEIVED (length: 451)
 
-Use:
+The raw window.message comes from:
 
-sessionInfoVersion: 3
+https://oauth.facebook.com
 
-unless the existing Meta configuration explicitly requires another supported version.
+and contains:
 
-Do NOT randomly switch between version 2 and version 3.
-
-Make sure the value is passed inside the actual FB.login extras object used in production.
-
-==================================================
-PART 5 — DO NOT USE LOGIN_CODE_RECEIVED AS COMPLETION
-==================================================
-
-This is critical.
-
-The following:
-
-response.authResponse.code
-
-is only the exchangeable authorization code.
-
-It is NOT proof that Embedded Signup finished.
-
-When LOGIN_CODE_RECEIVED occurs:
-
-store the code temporarily.
-
-Then wait for:
-
-WA_EMBEDDED_SIGNUP
-
-completion event.
-
-When the session event arrives, capture:
-
-waba_id
-phone_number_id
-business_id
-
-where provided.
-
-Expected successful structure is conceptually:
-
-{
-  type: "WA_EMBEDDED_SIGNUP",
-  event: "FINISH",
-  version: 3,
-  data: {
-    waba_id: "...",
-    phone_number_id: "...",
-    business_id: "..."
-  }
-}
-
-Do not require business_id if Meta does not return it in this flow.
-
-==================================================
-PART 6 — HANDLE FINISH_ONLY_WABA
-==================================================
-
-If the flow produces:
-
-event === "FINISH_ONLY_WABA"
-
-do not treat this as an error.
-
-Capture:
-
-waba_id
-
-and understand that phone_number_id may legitimately be unavailable in this completion mode.
-
-Do NOT force phone_number_id when the selected flow intentionally only shares the WABA.
-
-However, because our product needs a WhatsApp phone number for messaging, the backend should then continue with the correct phone-number setup/registration step rather than silently failing.
-
-==================================================
-PART 7 — HANDLE OTHER FINISH STATES
-==================================================
-
-Support legitimate completion events such as:
-
-FINISH
-FINISH_ONLY_WABA
-FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING
-FINISH_OBO_MIGRATION
-FINISH_GRANT_ONLY_API_ACCESS
-
-Only process the states that are applicable to our configured use case.
-
-For unsupported states, log:
-
-[EmbeddedSignup] Unsupported completion event: <event>
-
-Do not silently treat every non-FINISH event as CANCEL.
-
-==================================================
-PART 8 — HANDLE CANCEL AND ERROR
-==================================================
-
-If:
-
-event === "CANCEL"
-
-log:
-
-[EmbeddedSignup] User cancelled Embedded Signup
-current_step: ...
-
-Do not call the backend.
-
-If:
-
-event === "ERROR"
-
-log:
-
-[EmbeddedSignup] Meta Embedded Signup ERROR
-error_message:
-error_code:
-current_step:
-
-Do not attempt token exchange with an incomplete flow.
-
-==================================================
-PART 9 — CORRECT STATE MANAGEMENT
-==================================================
-
-Create a single signup attempt state:
-
-{
-  code: null,
-  waba_id: null,
-  phone_number_id: null,
-  business_id: null,
-  completion_event: null,
-  backend_called: false
-}
-
-The code and WA_EMBEDDED_SIGNUP event can arrive in either order.
-
-Therefore the implementation must support BOTH:
-
-CASE A:
-
-code arrives first
-→ wait for session event
-→ receive WABA/phone IDs
-→ exchange
-
-CASE B:
-
-session event arrives first
-→ store WABA/phone IDs
-→ wait for code
-→ exchange
-
-Do NOT assume a fixed event order.
-
-==================================================
-PART 10 — PREVENT DUPLICATE TOKEN EXCHANGE
-==================================================
-
-The Meta authorization code is single-use and short-lived.
+domain=apps.orvym.com
+origin=https://apps.orvym.com/...
+code=...
 
 Therefore:
 
-backendCalled must prevent duplicate requests.
+FB.login() works.
+Meta authorization works.
+An exchangeable code is being received.
 
-Once the backend request starts:
+BUT:
 
-backendCalled = true
+WA_EMBEDDED_SIGNUP session event is NOT being received.
 
-Do not send the same code twice.
+Current logs:
 
-Do not implement repeated retries using the same authorization code.
+[EmbeddedSignup] code received, waiting for WA_EMBEDDED_SIGNUP session asset IDs (waba_id / phone_number_id)
 
-If the exchange fails, the user must start a fresh Embedded Signup attempt.
+[EmbeddedSignup] WA_EMBEDDED_SIGNUP FINISH event never arrived
 
-==================================================
-PART 11 — DO NOT BLOCK FOREVER WAITING FOR FINISH
-==================================================
+messages_received: []
 
-Do not immediately show:
+saw_WA_EMBEDDED_SIGNUP_event: false
 
-"WA_EMBEDDED_SIGNUP FINISH event never arrived"
+saw_CANCEL: false
 
-just because the authorization code was received.
+saw_ERROR: false
 
-Give the Embedded Signup flow enough time to complete.
+sessionInfoVersion_requested: 3
 
-Only trigger timeout after the popup/session has actually closed or after a reasonable timeout.
+The backend then cannot reliably obtain the WABA ID / Phone Number ID/session information.
 
-When timeout occurs, show diagnostics:
+Earlier we also received:
 
-- Did we receive any WA_EMBEDDED_SIGNUP event?
-- What origins were received?
-- What message types were received?
-- Was the popup closed?
-- Did Meta send CANCEL?
-- Did Meta send ERROR?
+Meta error code: 100
+Meta error subcode: 36008
 
-==================================================
-PART 12 — IMPORTANT REACT/NEXT.JS REQUIREMENT
-==================================================
+"Error validating verification code. Please make sure your redirect_uri is identical to the one you used in the OAuth dialog request"
 
-This is a Next.js production application.
+Do NOT assume redirect_uri is the current root cause.
 
-Make sure the message listener is not broken by React lifecycle behavior.
-
-Do NOT accidentally:
-
-- register listener on every render
-- remove listener while popup is active
-- create a stale closure
-- register duplicate listeners
-- lose signup state because the component rerenders
-
-Use a stable callback/ref/state strategy.
-
-The listener must remain alive during the entire Embedded Signup session.
-
-Clean it up only after the signup attempt is completely finished.
+The current primary problem appears to be the Embedded Signup session event / asset ID delivery or incorrect handling/configuration of the Embedded Signup flow.
 
 ==================================================
-PART 13 — VERIFY FB.LOGIN CONFIGURATION
+4. CRITICAL VERSION CHECK
 ==================================================
 
-Use exactly:
+Before changing implementation, VERIFY the actual Embedded Signup version associated with Config ID:
 
-FB.login(callback, {
-    config_id: "2432311603846818",
-    response_type: "code",
-    override_default_response_type: true,
-    extras: {
-        setup: {},
-        sessionInfoVersion: 3
-    }
-})
+2432311603846818
 
-If our Meta Embedded Signup configuration requires a solutionID or other required setup parameter, preserve the existing configured value.
+The Meta documentation indicates that Embedded Signup v2 is scheduled for deprecation on October 15, 2026 and migration to Embedded Signup v4 is required.
 
-DO NOT invent a new Config ID.
+VERIFY THIS AGAINST CURRENT OFFICIAL META DOCUMENTATION.
 
-DO NOT create a new OAuth flow.
+Determine:
 
-==================================================
-PART 14 — TOKEN EXCHANGE
-==================================================
+A. Which Embedded Signup version the current Config ID uses.
+B. Whether the Config ID is v2, v3, v4, or another current version.
+C. Whether this Config ID is affected by the October 15, 2026 deprecation.
+D. Whether a new/current Config ID must be created.
+E. Whether sessionInfoVersion=3 is correct for the actual configured version.
+F. Whether the current FB.login parameters are correct for that version.
+G. Whether the current event/listener implementation matches Meta's official flow for that version.
 
-The token exchange has already worked successfully in production.
+DO NOT continue patching an obsolete implementation if Meta requires migration.
 
-Previous successful Render log:
-
-Status Code: 200
-Access token received: YES
-Token exchange successful
-
-Therefore DO NOT break the working token exchange.
-
-Keep the existing successful exchange implementation.
-
-Use the received authorization code exactly once.
-
-Do not add/remove redirect_uri blindly.
-
-The redirect URI must match the actual flow configuration if this flow requires it.
-
-The current problem is SESSION EVENT CAPTURE, not blindly changing OAuth again.
+If a new Config ID is required, clearly explain exactly what must be configured in Meta App Dashboard and update the application to use the new configuration through environment variables/config rather than hardcoding it.
 
 ==================================================
-PART 15 — BACKEND CALLBACK
+5. VERIFY THE OFFICIAL META FLOW
 ==================================================
 
-Existing endpoint:
+Use CURRENT official Meta documentation as the source of truth.
 
-POST /api/integrations/meta/oauth/callback
+Verify the complete Embedded Signup flow.
 
-Keep this endpoint.
+The intended result is:
 
-When the frontend has enough information, send:
+User clicks:
+Connect WhatsApp Business
 
-{
-  "code": "<exchangeable_code>",
-  "redirect_uri": "https://apps.orvym.com/dashboard/integrations/",
-  "waba_id": "<waba_id>",
-  "phone_number_id": "<phone_number_id>",
-  "business_id": "<business_id_if_available>"
-}
+↓
 
-Do not send fake/null IDs.
+Meta Embedded Signup opens
 
-If a completion event legitimately does not provide phone_number_id, handle that specific flow correctly instead of inventing one.
+↓
+
+User completes Meta onboarding
+
+↓
+
+Application receives the exchangeable OAuth code
+
+AND the appropriate Embedded Signup session information/event
+
+↓
+
+Obtain:
+- WABA ID
+- Phone Number ID
+- Business ID if required
+- any other required session asset IDs
+
+↓
+
+Exchange the code using the exact parameters required by Meta for the CURRENT Embedded Signup version.
+
+↓
+
+Obtain the appropriate access token/business token.
+
+↓
+
+Perform all required WhatsApp Business API setup steps.
+
+This may include, depending on the current official flow:
+
+- WABA discovery
+- phone number discovery
+- subscribed_apps
+- phone number registration
+- webhook configuration/subscription
+- required business/account setup
+
+Do NOT assume these endpoints or sequence are mandatory.
+VERIFY the exact requirements from CURRENT Meta documentation.
+
+↓
+
+Save the integration in our database.
+
+↓
+
+Show:
+
+WhatsApp Connected
+Phone Number
+WABA/business information
+Webhook status
+
+The complete flow must work without the user manually entering:
+- access token
+- Phone Number ID
+- WABA ID
+
+unless Meta's current official flow explicitly requires a fallback.
 
 ==================================================
-PART 16 — REMOVE THE OLD /me/businesses DEPENDENCY
+6. FIX THE FRONTEND EVENT HANDLING
 ==================================================
 
-The previous implementation attempted:
+Inspect the current window.message listener carefully.
 
-GET /me/businesses
+The latest raw message from Meta is a non-JSON string.
 
-and received:
+Example:
 
-(#100) Missing Permission
+cb=...&domain=apps.orvym.com&is_canvas=false&origin=https%3A%2F%2Fapps.orvym.com/...&relation=opener&frame=...&code=...
 
-Do NOT use /me/businesses as the primary WABA discovery mechanism.
+The application currently logs:
 
-Once Embedded Signup returns:
+PARSED MESSAGE: non-JSON string (ignored)
 
-waba_id
-phone_number_id
+This MUST be investigated.
 
-use those exact customer asset IDs.
+Do not simply ignore non-JSON messages.
 
-The previous Missing Permission error should not return simply because we are trying to discover the WABA through an unnecessary business edge.
+Verify the official format Meta uses for the Embedded Signup message.
+
+Determine whether the current listener is:
+
+- parsing the message incorrectly
+- listening too late
+- filtering the wrong origin
+- expecting the wrong event structure
+- expecting an obsolete event name
+- using the wrong sessionInfoVersion
+- using incorrect extras
+- using an outdated SDK flow
+- or missing another required listener/configuration.
+
+The listener MUST be registered before launching FB.login().
+
+Use the exact official event/message format required by Meta.
+
+Do not invent a custom event.
+
+Do not blindly accept arbitrary origins.
+
+Use secure origin validation according to Meta's documented flow.
 
 ==================================================
-PART 17 — AFTER TOKEN EXCHANGE
+7. FIX THE BACKEND TOKEN EXCHANGE
+==================================================
+
+Inspect:
+
+backend/services/meta_oauth.py
+
+and the OAuth callback endpoint.
+
+Do NOT keep the previous speculative strategy of trying random redirect_uri values.
+
+Do NOT send:
+
+redirect_uri=""
+or arbitrary URLs
+
+unless CURRENT official Meta documentation explicitly requires that exact value for this exact flow.
+
+The redirect_uri used during token exchange must exactly match what Meta recorded for the authorization request, according to the actual flow.
+
+Determine the correct behavior from the current official documentation and implementation.
+
+Also ensure:
+
+- the code is exchanged exactly once
+- the code is exchanged immediately
+- the code is not retried after a failed/single-use exchange
+- the frontend does not accidentally POST the same code multiple times
+- timeout/retry logic cannot cause duplicate code exchanges
+
+The code is short-lived and single-use.
+
+==================================================
+8. FIX SESSION DATA FLOW
+==================================================
+
+The frontend should not wait forever for:
+
+WA_EMBEDDED_SIGNUP
+
+if the current official Meta flow does not use that exact event name/version.
+
+Determine the CURRENT official event mechanism.
+
+If the event contains:
+
+- WABA ID
+- Phone Number ID
+- business ID
+
+capture them reliably.
+
+Send the required session information to the backend along with the exchangeable code.
+
+Validate all IDs server-side.
+
+Do not trust arbitrary client-provided IDs without verification through Meta APIs.
+
+==================================================
+9. BACKEND WHATSAPP SETUP
 ==================================================
 
 After successful token exchange:
 
-1. Validate the WABA ID.
-2. Validate/access the phone number ID when available.
-3. Retrieve required WhatsApp business information.
-4. Register/configure the phone number if required by the selected Embedded Signup flow.
-5. Subscribe the WABA/app to the required webhook.
-6. Save the integration for the authenticated application user.
-7. Store required IDs securely.
-8. Store the token securely.
-9. Mark integration as connected only after setup succeeds.
+Implement the CURRENT official Meta-required setup sequence.
+
+Verify each API call against current Meta documentation.
+
+Potential steps include:
+
+1. Get/verify WABA
+2. Get/verify phone number
+3. Subscribe WABA/app using the required endpoint
+4. Register phone number if required
+5. Configure/verify webhook
+6. Verify WhatsApp Business account state
+7. Save integration
+
+Do not implement fake success.
+
+Every step must be validated using Meta's response.
+
+If any step fails, return the actual Meta error with useful logging.
 
 ==================================================
-PART 18 — DO NOT MARK CONNECTED TOO EARLY
+10. WEBHOOK
 ==================================================
 
-The UI must show:
+Verify the existing webhook implementation.
 
-Connecting...
+Ensure:
 
-while onboarding is in progress.
+- webhook URL is publicly accessible
+- verification endpoint works
+- verify token is correct
+- Meta can reach the endpoint
+- required WhatsApp webhook fields are subscribed
+- webhook subscription is completed using the correct current API flow
 
-Only show:
+Do not break the existing WhatsApp bot while fixing Embedded Signup.
 
-WhatsApp Connected
+IMPORTANT:
+There is already a WhatsApp bot/backend running.
 
-after backend provisioning succeeds.
+Do NOT replace, disable, or break the existing bot functionality.
 
-If backend provisioning fails, show:
-
-WhatsApp connection failed
-
-with the actual safe error.
-
-==================================================
-PART 19 — META APP CONFIGURATION CHECK
-==================================================
-
-Before changing code, verify the Meta dashboard configuration for:
-
-App ID:
-3862862217342382
-
-Config ID:
-2432311603846818
-
-Verify:
-
-- WhatsApp Business Platform/use case is configured.
-- Facebook Login for Business / Embedded Signup is configured correctly.
-- The Config ID belongs to THIS Meta app.
-- The production domain is allowed.
-- Required OAuth redirect URI is registered exactly.
-- Required permissions are configured.
-- App mode/configuration is appropriate for the current test.
-- Required Advanced Access/App Review requirements are completed where necessary.
-
-DO NOT create a second Meta app or second Config ID.
+The Embedded Signup integration must be added/fixed without disrupting the existing WhatsApp messaging flow.
 
 ==================================================
-PART 20 — IMPORTANT PERMISSIONS
+11. DATABASE
 ==================================================
 
-The app currently requests:
+Inspect the existing integration database model.
 
-whatsapp_business_messaging
-whatsapp_business_management
-public_profile
+Ensure the following can be persisted where required:
 
-Verify that the required permissions are actually available to the access token produced by the Embedded Signup flow.
+- WABA ID
+- Phone Number ID
+- Business ID
+- access token/business token
+- phone number
+- webhook information
+- connection status
+- Meta account identifiers
 
-Do not assume that adding a permission to the App Review submission automatically grants it to the runtime token.
+Use the existing database architecture and migrations.
 
-If a Graph API call returns:
+Do not create duplicate tables unnecessarily.
 
-(#100) Missing Permission
-
-identify exactly which endpoint/permission is missing.
-
-Do not solve permission errors by randomly adding unrelated permissions.
-
-==================================================
-PART 21 — PRODUCTION TEST
-==================================================
-
-After implementation:
-
-DEPLOY FRONTEND.
-
-DEPLOY BACKEND.
-
-Open:
-
-https://apps.orvym.com/dashboard/integrations/
-
-Start a COMPLETELY NEW Embedded Signup attempt.
-
-Do NOT reuse an old authorization code.
-
-Complete the entire Meta onboarding flow.
-
-Expected browser logs:
-
-[EmbeddedSignup] Launching WhatsApp Embedded Signup
-[EmbeddedSignup] Message listener registered
-[EmbeddedSignup] LOGIN_CODE_RECEIVED
-[EmbeddedSignup] WINDOW MESSAGE RECEIVED
-[EmbeddedSignup] WA_EMBEDDED_SIGNUP EVENT RECEIVED
-[EmbeddedSignup] event: FINISH
-[EmbeddedSignup] waba_id: <ID>
-[EmbeddedSignup] phone_number_id: <ID>
-[EmbeddedSignup] backend request started
-[EmbeddedSignup] backend response: 200
-[EmbeddedSignup] WhatsApp integration connected
-
-Expected Render logs:
-
-[EmbeddedSignup] Step 1/5 token exchange started
-[EmbeddedSignup] Token exchange successful
-[EmbeddedSignup] Step 2/5 WABA validation
-[EmbeddedSignup] Step 3/5 phone validation
-[EmbeddedSignup] Step 4/5 webhook setup
-[EmbeddedSignup] Step 5/5 integration saved
-[EmbeddedSignup] SUCCESS
+Do not expose access tokens in frontend logs.
 
 ==================================================
-PART 22 — IF FINISH STILL DOES NOT ARRIVE
+12. SECURITY
 ==================================================
 
-DO NOT make another random code change.
+Do not expose:
 
-Capture the diagnostic output:
+- META_APP_SECRET
+- access tokens
+- webhook secrets
+- database credentials
 
-1. Every message origin received.
-2. Every message type received.
-3. Parsed event names.
-4. sessionInfoVersion actually passed to FB.login.
-5. Exact extras object used by the production build.
-6. Whether the listener was registered before FB.login.
-7. Whether Meta popup actually completed or was closed.
-8. Whether the Meta Config ID is configured for the same App ID.
-9. Whether the required permissions are granted/available.
-10. Whether the app/configuration supports session information.
+in:
 
-Then identify the exact root cause.
+- browser logs
+- frontend code
+- Git
+- API responses
+
+Never log full OAuth codes or tokens.
+
+Logging should only show safe metadata such as:
+
+code length
+WABA ID
+Phone Number ID
+Meta error code
+Meta error subcode
+fbtrace_id
 
 ==================================================
-FINAL ACCEPTANCE CRITERIA
+13. PRODUCTION CONFIGURATION
 ==================================================
 
-The task is NOT considered complete because the code compiles.
+Use environment variables.
 
-It is complete ONLY when a fresh production user can:
+Do not hardcode production secrets.
 
-1. Click Connect WhatsApp.
-2. Open official Meta Embedded Signup.
-3. Complete the onboarding.
-4. Generate the exchangeable code.
-5. Receive WA_EMBEDDED_SIGNUP completion event.
-6. Receive waba_id.
-7. Receive phone_number_id when applicable.
-8. Send the correct information to backend.
-9. Exchange the code successfully.
-10. Configure the WABA.
-11. Configure/register the phone number when required.
-12. Subscribe the webhook.
-13. Save the integration to the correct user.
-14. Return to the dashboard.
-15. See WhatsApp Connected.
-16. Send/receive a real WhatsApp test message.
+Verify these values/configurations:
 
-NO MORE PLACEHOLDERS.
-NO HARD-CODED CUSTOMER ASSET IDs.
-NO RANDOM REDIRECT URI CHANGES.
-NO /me/businesses DEPENDENCY FOR WABA DISCOVERY.
-NO DUPLICATE CODE EXCHANGE.
-NO SILENT EVENT DROPPING.
+META_APP_ID
+META_APP_SECRET
+META_CONFIG_ID
+META_VERIFY_TOKEN
+META webhook configuration
+frontend URL
+backend URL
+
+If a new Config ID is required, update the environment configuration appropriately.
+
+Remember:
+
+Frontend:
+https://apps.orvym.com
+
+Backend:
+https://orym-saas-application.onrender.com
+
+==================================================
+14. META APP DASHBOARD CHECK
+==================================================
+
+Inspect/verify the Meta App Dashboard configuration required by the CURRENT Embedded Signup version.
+
+Check:
+
+- App domains
+- OAuth redirect configuration if applicable
+- WhatsApp product
+- Embedded Signup configuration
+- Config ID
+- allowed domains/origins
+- required permissions
+- webhook configuration
+- Business Manager configuration
+- required app permissions
+- development/live mode requirements
+
+If something must be changed manually in Meta Dashboard, STOP and tell me the exact setting/path/value required.
+
+Do not pretend a code change can fix a dashboard configuration problem.
+
+==================================================
+15. PERMISSIONS / APP REVIEW
+==================================================
+
+The app will be submitted for Meta review.
+
+Make sure the implementation actually uses the requested permissions/features.
+
+Do not request unnecessary permissions.
+
+Verify which permissions are required for:
+
+- WhatsApp Business Account
+- WABA management
+- phone number management
+- messaging
+- webhook/subscription
+- Embedded Signup
+
+If App Review requires a screen recording, the actual production flow must be successfully demonstrable first.
+
+==================================================
+16. DO NOT BREAK EXISTING FUNCTIONALITY
+==================================================
+
+Before changing anything:
+
+Understand the existing application.
+
+Preserve:
+
+- existing WhatsApp bot
+- existing webhook
+- existing integrations
+- WooCommerce integration
+- database functionality
+- authentication
+- frontend dashboard
+
+Make minimal, clean changes where possible.
+
+==================================================
+17. TESTING REQUIREMENT
+==================================================
+
+Do NOT tell me:
+
+"Syntax is correct, therefore fixed."
+
+That is NOT sufficient.
+
+Test as much of the complete flow as technically possible.
+
+At minimum:
+
+Backend:
+- imports
+- startup
+- config endpoint
+- OAuth callback
+- Meta API calls
+- database operations
+
+Frontend:
+- production build
+- FB SDK initialization
+- message listener
+- Embedded Signup launch
+- event parsing
+- duplicate-code prevention
+
+Integration:
+- actual Meta Embedded Signup flow in browser
+
+The final acceptance test is:
+
+1. Open:
+https://apps.orvym.com/dashboard/integrations
+
+2. Click:
+Connect WhatsApp Business
+
+3. Meta Embedded Signup opens.
+
+4. Complete onboarding.
+
+5. OAuth code is received.
+
+6. Session event/asset information is received.
+
+7. WABA ID and Phone Number ID are obtained.
+
+8. Backend exchanges the code successfully.
+
+9. Required WhatsApp Business API setup succeeds.
+
+10. Required webhook/subscription succeeds.
+
+11. Integration is saved.
+
+12. Dashboard shows:
+WhatsApp Connected.
+
+13. Existing WhatsApp bot continues working.
+
+==================================================
+18. ERROR HANDLING
+==================================================
+
+If anything fails, do NOT hide the error.
+
+Log:
+
+- HTTP status
+- Meta error code
+- Meta error subcode
+- error type
+- safe error message
+- fbtrace_id
+- which setup step failed
+
+Never log:
+
+- app secret
+- access token
+- full OAuth code
+
+Frontend should display a useful user-friendly error.
+
+==================================================
+19. IMPORTANT: NO RANDOM WORKAROUNDS
+==================================================
+
+Do NOT:
+
+- randomly try multiple redirect_uri values
+- repeatedly exchange the same code
+- fake WABA IDs
+- fake Phone Number IDs
+- bypass Meta permission checks
+- ignore Meta errors
+- accept arbitrary postMessage origins
+- disable security validation
+- hardcode tokens
+- declare success based on local syntax checks
+- implement an obsolete Embedded Signup version just because the existing code uses it
+
+If Meta's current documentation contradicts the existing implementation, follow Meta's current official flow.
+
+==================================================
+20. FINAL DELIVERABLE
+==================================================
+
+After implementation, give me a concise report with:
+
+1. Root cause of the current problem.
+2. Embedded Signup version currently configured.
+3. Whether the current Config ID is deprecated/affected.
+4. Whether a new Config ID was required.
+5. Exact frontend files changed.
+6. Exact backend files changed.
+7. Exact Meta Dashboard changes required.
+8. Exact environment variables required.
+9. Exact API sequence now implemented.
+10. How the session event is handled.
+11. How WABA ID and Phone Number ID are obtained.
+12. How token exchange works.
+13. How webhook/subscription is configured.
+14. What tests were actually performed.
+15. Whether the COMPLETE end-to-end flow was successfully tested.
 
 MOST IMPORTANT:
-Before telling me it is fixed, perform a real production Embedded Signup test and provide the exact browser + Render log sequence proving that WA_EMBEDDED_SIGNUP FINISH was received and the backend provisioning completed.
+
+Do not stop at "implementation complete."
+
+The task is complete ONLY when the actual Meta Embedded Signup flow works end-to-end and the application reaches:
+
+CONNECTED
+
+with the real WABA ID + real Phone Number ID + valid Meta credentials/token + working webhook/subscription.
+
+If you encounter a Meta Dashboard configuration or App Review requirement that cannot be changed through code, clearly tell me exactly what I must change manually instead of guessing.
