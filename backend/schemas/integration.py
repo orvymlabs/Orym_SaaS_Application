@@ -8,14 +8,16 @@ class MetaOAuthCallbackRequest(BaseModel):
     All fields are optional at the Pydantic layer so a request that is missing
     Embedded Signup data produces a structured 400 (with a useful detail
     message) instead of a generic 422. The endpoint explicitly validates the
-    required field (code) before processing.
+    required fields (code and redirect_uri) before processing.
 
-    Only the exchangeable code is required. The WABA ID, phone number ID and
-    business ID come from the WA_EMBEDDED_SIGNUP completion event (captured on
-    the frontend); when they are not present the backend resolves them
-    server-side from the token after the exchange. redirect_uri is sent as
-    null for the FB.login popup flow (no redirect, so the exchange must omit
-    it) and is only forwarded for legacy manual-dialog codes.
+    The exchangeable code and the redirect_uri are required. redirect_uri must
+    be the canonical production value (https://apps.orvym.com/dashboard/integrations/)
+    - never empty, never null - because Meta's code exchange fails with
+    error_subcode 36008 when redirect_uri is omitted or differs from the dialog
+    request. The WABA ID, phone number ID and business ID come from the
+    WA_EMBEDDED_SIGNUP completion event (captured on the frontend); when they
+    are not present the backend resolves them server-side from the token after
+    the exchange.
     """
     code: Optional[str] = None
     redirect_uri: Optional[str] = None

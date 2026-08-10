@@ -2,29 +2,27 @@
 Meta Embedded Signup OAuth Service
 Handles WhatsApp Business API authentication via Meta Embedded Signup
 
-IMPORTANT - How the code exchange works in this flow:
+CANONICAL PRODUCTION REDIRECT URI:
 
-The WhatsApp Embedded Signup is launched with the JavaScript SDK via
-FB.login({config_id, response_type: 'code', override_default_response_type:
-true, extras: {setup: {}}}). FB.login opens the Embedded Signup in a centered
-POPUP window; the code is returned directly to the JS callback
-(response.authResponse.code) and the customer's asset IDs are delivered via the
-WA_EMBEDDED_SIGNUP message posted to the window that spawned the flow.
+The Meta token exchange MUST always send redirect_uri exactly as:
 
-Because there is NO redirect in the FB.login popup flow, Meta does NOT record a
-redirect_uri for the code. The server-side exchange
-(GET /oauth/access_token) must therefore NOT send redirect_uri - sending any
-value fails with error_subcode 36008 ("make sure your redirect_uri is
-identical to the one you used in the OAuth dialog request"). Per Meta's
-Embedded Signup docs the exchange is exactly:
+    https://apps.orvym.com/dashboard/integrations/
 
-    GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>
+This is the ONE canonical production value used by the OAuth dialog, the
+frontend, the backend callback and the Meta App Dashboard (Valid OAuth
+Redirect URIs). A previous production run proved that exchanging with
+client_id + client_secret + code + redirect_uri (this exact value) returns
+HTTP 200 and a valid access token.
 
-redirect_uri is only sent (verbatim, byte-for-byte) for legacy codes produced
-by the manual dialog-URL flow. When redirect_uri is None the parameter is
-omitted entirely - NEVER constructed, never sent empty. An empty-string
-redirect_uri is not identical to any value Meta recorded and triggers error
-36008.
+The exchange request is therefore:
+
+    GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>&redirect_uri=https://apps.orvym.com/dashboard/integrations/
+
+redirect_uri MUST NEVER be omitted, must NEVER be sent as an empty string and
+must NEVER be sent as null. Omitting it (or sending a value that differs from
+the one Meta recorded for the dialog request) triggers error_subcode 36008
+("make sure your redirect_uri is identical to the one you used in the OAuth
+dialog request").
 
 IMPORTANT - Where the WABA ID and phone number ID come from:
 
@@ -59,6 +57,12 @@ import logging
 from typing import Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+# Canonical production redirect URI. This exact value is used everywhere:
+# the Meta OAuth dialog configuration, the frontend callback payload, the
+# backend callback validation and the server-side token exchange. Never use a
+# different value and never omit it from the exchange.
+CANONICAL_REDIRECT_URI = "https://apps.orvym.com/dashboard/integrations/"
 
 # Prevent httpx/httpcore from logging the full request URL (which would expose
 # the app secret and the full authorization code in the query string).
@@ -153,9 +157,10 @@ class MetaOAuthService:
 
         When Meta reports error_subcode 36008 (verification-code validation
         failure) an actionable hint is appended. The hint explains that the
-        exchange redirect_uri must be byte-identical to the value used in the
-        OAuth dialog request and registered in Valid OAuth Redirect URIs. It
-        never suggests guessing or dropping redirect_uri.
+        exchange redirect_uri must be byte-identical to the canonical production
+        value (https://apps.orvym.com/dashboard/integrations/) and registered in
+        Valid OAuth Redirect URIs. It never suggests guessing or dropping
+        redirect_uri.
         """
         try:
             error_obj = response.json().get("error", {})
@@ -166,13 +171,13 @@ class MetaOAuthService:
             message = (
                 f"{message} (hint: error_subcode 36008 means the exchange "
                 "redirect_uri does not match the value Meta recorded for this "
-                "single-use code. Confirm the OAuth dialog was launched from "
-                "the frontend-built dialog URL so the code is bound to the "
-                "app's own redirect_uri, that the exchange sent that exact "
-                "redirect_uri (never an empty string), that it is registered "
-                "in the Meta App Dashboard Valid OAuth Redirect URIs, and "
-                "that the code was exchanged exactly once within its short "
-                "TTL.)"
+                "single-use code. Confirm the exchange sent the canonical "
+                "redirect_uri exactly as "
+                "https://apps.orvym.com/dashboard/integrations/ (never omitted, "
+                "never an empty string), that the same exact value is used in "
+                "the OAuth dialog request and registered in the Meta App "
+                "Dashboard Valid OAuth Redirect URIs, and that the code was "
+                "exchanged exactly once within its short TTL.)"
             )
         return message, error_obj
 
@@ -186,23 +191,22 @@ class MetaOAuthService:
         """
         Exchange the Embedded Signup authorization code for an access token.
 
-        For the FB.login popup flow (the official Embedded Signup flow) the
-        code is returned directly to the JS callback - there is NO redirect, so
-        Meta does not record a redirect_uri. Per Meta's docs the exchange is
-        exactly client_id + client_secret + code, WITHOUT redirect_uri:
+        The exchange ALWAYS includes the canonical production redirect_uri:
 
-            GET /oauth/access_token?client_id&client_secret&code
+            GET /oauth/access_token?client_id&client_secret&code&redirect_uri
 
-        redirect_uri is only sent (verbatim) for legacy codes produced by a
-        manual dialog-URL flow. Only an explicit, non-empty redirect_uri is
-        ever sent. An empty string is never sent (it can never match the value
-        Meta recorded, causing error_subcode 36008). When redirect_uri is None
-        the parameter is omitted entirely.
+        with redirect_uri = https://apps.orvym.com/dashboard/integrations/ (see
+        the module docstring). Omitting redirect_uri - or sending an empty
+        string or a value different from the one Meta recorded for the dialog
+        request - fails with error_subcode 36008 ("make sure your redirect_uri
+        is identical to the one you used in the OAuth dialog request").
 
         Args:
             code: The exchangeable authorization code from Meta Embedded Signup.
-            redirect_uri: Only for legacy manual-dialog codes - the EXACT
-                redirect_uri used in the dialog request. Omitted when None.
+            redirect_uri: Optional. When provided it is normalized (stripped)
+                and sent. When omitted or empty, the canonical production
+                redirect_uri is sent. redirect_uri is NEVER omitted from the
+                exchange and NEVER sent as an empty string.
 
         Returns:
             (success, data, error_message)
@@ -210,15 +214,13 @@ class MetaOAuthService:
         try:
             url = f"{self.GRAPH_API_BASE}/oauth/access_token"
 
+            redirect_uri = (redirect_uri or "").strip() or CANONICAL_REDIRECT_URI
             params = {
                 "client_id": self.app_id,
                 "client_secret": self.app_secret,
                 "code": code,
+                "redirect_uri": redirect_uri,
             }
-            if redirect_uri:
-                redirect_uri = str(redirect_uri).strip()
-                if redirect_uri:
-                    params["redirect_uri"] = redirect_uri
 
             self._log_exchange_request(url, params)
 
@@ -683,7 +685,7 @@ class MetaOAuthService:
         """
         Complete WhatsApp integration setup from the Embedded Signup data.
 
-        The WABA ID and phone number ID are returned by Meta Embedded Signup
+        The WABA ID and phone number ID MAY be returned by Meta Embedded Signup
         in the WA_EMBEDDED_SIGNUP session message (captured on the frontend and
         forwarded here). The backend uses those supplied IDs directly. Only
         when they are NOT provided does the backend discover them server-side
@@ -694,15 +696,14 @@ class MetaOAuthService:
         shared with the portfolio by Embedded Signup. The code is never used to
         guess the WABA - only to obtain the token, which is then inspected.
 
-        The code exchange for the FB.login popup flow sends client_id +
-        client_secret + code with NO redirect_uri (the code is returned
-        directly to the JS callback - no redirect, so no redirect_uri is
-        recorded). redirect_uri is only forwarded verbatim (never empty) for
-        legacy manual-dialog codes; an empty string is never sent.
+        The code exchange ALWAYS sends the canonical production redirect_uri
+        (https://apps.orvym.com/dashboard/integrations/) - it is NEVER omitted
+        and NEVER sent empty. A mismatched or missing redirect_uri fails the
+        exchange with error_subcode 36008.
 
         Flow:
-        1. Exchange code for access token (server-side; redirect_uri omitted
-           for the FB.login popup flow)
+        1. Exchange code for access token (server-side, always with the
+           canonical redirect_uri)
         2. If no WABA ID was provided, discover it via the business portfolio
            edges (GET /me/businesses -> /client_whatsapp_business_accounts)
         3. Validate the WABA via GET /<WABA_ID> (only supported fields: id,name)
@@ -720,9 +721,10 @@ class MetaOAuthService:
             business_id: Business portfolio ID returned by Embedded Signup
                 (optional - falls back to the portfolio resolved from the token
                 when omitted).
-            redirect_uri: Only for legacy manual-dialog codes - the EXACT
-                redirect_uri used in the OAuth dialog request. Forwarded
-                verbatim to the code exchange. Omitted when None.
+            redirect_uri: The EXACT redirect_uri used in the OAuth dialog
+                request. Optional - when omitted or empty the canonical
+                production redirect_uri is used. redirect_uri is NEVER omitted
+                from the exchange and NEVER sent empty.
 
         Returns:
             (success, integration_data, error_message)
@@ -739,11 +741,9 @@ class MetaOAuthService:
         - verified_name: Verified display name
         """
         try:
-            # Step 1: Exchange code for token. For the FB.login popup flow the
-            # code is returned directly to the JS callback (no redirect), so
-            # Meta records no redirect_uri and the exchange omits it. Legacy
-            # manual-dialog codes still forward their exact redirect_uri (see
-            # exchange_code_for_token).
+            # Step 1: Exchange code for token. The exchange ALWAYS sends the
+            # canonical production redirect_uri (see module docstring and
+            # exchange_code_for_token) - it is never omitted and never empty.
             logger.info(f"[EmbeddedSignup] Step 1/5 - Meta token exchange started (code length: {len(code)})")
             success, token_data, error = await self.exchange_code_for_token(code, redirect_uri=redirect_uri)
             if not success:

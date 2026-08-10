@@ -7,7 +7,7 @@ from services import decode_token
 from services.encryption import encrypt_value, decrypt_value
 from services.website_fetcher import fetch_website_content as fetch_website_service
 from services.universal_website_fetcher import UniversalWebsiteFetcher
-from services.meta_oauth import MetaOAuthService
+from services.meta_oauth import MetaOAuthService, CANONICAL_REDIRECT_URI
 from config import get_settings
 import logging
 import json
@@ -659,31 +659,24 @@ async def meta_oauth_callback_post(
     """
     Handle Meta Embedded Signup callback via POST.
 
-    The frontend launches the WhatsApp Embedded Signup with the official
-    FB.login popup flow (config_id + response_type=code +
-    override_default_response_type=true + extras), which delivers:
-      - code             : exchangeable authorization code via the FB.login
-                           callback (REQUIRED)
+    The frontend forwards the following from Embedded Signup:
+      - code             : exchangeable authorization code (REQUIRED)
+      - redirect_uri     : the canonical production redirect URI
+                           (https://apps.orvym.com/dashboard/integrations/) -
+                           REQUIRED, never empty, never null
       - waba_id          : WhatsApp Business Account ID from the
                            WA_EMBEDDED_SIGNUP completion event (optional - the
-                           backend uses it directly when present)
+                           backend discovers it server-side when absent)
       - phone_number_id  : business phone number ID from the completion event
                            (optional - the backend uses the first phone number
                            on the WABA when absent)
       - business_id      : business portfolio ID from the completion event
                            (optional)
 
-    Note on redirect_uri: in the FB.login popup flow the code is returned
-    directly to the JS callback (no redirect), so Meta does not record a
-    redirect_uri and the exchange must NOT send one. The frontend therefore
-    sends redirect_uri as null and the backend omits it from the exchange.
-    redirect_uri is only forwarded verbatim (never empty) for legacy
-    manual-dialog codes.
-
     The backend then:
       1. Exchanges the code server-side for the customer business token
-         (client_id + client_secret + code; redirect_uri omitted for the
-         FB.login popup flow)
+         (client_id + client_secret + code + redirect_uri - redirect_uri is
+         ALWAYS the canonical value, never omitted, never empty)
       2. Uses the WABA ID from the Embedded Signup event (or discovers it from
          the token via the business portfolio edges when not provided:
          GET /me/businesses -> /<business_id>/client_whatsapp_business_accounts)
@@ -694,8 +687,11 @@ async def meta_oauth_callback_post(
     """
     settings = get_settings()
 
-    # The exchangeable code is the only required input. Asset IDs are resolved
-    # server-side after the token exchange when they are not provided.
+    # The exchangeable code is required. The redirect_uri is ALSO required -
+    # omitting it (or sending an empty value) is exactly what causes Meta's
+    # error_subcode 36008 on the code exchange. In production the canonical
+    # exact URI is enforced so the frontend, backend and Meta App Dashboard
+    # can never drift apart.
     if not payload.code or len(str(payload.code).strip()) < 10:
         raise HTTPException(400, "Missing authorization code from Embedded Signup completion data")
 
@@ -703,7 +699,21 @@ async def meta_oauth_callback_post(
     waba_id = (str(payload.waba_id).strip() if payload.waba_id else "") or None
     phone_number_id = (str(payload.phone_number_id).strip() if payload.phone_number_id else "") or None
     business_id = (str(payload.business_id).strip() if payload.business_id else "") or None
-    redirect_uri = (str(payload.redirect_uri).strip() if payload.redirect_uri else "") or None
+
+    redirect_uri = (str(payload.redirect_uri).strip() if payload.redirect_uri else "")
+    if not redirect_uri:
+        raise HTTPException(
+            400,
+            "redirect_uri is required. Send the canonical production redirect "
+            "URI: " + CANONICAL_REDIRECT_URI,
+        )
+    if redirect_uri != CANONICAL_REDIRECT_URI:
+        raise HTTPException(
+            400,
+            f"redirect_uri must be exactly '{CANONICAL_REDIRECT_URI}' "
+            f"(received: '{redirect_uri}'). Use the same canonical production "
+            "value everywhere.",
+        )
 
     # Mask the code in ALL logs. Never log the full code, access tokens or secrets.
     masked_code = f"{code[:8]}...{code[-4:]} (length {len(code)})"
@@ -712,7 +722,7 @@ async def meta_oauth_callback_post(
     logger.info("=" * 80)
     logger.info(f"User ID: {user_id}")
     logger.info(f"Code received: {masked_code}")
-    logger.info(f"Redirect URI: {redirect_uri or '(not provided - exchange will omit it)'}")
+    logger.info(f"Redirect URI: {redirect_uri}")
     logger.info(f"WABA ID: {waba_id or '(not provided - will be discovered server-side)'}")
     logger.info(f"Phone Number ID: {phone_number_id or '(not provided - first WABA phone number will be used)'}")
     logger.info(f"Business ID: {business_id or '(not provided - will be resolved server-side)'}")

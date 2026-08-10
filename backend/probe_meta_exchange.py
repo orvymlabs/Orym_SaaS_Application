@@ -3,8 +3,9 @@ Meta Embedded Signup fresh-code exchange probe.
 
 Implements CLAUDE.md "SIXTH: TEST WITH A FRESH CODE": given a brand-new
 exchangeable code, perform EXACTLY ONE backend token exchange (identical to
-production: GET /oauth/access_token with client_id + client_secret + code and
-NO redirect_uri) and capture Meta's actual response.
+production: GET /oauth/access_token with client_id + client_secret + code +
+redirect_uri=https://apps.orvym.com/dashboard/integrations/) and capture Meta's
+actual response.
 
 Also runs a production-parity check that compares the DEPLOYED
 /openapi.json against the expected callback shape, so a stale build can never
@@ -106,7 +107,8 @@ async def run_exchange(svc: MetaOAuthService, code: str) -> None:
     print("SINGLE TOKEN EXCHANGE (exactly one attempt)")
     print_sep()
     print(f"  Endpoint: {svc.GRAPH_API_BASE}/oauth/access_token")
-    print("  Params: client_id + client_secret + code (NO redirect_uri)")
+    print("  Params: client_id + client_secret + code + redirect_uri")
+    print("  redirect_uri: https://apps.orvym.com/dashboard/integrations/ (canonical)")
     print(f"  Code (masked): {mask(code)} (length {len(code)})")
     print_sep()
 
@@ -116,10 +118,11 @@ async def run_exchange(svc: MetaOAuthService, code: str) -> None:
         print("[RESULT] EXCHANGE FAILED")
         print(f"  Error: {redact(error)}")
         print()
-        print("  Meta rejected the code. The exchange request is already correct")
-        print("  (client_id + client_secret + code, no redirect_uri). Check the")
-        print("  checklist from GET /api/integrations/meta/verify and the Meta App")
-        print("  Dashboard configuration, then retry with a FRESH code.")
+        print("  Meta rejected the code. The exchange request already sends the")
+        print("  canonical redirect_uri (client_id + client_secret + code +")
+        print("  redirect_uri=https://apps.orvym.com/dashboard/integrations/). Check")
+        print("  the checklist from GET /api/integrations/meta/verify and the Meta")
+        print("  App Dashboard configuration, then retry with a FRESH code.")
         return
 
     token = data.get("access_token", "")

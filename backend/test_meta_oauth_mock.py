@@ -49,13 +49,12 @@ def run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
-def test_exchange_never_sends_redirect_uri():
+def test_exchange_always_sends_canonical_redirect_uri():
     """
-    When the exchange is invoked WITHOUT a redirect_uri (legacy/no-dialog
-    context) the parameter is omitted entirely - never constructed, never sent
-    empty. The manual dialog flow sends the exact value (see
-    test_exchange_forwards_exact_redirect_uri); omitting it here must be
-    explicit and safe.
+    The exchange ALWAYS sends redirect_uri. When invoked WITHOUT an explicit
+    redirect_uri (or with an empty one) the canonical production value is
+    used - never omitted, never an empty string, never null. Omitting it is
+    exactly what triggers Meta error_subcode 36008.
     """
     captured = {}
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
@@ -73,12 +72,15 @@ def test_exchange_never_sends_redirect_uri():
     assert captured["params"]["client_id"] == "3862862217342382"
     assert captured["params"]["client_secret"] == "secret"
     assert captured["params"]["code"] == code
-    assert "redirect_uri" not in captured["params"], "no redirect_uri supplied -> parameter omitted entirely"
-    print("PASS: no redirect_uri supplied -> parameter omitted entirely (never empty)")
+    assert captured["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/", \
+        "canonical redirect_uri must ALWAYS be sent"
+    print("PASS: exchange always sends the canonical redirect_uri (never omitted)")
+
+    assert set(captured["params"].keys()) == {"client_id", "client_secret", "code", "redirect_uri"}
 
 
-def test_exchange_without_redirect_uri_omits_it():
-    """When no redirect_uri is supplied the exchange omits the parameter."""
+def test_exchange_without_redirect_uri_uses_canonical():
+    """When no redirect_uri is supplied the exchange uses the canonical value."""
     captured = {}
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
     svc.GRAPH_API_BASE = GRAPH_BASE
@@ -89,15 +91,15 @@ def test_exchange_without_redirect_uri_omits_it():
         ok, data, err = run(svc.exchange_code_for_token("AQcode"))
 
     assert ok is True, err
-    assert "redirect_uri" not in captured["params"], "redirect_uri must be OMITTED"
-    print("PASS: redirect_uri omitted entirely")
+    assert captured["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/"
+    print("PASS: redirect_uri falls back to the canonical production value")
 
 
 def test_exchange_forwards_exact_redirect_uri():
     """
-    The manual dialog flow: the code is bound to the app's own redirect_uri
-    (frontend-built dialog URL), so the exchange MUST send that EXACT value
-    (never an empty string) for Meta's "redirect_uri identical" check.
+    An explicit redirect_uri is forwarded verbatim (byte-for-byte) to Meta's
+    "redirect_uri identical" check. The canonical value
+    (https://apps.orvym.com/dashboard/integrations/) is what production sends.
     """
     captured = {}
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
@@ -115,11 +117,11 @@ def test_exchange_forwards_exact_redirect_uri():
     assert captured["params"]["code"] == code
     assert captured["params"]["redirect_uri"] == redirect_uri, \
         "redirect_uri must be forwarded byte-identically"
-    print("PASS: exact dialog redirect_uri forwarded to Meta")
+    print("PASS: exact redirect_uri forwarded to Meta")
 
 
-def test_exchange_never_sends_empty_string_redirect_uri():
-    """redirect_uri="" must never be sent (it can never match the dialog value)."""
+def test_exchange_empty_string_redirect_uri_uses_canonical():
+    """redirect_uri="" must NEVER be sent - the canonical value is used instead."""
     captured = {}
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
     svc.GRAPH_API_BASE = GRAPH_BASE
@@ -130,8 +132,9 @@ def test_exchange_never_sends_empty_string_redirect_uri():
         ok, data, err = run(svc.exchange_code_for_token("AQcode", redirect_uri="   "))
 
     assert ok is True, err
-    assert "redirect_uri" not in captured["params"], "empty/whitespace redirect_uri must be OMITTED"
-    print("PASS: empty-string redirect_uri is never sent")
+    assert captured["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/", \
+        "empty/whitespace redirect_uri must fall back to the canonical value"
+    print("PASS: empty-string redirect_uri is never sent - canonical value used")
 
 
 def test_exchange_meta_error_returned():
@@ -156,8 +159,9 @@ def test_exchange_meta_error_returned():
     assert ok is False
     assert data is None
     assert "redirect_uri is identical" in err
-    assert "redirect_uri" not in captured["params"], "no redirect_uri is ever sent, even on error"
-    print("PASS: Meta 400 error propagated, exchange carried no redirect_uri")
+    assert captured["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/", \
+        "the canonical redirect_uri is always sent, even on error"
+    print("PASS: Meta 400 error propagated, exchange still carried the canonical redirect_uri")
 
 
 def build_client(get_responses, post_responses):
@@ -228,12 +232,13 @@ def test_setup_whatsapp_integration_full_flow():
     assert data["display_phone_number"] == "+15551234567"
     assert data["verified_name"] == "Verified Business"
 
-    # 1) Exchange request carries ONLY client_id + client_secret + code
-    #    (Embedded Signup config_id flow never uses redirect_uri)
+    # 1) Exchange request carries client_id + client_secret + code + the
+    #    canonical redirect_uri (https://apps.orvym.com/dashboard/integrations/)
     exchange = requests_log[0]
     assert exchange["method"] == "GET"
     assert exchange["url"] == f"{GRAPH_BASE}/oauth/access_token"
-    assert "redirect_uri" not in exchange["params"], "redirect_uri must never be sent"
+    assert exchange["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/", \
+        "canonical redirect_uri must ALWAYS be sent in the exchange"
     assert exchange["params"]["code"] == code
 
     # 2) WABA validated first: GET /<WABA_ID> with supported fields only
@@ -315,11 +320,13 @@ def test_setup_whatsapp_integration_code_only_discovery():
     assert data["business_id"] == discovered_business_id
     assert data["business_id"] != data["waba_id"]
 
-    # 1) Exchange request carries ONLY client_id + client_secret + code
+    # 1) Exchange request carries client_id + client_secret + code + the
+    #    canonical redirect_uri (never omitted, never empty)
     exchange = requests_log[0]
     assert exchange["method"] == "GET"
     assert exchange["url"] == f"{GRAPH_BASE}/oauth/access_token"
-    assert "redirect_uri" not in exchange["params"], "redirect_uri must never be sent"
+    assert exchange["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/", \
+        "canonical redirect_uri must ALWAYS be sent in the exchange"
 
     # 2) Business portfolio resolved via GET /me/businesses (fields=id,name)
     biz_req = requests_log[1]
@@ -423,9 +430,13 @@ def test_phone_numbers_edge_regression():
     assert data["waba_id"] == waba_id
     assert data["business_id"] == business_id
 
-    # No request may ever use redirect_uri, fields=phone_numbers, /me, or debug_token
-    for req in requests_log:
-        assert "redirect_uri" not in req["params"], "redirect_uri must never be sent"
+    # The exchange (first request) MUST carry the canonical redirect_uri; the
+    # other Graph API calls must never include redirect_uri, fields=phone_numbers,
+    # /me, or debug_token.
+    assert requests_log[0]["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/", \
+        "canonical redirect_uri must ALWAYS be sent in the exchange"
+    for req in requests_log[1:]:
+        assert "redirect_uri" not in req["params"], f"redirect_uri must not be sent to {req['url']}"
         assert req["params"].get("fields") != "phone_numbers", f"fields=phone_numbers used in {req['url']}"
         assert "/me" != req["url"].replace(GRAPH_BASE, "").strip("/"), "/me must not be used"
         assert "/debug_token" not in req["url"], "WABA must never be discovered via debug_token"
