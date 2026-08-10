@@ -123,6 +123,16 @@ export default function IntegrationsPage() {
   const signupCodeRef = useRef<string | null>(null);
   const signupDataRef = useRef<{ waba_id?: string; phone_number_id?: string; business_id?: string }>({});
   const completingRef = useRef(false);
+  // Stale-closure safety (Part 12 of the spec): the message listener is
+  // registered in a mount-once useEffect, so any state it reads must be
+  // mirrored in refs. The Config ID is stored here when it loads so the
+  // listener/timeout diagnostics never read a stale null from the first render.
+  const configIdRef = useRef<string | null>(null);
+  // Diagnostic accumulation for the current Embedded Signup attempt. Every
+  // window message origin/type observed during an active attempt is recorded
+  // here (never secrets - just origin + type + parsed event name) so the
+  // timeout handler can report exactly what Meta did or did not send.
+  const messageDiagnosticsRef = useRef<Array<{ origin: string; type: string; event?: string }>>([]);
   // Synchronous guard against duplicate launches (e.g. a fast double-click
   // before React re-renders the disabled state). It is cleared again when the
   // flow finishes, cancels or errors, so reconnect/retry keeps working.
@@ -167,10 +177,22 @@ export default function IntegrationsPage() {
         sessionWaitTimeoutRef.current = window.setTimeout(() => {
           sessionWaitTimeoutRef.current = null;
           // If the session event still has not arrived, the popup was closed
-          // before FINISH or the session could not complete - guide the user
-          // to start a fresh flow rather than dropping the code silently.
+          // before FINISH or the session could not complete - report the exact
+          // diagnostics observed during the attempt instead of silently
+          // dropping the code.
           if (!signupDataRef.current.waba_id || !signupDataRef.current.phone_number_id) {
             console.warn('[EmbeddedSignup] WA_EMBEDDED_SIGNUP FINISH event never arrived - showing onboarding error');
+            console.warn('[EmbeddedSignup] Timeout diagnostics:');
+            console.warn('  popup_since: attempt started, WA_EMBEDDED_SIGNUP session not delivered within 12s');
+            console.warn('  messages_received:', JSON.stringify(messageDiagnosticsRef.current));
+            const sawSignup = messageDiagnosticsRef.current.some(m => m.type === 'WA_EMBEDDED_SIGNUP');
+            const sawCancel = messageDiagnosticsRef.current.some(m => m.event === 'CANCEL');
+            const sawError = messageDiagnosticsRef.current.some(m => m.event === 'ERROR');
+            console.warn('  saw_WA_EMBEDDED_SIGNUP_event:', sawSignup);
+            console.warn('  saw_CANCEL:', sawCancel);
+            console.warn('  saw_ERROR:', sawError);
+            console.warn('  sessionInfoVersion_requested: 3');
+            console.warn('  config_id:', configIdRef.current || 'unknown');
             launchingRef.current = false;
             setIsExchangeInProgress(false);
             setConnectingWhatsApp(false);
@@ -240,6 +262,7 @@ export default function IntegrationsPage() {
     apiGet<{ app_id: string; config_id: string }>("/api/integrations/meta/config")
       .then(config => {
         setMetaConfig(config);
+        configIdRef.current = config?.config_id || null;
         // Load + initialize the Facebook JS SDK after the App ID is known.
         if (typeof window !== 'undefined' && config) {
           loadFacebookSDK(config.app_id);
@@ -261,27 +284,101 @@ export default function IntegrationsPage() {
     //   }
     // The asset IDs are captured here when provided (never fabricated); the
     // exchangeable code itself is delivered via the FB.login callback.
+    //
+    // This listener is registered ONCE on mount - always BEFORE any FB.login()
+    // call (which is only ever invoked from a user click) - and stays alive for
+    // the whole signup session. It logs every window message observed while an
+    // attempt is active (origin + type + parsed event name, NEVER secrets) so a
+    // missing FINISH can be diagnosed precisely instead of guessed.
     const handleEmbeddedSignupMessage = (event: MessageEvent) => {
-      // Security check: only accept messages from facebook.com
-      if (!event.origin.endsWith('facebook.com')) return;
+      const attemptActive = !!launchingRef.current;
+      const origin = event.origin || 'unknown';
 
-      let data: any;
-      try {
-        data = JSON.parse(event.data);
-      } catch {
-        return; // non-JSON message from facebook.com - ignore
+      // SAFE FACEBOOK-ORIGIN VALIDATION (Part 2 of the spec). Accept the
+      // production origin https://www.facebook.com and any legitimate
+      // facebook.com subdomain. Do NOT accept arbitrary origins. Rejected
+      // origins are logged (never silently dropped) so we can tell whether the
+      // SDK is posting from an unexpected origin.
+      const isFacebookOrigin =
+        origin === 'https://www.facebook.com' ||
+        origin === 'https://facebook.com' ||
+        origin === 'https://business.facebook.com' ||
+        origin.endsWith('.facebook.com');
+
+      if (!isFacebookOrigin) {
+        if (attemptActive) {
+          console.log('[EmbeddedSignup] Ignored message origin:', origin);
+          messageDiagnosticsRef.current.push({ origin, type: 'ignored-origin' });
+        }
+        return;
       }
 
-      if (!data || data.type !== 'WA_EMBEDDED_SIGNUP') return;
+      // LOG EVERY MESSAGE DURING AN ACTIVE ATTEMPT (Part 3 of the spec).
+      if (attemptActive) {
+        console.log('[EmbeddedSignup] WINDOW MESSAGE RECEIVED');
+        console.log('  origin:', origin);
+        console.log('  dataType:', typeof event.data);
+        // Safe/truncated raw data - NEVER print codes/tokens/secrets.
+        let rawStr: string;
+        try {
+          rawStr = typeof event.data === 'string' ? event.data : JSON.stringify(event.data);
+        } catch {
+          rawStr = '[unserializable]';
+        }
+        if (rawStr.length > 500) {
+          rawStr = rawStr.slice(0, 500) + '...[truncated]';
+        }
+        console.log('  rawData:', rawStr);
+      }
+
+      // event.data may be a JSON string (Meta's documented format) or, in some
+      // environments, already an object. Handle both safely.
+      let data: any = event.data;
+      if (typeof data === 'string') {
+        try {
+          data = JSON.parse(data);
+        } catch {
+          if (attemptActive) {
+            console.log('[EmbeddedSignup] PARSED MESSAGE: non-JSON string (ignored)');
+          }
+          return;
+        }
+      }
+
+      if (data && typeof data === 'object' && attemptActive) {
+        const dataKeys = data.data && typeof data.data === 'object'
+          ? Object.keys(data.data)
+          : [];
+        console.log('[EmbeddedSignup] PARSED MESSAGE');
+        console.log('  type:', data.type);
+        console.log('  event:', data.event);
+        console.log('  version:', data.version);
+        console.log('  data keys:', dataKeys.join(', ') || '(none)');
+      }
+
+      if (!data || typeof data !== 'object' || data.type !== 'WA_EMBEDDED_SIGNUP') {
+        if (attemptActive) {
+          console.log('[EmbeddedSignup] Ignored message (not WA_EMBEDDED_SIGNUP). type:', data?.type || 'undefined');
+          messageDiagnosticsRef.current.push({ origin, type: data?.type || 'non-wa-embedded-signup' });
+        }
+        return;
+      }
 
       const eventName = String(data.event || 'UNKNOWN');
       const dataObj = data.data || {};
 
-      console.log('[EmbeddedSignup] message event received from', event.origin, '| event:', eventName);
+      if (attemptActive) {
+        messageDiagnosticsRef.current.push({ origin, type: 'WA_EMBEDDED_SIGNUP', event: eventName });
+      }
+      console.log('[EmbeddedSignup] WA_EMBEDDED_SIGNUP EVENT RECEIVED');
+      console.log('  event:', eventName);
+      console.log('  version:', data.version);
 
       // CANCEL - abandoned flow (capture current_step) or user-reported error
       // (capture error_message, error_code, session_id, timestamp).
       if (eventName === 'CANCEL') {
+        console.log('[EmbeddedSignup] User cancelled Embedded Signup');
+        console.log('  current_step:', dataObj.current_step || 'unknown');
         const errorMessage = dataObj.error_message;
         const errorCode = dataObj.error_code;
         if (errorMessage || errorCode) {
@@ -300,7 +397,6 @@ export default function IntegrationsPage() {
             "error"
           );
         } else {
-          console.log('[EmbeddedSignup] Flow cancelled. current_step:', dataObj.current_step || 'unknown');
           clearSessionWaitTimeout();
           launchingRef.current = false;
           setIsExchangeInProgress(false);
@@ -314,7 +410,10 @@ export default function IntegrationsPage() {
       if (eventName === 'ERROR') {
         const errorMessage = dataObj.error_message;
         const errorCode = dataObj.error_code;
-        console.log('[EmbeddedSignup] Flow error:', errorCode, errorMessage);
+        console.log('[EmbeddedSignup] Meta Embedded Signup ERROR');
+        console.log('  error_message:', errorMessage);
+        console.log('  error_code:', errorCode);
+        console.log('  current_step:', dataObj.current_step || 'unknown');
         clearSessionWaitTimeout();
         launchingRef.current = false;
         setIsExchangeInProgress(false);
@@ -359,8 +458,10 @@ export default function IntegrationsPage() {
     };
 
     // Register the listener exactly once (cleaned up on unmount so navigating
-    // away and back never creates a duplicate listener).
+    // away and back never creates a duplicate listener). Registered on mount -
+    // always BEFORE any FB.login() call (Part 1 of the spec).
     window.addEventListener('message', handleEmbeddedSignupMessage);
+    console.log('[EmbeddedSignup] Message listener registered');
 
     // Fetch integration data
     apiGet<IntegrationData>("/api/integrations/me").then((data) => {
@@ -436,15 +537,21 @@ export default function IntegrationsPage() {
     sessionStorage.removeItem("meta_embedded_signup");
     signupDataRef.current = {};
     signupCodeRef.current = null;
+    messageDiagnosticsRef.current = [];
 
     // Diagnostics: log the launch context only (never the code).
     console.log('[EmbeddedSignup] Launching WhatsApp Embedded Signup via FB.login popup (official Meta flow)');
     console.log('  Config ID:', metaConfig.config_id);
-    console.log('  response_type: code | override_default_response_type: true | extras: {"setup":{}}');
+    console.log('  response_type: code | override_default_response_type: true | extras: {"setup":{},"sessionInfoVersion":3}');
 
-    // Official Meta launch parameters - preserved exactly:
-    // config_id, response_type: 'code', override_default_response_type: true,
-    // extras: { setup: {} }.
+    // Official Meta launch parameters - preserved exactly (Part 13 of the
+    // production spec): config_id, response_type: 'code',
+    // override_default_response_type: true, extras: { setup: {},
+    // sessionInfoVersion: 3 }. sessionInfoVersion is REQUIRED - it instructs
+    // Meta to deliver the WA_EMBEDDED_SIGNUP session message carrying the
+    // customer asset IDs back to this window. Without it Meta can complete the
+    // flow and return the code but never post the session message, which is
+    // exactly the failure seen in production.
     (window as any).FB.login((response: any) => {
       try {
         if (response?.authResponse?.code) {
@@ -482,7 +589,10 @@ export default function IntegrationsPage() {
       config_id: metaConfig.config_id,
       response_type: 'code',
       override_default_response_type: true,
-      extras: { setup: {} },
+      extras: {
+        setup: {},
+        sessionInfoVersion: 3,
+      },
     });
   };
 
