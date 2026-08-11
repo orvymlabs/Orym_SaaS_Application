@@ -26,22 +26,29 @@ dialog request").
 
 IMPORTANT - Where the WABA ID and phone number ID come from:
 
+PRIMARY SOURCE (documented Meta Embedded Signup):
 The WABA ID, phone number ID and business portfolio ID are returned by the
 Embedded Signup completion event (the WA_EMBEDDED_SIGNUP FINISH message) and
-forwarded from the frontend in the callback payload. The Embedded Signup
-session event is the SOURCE OF TRUTH for the customer onboarding session.
+forwarded from the frontend in the callback payload. When the session event
+delivers them they are used verbatim.
 
-The backend NEVER invents WABA IDs and NEVER falls back to /me/businesses or
-any other business-portfolio edge to guess them. If the WABA ID or phone
-number ID was not returned by the Embedded Signup session event, the backend
-returns a controlled WABA_NOT_RETURNED / PHONE_NUMBER_NOT_RETURNED error so
-the frontend requires a completely new Embedded Signup flow.
+DOCUMENTED SERVER-SIDE FALLBACK (when the session event is delayed/unavailable):
+Meta's official docs ("Managing WhatsApp Business Accounts") define how to
+recover the shared WABA ID from the returned business token: the /debug_token
+response contains granular_scopes whose target_ids identify every WABA that
+granted the app a given permission. The most recently onboarded WABAs appear
+first, so the first target_id for the whatsapp_business_management scope is
+the customer's WABA. The phone number ID is then resolved from the WABA's
+phone_numbers edge (GET /<WABA_ID>/phone_numbers).
+
+The backend NEVER invents WABA IDs and NEVER uses /me/businesses or any other
+business-portfolio edge to guess them. It uses ONLY IDs that Meta itself
+returned: the session event first, then the /debug_token granular_scopes
+target_ids. If neither source yields a WABA ID, the flow fails with a
+controlled WABA_NOT_RETURNED error.
 
 After the exchange the access token is validated with /debug_token (app_id +
-granted scopes are logged; the token itself is never logged). /debug_token is
-NOT used for WABA discovery - its granular_scopes for a Business Integration
-System User token inspected with the app access token do not include the WABA
-target_ids.
+granted scopes are logged; the token itself is never logged).
 """
 import httpx
 import logging
@@ -398,6 +405,25 @@ class MetaOAuthService:
             whatsapp_scopes = {"whatsapp_business_messaging", "whatsapp_business_management"}
             missing = sorted(whatsapp_scopes - granted)
 
+            # Documented server-side WABA recovery (Meta "Managing WhatsApp
+            # Business Accounts"): the granular_scopes target_ids identify the
+            # WABAs that granted the app each permission. The most recently
+            # onboarded WABAs appear first, so the first target_id for
+            # whatsapp_business_management is the customer's WABA. Only used as
+            # a fallback when the WA_EMBEDDED_SIGNUP session event did not
+            # deliver the IDs. Never logged as part of a token/secret.
+            waba_target_ids: list = []
+            for g in granular_scopes:
+                # Meta's granular_scopes entries carry the permission name under
+                # "scope" (sometimes surfaced as "permission"). Accept both so a
+                # real /debug_token response is never missed.
+                scope_name = str(g.get("scope") or g.get("permission") or "").strip()
+                if scope_name == "whatsapp_business_management":
+                    for tid in (g.get("target_ids") or []):
+                        tid = str(tid).strip()
+                        if tid and tid not in waba_target_ids:
+                            waba_target_ids.append(tid)
+
             logger.info("=" * 80)
             logger.info("META ACCESS TOKEN VALIDATION")
             logger.info("=" * 80)
@@ -405,6 +431,7 @@ class MetaOAuthService:
             logger.info(f"  Token type: {data.get('type', 'unknown')}")
             logger.info(f"  Granted scopes: {sorted(granted)}")
             logger.info(f"  Missing WhatsApp scopes: {missing or 'none'}")
+            logger.info(f"  WABA target_ids from granular_scopes: {len(waba_target_ids)} found")
             logger.info(f"  Expires at: {data.get('expires_at', 'unknown')}")
             logger.info("=" * 80)
 
@@ -423,6 +450,7 @@ class MetaOAuthService:
                 "type": data.get("type", "unknown"),
                 "scopes": sorted(granted),
                 "missing_scopes": missing,
+                "waba_target_ids": waba_target_ids,
             }, None
 
         except httpx.TimeoutException:
@@ -589,13 +617,24 @@ class MetaOAuthService:
         """
         Complete WhatsApp integration setup from the Embedded Signup data.
 
-        The WABA ID and phone number ID MUST come from the WA_EMBEDDED_SIGNUP
-        session message (captured on the frontend and forwarded here). They are
-        the source of truth for the customer onboarding session. If they were
-        NOT returned by Meta, the flow fails with a controlled
-        WABA_NOT_RETURNED / PHONE_NUMBER_NOT_RETURNED error - the backend NEVER
-        invents WABA IDs and NEVER falls back to /me/businesses or any other
-        business-portfolio edge to guess them.
+        The WABA ID and phone number ID are resolved in this order (both are
+        IDs Meta itself returned - the backend NEVER invents them):
+
+        PRIMARY - WA_EMBEDDED_SIGNUP session event (the source of truth for
+        the customer onboarding session): the IDs captured on the frontend and
+        forwarded in the callback payload.
+
+        DOCUMENTED SERVER-SIDE FALLBACK - when the session event was delayed
+        or unavailable (only the exchangeable code arrived):
+        - WABA ID: the first target_id in the /debug_token granular_scopes for
+          the whatsapp_business_management scope (most recently onboarded WABAs
+          appear first - Meta "Managing WhatsApp Business Accounts").
+        - Phone number ID: the verified business number on the WABA, resolved
+          from GET /<WABA_ID>/phone_numbers.
+
+        If NO source yields a WABA ID, the flow fails with a controlled
+        WABA_NOT_RETURNED error - the backend NEVER uses /me/businesses or any
+        other business-portfolio edge to guess it.
 
         The code exchange ALWAYS sends the canonical production redirect_uri
         (https://apps.orvym.com/dashboard/integrations/) - it is NEVER omitted
@@ -605,20 +644,25 @@ class MetaOAuthService:
         Flow:
         1. Exchange code for access token (server-side, always with the
            canonical redirect_uri)
-        2. Validate the exchanged token via /debug_token (app_id + scopes)
-        3. Require the WABA ID from the Embedded Signup session (no fallback)
-        4. Require the phone number ID from the Embedded Signup session
+        2. Validate the exchanged token via /debug_token (app_id + scopes +
+           granular_scopes WABA target_ids)
+        3. Resolve the WABA ID: session event, then /debug_token granular
+           scopes target_ids (no /me/businesses)
+        4. Resolve the phone number ID: session event, then the WABA's
+           phone_numbers edge
         5. Validate the WABA via GET /<WABA_ID> (only supported fields: id,name)
-        6. GET /<WABA_ID>/phone_numbers (WABA edge) and verify the Embedded
-           Signup phone number ID is present
+        6. GET /<WABA_ID>/phone_numbers (WABA edge) and verify the resolved
+           phone number ID is present
         7. POST /<WABA_ID>/subscribed_apps to subscribe the WABA to the app
 
         Args:
             code: Authorization code from Meta Embedded Signup
             waba_id: WhatsApp Business Account ID returned by the Embedded
-                Signup session (REQUIRED - never discovered or guessed).
+                Signup session event (optional - resolved server-side from the
+                /debug_token granular_scopes target_ids when absent).
             phone_number_id: Business phone number ID returned by the Embedded
-                Signup session (REQUIRED - never the first phone number).
+                Signup session event (optional - resolved server-side from the
+                WABA's phone_numbers edge when absent).
             business_id: Business portfolio ID returned by the Embedded Signup
                 session (optional - stored when provided, never fabricated).
             redirect_uri: The EXACT redirect_uri used in the OAuth dialog
@@ -632,9 +676,9 @@ class MetaOAuthService:
         integration_data contains:
         - access_token: Long-lived customer-scoped business token
         - business_id: Meta business portfolio ID (from Embedded Signup only)
-        - waba_id: WhatsApp Business Account ID (from Embedded Signup)
+        - waba_id: WhatsApp Business Account ID (resolved as above)
         - business_name: WABA name (from the WABA node)
-        - phone_number_id: Phone Number ID (from Embedded Signup)
+        - phone_number_id: Phone Number ID (resolved as above)
         - display_phone_number: Display phone number
         - verified_name: Verified display name
         """
@@ -662,35 +706,54 @@ class MetaOAuthService:
                 f"(app {token_info.get('app_id')}, type {token_info.get('type')})"
             )
 
-            # Step 3: The WABA ID comes from the Embedded Signup session event.
-            # It is NEVER guessed and NEVER resolved via /me/businesses.
+            # Step 3: Resolve the WABA ID. PRIMARY: the Embedded Signup session
+            # event. DOCUMENTED FALLBACK: the first target_id in the /debug_token
+            # granular_scopes for whatsapp_business_management (most recently
+            # onboarded WABAs appear first - Meta "Managing WhatsApp Business
+            # Accounts"). NEVER /me/businesses or any other portfolio edge.
             waba_id = str(waba_id or "").strip() or None
             if not waba_id:
+                candidate_ids = [
+                    str(tid).strip()
+                    for tid in (token_info.get("waba_target_ids") or [])
+                    if str(tid).strip()
+                ]
+                if candidate_ids:
+                    waba_id = candidate_ids[0]
+                    logger.info(
+                        "[EmbeddedSignup] WABA ID resolved server-side from "
+                        "/debug_token granular_scopes (whatsapp_business_management "
+                        f"target_ids, first/most-recently-onboarded): {waba_id}"
+                    )
+            if not waba_id:
                 logger.error(
-                    "[EmbeddedSignup] Step 3/6 failed - Embedded Signup session "
-                    "returned no WABA ID (WABA_NOT_RETURNED)"
+                    "[EmbeddedSignup] Step 3/6 failed - no WABA ID available from "
+                    "the Embedded Signup session OR the /debug_token granular "
+                    "scopes target_ids (WABA_NOT_RETURNED)"
                 )
                 return False, None, (
                     f"{WABA_NOT_RETURNED}: the WhatsApp Business Account ID was "
-                    "not returned by Meta Embedded Signup. Please restart "
+                    "not returned by Meta Embedded Signup and could not be "
+                    "recovered from the business token. Please restart "
                     "WhatsApp Embedded Signup and complete the setup again."
                 )
+            else:
+                logger.info(f"[EmbeddedSignup] WABA ID resolved: {waba_id}")
 
-            # Step 4: The phone number ID comes from the Embedded Signup session
-            # event. It is NEVER replaced with the first phone number on the WABA.
+            # Step 4: Capture the phone number ID if the session event delivered
+            # it. When absent it is resolved in Step 6 from the WABA's
+            # phone_numbers edge (documented server-side resolution) - the
+            # backend never guesses it.
             phone_number_id = str(phone_number_id or "").strip() or None
-            if not phone_number_id:
-                logger.error(
-                    "[EmbeddedSignup] Step 4/6 failed - Embedded Signup session "
-                    "returned no phone number ID (PHONE_NUMBER_NOT_RETURNED)"
-                )
-                return False, None, (
-                    f"{PHONE_NUMBER_NOT_RETURNED}: the WhatsApp phone number was "
-                    "not returned by Meta Embedded Signup. Please add a business "
-                    "phone number and restart WhatsApp Embedded Signup."
+            if phone_number_id:
+                logger.info(f"[EmbeddedSignup] Phone Number ID from session: {phone_number_id}")
+            else:
+                logger.info(
+                    "[EmbeddedSignup] Phone Number ID not in the session event - "
+                    "will resolve server-side from the WABA phone_numbers edge"
                 )
 
-            # Step 5: Validate the WABA using the session WABA ID.
+            # Step 5: Validate the WABA using the resolved WABA ID.
             logger.info(f"[EmbeddedSignup] Step 5/6 - WABA validation started (waba_id: {waba_id})")
             success, waba_data, error = await self.get_waba_details(waba_id, access_token)
             if not success:
@@ -714,19 +777,47 @@ class MetaOAuthService:
                 )
 
             phone_data = None
-            for pn in phone_numbers:
-                if str(pn.get("id")) == str(phone_number_id):
-                    phone_data = pn
-                    break
-            if phone_data is None:
-                logger.error(
-                    f"[EmbeddedSignup] Step 6/6 failed - Phone number {phone_number_id} "
-                    f"not found in WABA {waba_id}"
-                )
-                return False, None, (
-                    f"{PHONE_NUMBER_NOT_RETURNED}: the phone number returned by "
-                    "Embedded Signup was not found in the WhatsApp Business "
-                    "Account. Please reconnect WhatsApp."
+            if phone_number_id:
+                # Session event delivered the phone number ID - verify it is a
+                # real number on this WABA (never replace it with another number).
+                for pn in phone_numbers:
+                    if str(pn.get("id")) == str(phone_number_id):
+                        phone_data = pn
+                        break
+                if phone_data is None:
+                    logger.error(
+                        f"[EmbeddedSignup] Step 6/6 failed - Phone number {phone_number_id} "
+                        f"not found in WABA {waba_id}"
+                    )
+                    return False, None, (
+                        f"{PHONE_NUMBER_NOT_RETURNED}: the phone number returned by "
+                        "Embedded Signup was not found in the WhatsApp Business "
+                        "Account. Please reconnect WhatsApp."
+                    )
+            else:
+                # Documented server-side resolution: use the verified business
+                # number on the WABA (prefer a verified/registered number,
+                # fall back to the first number returned by Meta).
+                for pn in phone_numbers:
+                    if str(pn.get("certificate") or "").strip() or str(pn.get("verified_name") or "").strip():
+                        phone_data = pn
+                        break
+                if phone_data is None and phone_numbers:
+                    phone_data = phone_numbers[0]
+                if phone_data is None:
+                    logger.error(
+                        f"[EmbeddedSignup] Step 6/6 failed - no phone number "
+                        f"available on WABA {waba_id} (PHONE_NUMBER_NOT_RETURNED)"
+                    )
+                    return False, None, (
+                        f"{PHONE_NUMBER_NOT_RETURNED}: no business phone number "
+                        "was found in the WhatsApp Business Account. Please add "
+                        "a phone number and restart WhatsApp Embedded Signup."
+                    )
+                phone_number_id = str(phone_data.get("id") or "").strip() or phone_number_id
+                logger.info(
+                    f"[EmbeddedSignup] Phone Number ID resolved server-side from "
+                    f"the WABA phone_numbers edge: {phone_number_id}"
                 )
 
             display_phone_number = phone_data.get("display_phone_number", "")

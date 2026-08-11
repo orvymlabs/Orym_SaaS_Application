@@ -331,13 +331,90 @@ def test_setup_whatsapp_integration_code_only_returns_waba_not_returned():
     print("PASS: code-only flow fails with WABA_NOT_RETURNED (no /me/businesses fallback)")
 
 
-def test_setup_whatsapp_integration_missing_phone_number_returns_error():
-    """WABA present but the session did not return a phone number ID fails with
-    PHONE_NUMBER_NOT_RETURNED (never the first phone number on the WABA)."""
+def test_setup_whatsapp_integration_code_only_resolves_ids_server_side():
+    """
+    Production flow where Meta delivers ONLY the exchangeable code (no
+    WA_EMBEDDED_SIGNUP session asset IDs). The backend exchanges the code and
+    validates the token via /debug_token, whose granular_scopes target_ids for
+    whatsapp_business_management identify the customer's WABA (documented Meta
+    fallback - most recently onboarded WABAs appear first). The phone number ID
+    is then resolved from the WABA's phone_numbers edge. This mirrors the exact
+    scenario that previously stalled the flow after LOGIN_CODE_RECEIVED.
+    """
+    svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
+    svc.GRAPH_API_BASE = GRAPH_BASE
+    code = "AQ" + ("t" * 449)
+    waba_id = "111222333"           # recovered from granular_scopes target_ids
+    phone_number_id = "444555666"   # resolved from the WABA phone_numbers edge
+
+    get_responses = [
+        FakeResponse(200, {"access_token": "EAA_business_token", "token_type": "bearer", "expires_in": 5184000}),
+        FakeResponse(200, {"data": {
+            "app_id": "3862862217342382", "type": "BUSINESS",
+            "scopes": ["whatsapp_business_messaging", "whatsapp_business_management"],
+            "granular_scopes": [
+                {"scope": "whatsapp_business_management", "target_ids": [waba_id]},
+                {"scope": "whatsapp_business_messaging", "target_ids": [waba_id]},
+            ],
+        }}),
+        FakeResponse(200, {"id": waba_id, "name": "Recovered WABA"}),
+        FakeResponse(200, {"data": [{
+            "id": phone_number_id,
+            "display_phone_number": "+19998887777",
+            "verified_name": "Recovered Business",
+        }]}),
+    ]
+    post_responses = [
+        FakeResponse(200, {"success": True}),
+    ]
+
+    client, requests_log = build_client(get_responses, post_responses)
+
+    with mock.patch("httpx.AsyncClient", return_value=client):
+        ok, data, err = run(svc.setup_whatsapp_integration(
+            code, waba_id=None, phone_number_id=None, business_id=None,
+        ))
+
+    assert ok is True, err
+    assert data["waba_id"] == waba_id, "WABA must be resolved from granular_scopes target_ids"
+    assert data["phone_number_id"] == phone_number_id, "phone number must be resolved from the WABA edge"
+    assert data["display_phone_number"] == "+19998887777"
+    assert data["business_name"] == "Recovered WABA"
+
+    # 1) Exchange still carried the canonical redirect_uri (never omitted)
+    exchange = requests_log[0]
+    assert exchange["method"] == "GET"
+    assert exchange["url"] == f"{GRAPH_BASE}/oauth/access_token"
+    assert exchange["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/", \
+        "canonical redirect_uri must ALWAYS be sent in the exchange"
+
+    # 2) Token validated via /debug_token - the WABA is recovered from ITS
+    #    granular_scopes target_ids, never from /me/businesses or /me.
+    dbg = requests_log[1]
+    assert dbg["url"] == f"{GRAPH_BASE}/debug_token"
+
+    # 3) WABA + phone_numbers + subscribed_apps all run against the recovered WABA
+    urls = [r["url"] for r in requests_log]
+    assert f"{GRAPH_BASE}/{waba_id}" in urls
+    assert f"{GRAPH_BASE}/{waba_id}/phone_numbers" in urls
+    assert f"{GRAPH_BASE}/{waba_id}/subscribed_apps" in urls
+    assert all("/me/businesses" not in u for u in urls), "NO /me/businesses fallback allowed"
+    assert all("/me" != u.replace(GRAPH_BASE, "").strip("/") for u in urls), "/me must not be used"
+    print("PASS: code-only flow resolves WABA + phone server-side from /debug_token granular_scopes + phone_numbers edge")
+
+
+def test_setup_whatsapp_integration_missing_phone_number_resolved_server_side():
+    """
+    WABA present (from the session event) but the session did not return a
+    phone number ID. Per the documented Meta server-side fallback the backend
+    resolves the phone number ID from the WABA's phone_numbers edge
+    (GET /<WABA_ID>/phone_numbers) instead of failing.
+    """
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
     svc.GRAPH_API_BASE = GRAPH_BASE
     code = "AQ" + ("v" * 449)
     waba_id = "123456789"
+    resolved_phone = "987654321"
 
     get_responses = [
         FakeResponse(200, {"access_token": "EAA_business_token", "token_type": "bearer"}),
@@ -346,24 +423,34 @@ def test_setup_whatsapp_integration_missing_phone_number_returns_error():
             "scopes": ["whatsapp_business_messaging", "whatsapp_business_management"],
             "granular_scopes": [],
         }}),
+        FakeResponse(200, {"id": waba_id, "name": "My Business"}),
+        FakeResponse(200, {"data": [{
+            "id": resolved_phone,
+            "display_phone_number": "+15551234567",
+            "verified_name": "Verified Business",
+        }]}),
+    ]
+    post_responses = [
+        FakeResponse(200, {"success": True}),
     ]
 
-    client, requests_log = build_client(get_responses, [])
+    client, requests_log = build_client(get_responses, post_responses)
 
     with mock.patch("httpx.AsyncClient", return_value=client):
         ok, data, err = run(svc.setup_whatsapp_integration(
             code, waba_id=waba_id, phone_number_id=None, business_id=None,
         ))
 
-    assert ok is False
-    assert data is None
-    assert "PHONE_NUMBER_NOT_RETURNED" in err, err
+    assert ok is True, err
+    assert data["waba_id"] == waba_id
+    assert data["phone_number_id"] == resolved_phone
+    assert data["display_phone_number"] == "+15551234567"
 
     urls = [r["url"] for r in requests_log]
     assert all("/me/businesses" not in u for u in urls), "NO /me/businesses fallback allowed"
-    assert all("/phone_numbers" not in u for u in urls), \
-        "phone_numbers must NOT be called to pick the first number when the session ID is missing"
-    print("PASS: missing phone number ID fails with PHONE_NUMBER_NOT_RETURNED")
+    assert any(u == f"{GRAPH_BASE}/{waba_id}/phone_numbers" for u in urls), \
+        "phone_numbers edge MUST be queried to resolve the missing phone number ID"
+    print("PASS: missing phone number ID resolved server-side from the WABA phone_numbers edge")
 
 
 def test_setup_whatsapp_integration_wrong_app_token_rejected():

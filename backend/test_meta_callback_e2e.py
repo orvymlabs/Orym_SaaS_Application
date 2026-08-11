@@ -9,9 +9,11 @@ Covers:
   2. POST /api/integrations/meta/oauth/callback    -> success path saves integration
   3. POST /api/integrations/meta/oauth/callback    -> code-only (production payload)
      with no asset IDs; backend resolves WABA/phone/business server-side
-  4. POST /api/integrations/meta/oauth/callback    -> error path returns 400 with Meta message
-  5. POST callback without auth                     -> 401
-  6. GET  /health                                   -> app alive
+  4. POST /api/integrations/meta/oauth/callback    -> code-only with nothing
+     resolvable fails with a controlled 400 WABA_NOT_RETURNED
+  5. POST /api/integrations/meta/oauth/callback    -> error path returns 400 with Meta message
+  6. POST callback without auth                     -> 401
+  7. GET  /health                                   -> app alive
 """
 import os
 import sys
@@ -38,15 +40,13 @@ from main import app
 # Mock Meta entirely - never make a network call
 async def fake_setup_success(self, code, redirect_uri=None, waba_id=None, phone_number_id=None, business_id=None):
     assert code, "code must be forwarded to the service"
-    # Mirrors the real service: the WABA ID and phone number ID MUST come from
-    # the WA_EMBEDDED_SIGNUP session event. When Meta did not return them the
-    # service fails with WABA_NOT_RETURNED - it NEVER discovers/guesses them.
-    if not waba_id:
-        return False, None, "WABA_NOT_RETURNED: the WhatsApp Business Account ID was not returned by Meta Embedded Signup. Please restart WhatsApp Embedded Signup and complete the setup again."
-    if not phone_number_id:
-        return False, None, "PHONE_NUMBER_NOT_RETURNED: the WhatsApp phone number was not returned by Meta Embedded Signup."
-    resolved_waba = waba_id
-    resolved_phone = phone_number_id
+    # Mirrors the real service: the WABA ID and phone number ID come from the
+    # WA_EMBEDDED_SIGNUP session event when it delivered them. When Meta did not
+    # return them (code-only callback), the service resolves them server-side
+    # via the documented fallback (/debug_token granular_scopes target_ids +
+    # the WABA phone_numbers edge) instead of failing.
+    resolved_waba = waba_id or "waba_111"
+    resolved_phone = phone_number_id or "phone_222"
     resolved_biz = business_id or "biz_333"
     return True, {
         "access_token": "EAA_test_token",
@@ -57,6 +57,16 @@ async def fake_setup_success(self, code, redirect_uri=None, waba_id=None, phone_
         "display_phone_number": "+15551234567",
         "verified_name": "Test Business",
     }, None
+
+async def fake_setup_no_resolution(self, code, redirect_uri=None, waba_id=None, phone_number_id=None, business_id=None):
+    """Simulates the real service when NOTHING can be resolved (no session
+    event IDs and no /debug_token granular_scopes target_ids) - the backend
+    returns a controlled WABA_NOT_RETURNED error instead of guessing."""
+    if not waba_id:
+        return False, None, "WABA_NOT_RETURNED: the WhatsApp Business Account ID was not returned by Meta Embedded Signup. Please restart WhatsApp Embedded Signup and complete the setup again."
+    if not phone_number_id:
+        return False, None, "PHONE_NUMBER_NOT_RETURNED: the WhatsApp phone number was not returned by Meta Embedded Signup."
+    return False, None, "unreachable"
 
 async def fake_setup_error(self, code, redirect_uri=None, waba_id=None, phone_number_id=None, business_id=None):
     return False, None, "Error validating verification code. Please make sure your redirect_uri is identical to the one you used in the OAuth dialog request"
@@ -156,20 +166,39 @@ def main():
 
     print("=== TEST 4b: POST callback CODE-ONLY (missing session IDs) ===")
     # Production Meta payload delivers ONLY the exchangeable code - no asset
-    # IDs. Because the WA_EMBEDDED_SIGNUP session event did NOT return the
-    # WABA/phone IDs (the source of truth), the backend must fail with a
-    # controlled 400 WABA_NOT_RETURNED error - it must NEVER fall back to
-    # /me/businesses discovery.
+    # IDs (the WA_EMBEDDED_SIGNUP session event was delayed/unavailable). The
+    # backend must NOT stall or fail: it exchanges the code and resolves the
+    # WABA/phone IDs server-side using the documented Meta fallback
+    # (/debug_token granular_scopes target_ids + the WABA phone_numbers edge).
+    RouterMetaOAuthService.setup_whatsapp_integration = fake_setup_success
     code_only = "AQ" + "k" * 449
     r = client.post(
         "/api/integrations/meta/oauth/callback",
         json={"code": code_only, "redirect_uri": redirect_uri, "waba_id": "", "phone_number_id": "", "business_id": ""},
         headers=headers,
     )
-    check("code-only callback returns 400 (missing session IDs)", r.status_code == 400, f"{r.status_code} {r.text[:300]}")
+    check("code-only callback returns 200 (server-side resolution)", r.status_code == 200, f"{r.status_code} {r.text[:300]}")
+    if r.status_code == 200:
+        body = r.json()
+        check("code-only response success true", body.get("success") is True, str(body))
+        check("code-only waba_id resolved", body.get("data", {}).get("waba_id") == "waba_111", str(body))
+        check("code-only phone_number_id resolved", body.get("data", {}).get("phone_number_id") == "phone_222", str(body))
+
+    print("=== TEST 4b2: POST callback CODE-ONLY with NOTHING resolvable ===")
+    # If neither the session event NOR the /debug_token granular_scopes
+    # target_ids can produce a WABA ID, the backend returns a controlled 400
+    # WABA_NOT_RETURNED - it NEVER guesses an ID or uses /me/businesses.
+    RouterMetaOAuthService.setup_whatsapp_integration = fake_setup_no_resolution
+    code_only2 = "AQ" + "m" * 449
+    r = client.post(
+        "/api/integrations/meta/oauth/callback",
+        json={"code": code_only2, "redirect_uri": redirect_uri, "waba_id": "", "phone_number_id": "", "business_id": ""},
+        headers=headers,
+    )
+    check("unresolvable code-only callback returns 400", r.status_code == 400, f"{r.status_code} {r.text[:300]}")
     if r.status_code == 400:
         detail = r.json().get("detail", "")
-        check("code-only error is WABA_NOT_RETURNED", "WABA_NOT_RETURNED" in detail, detail[:120])
+        check("unresolvable error is WABA_NOT_RETURNED", "WABA_NOT_RETURNED" in detail, detail[:120])
 
     print("=== TEST 4c: POST callback - duplicate authorization code rejected ===")
     # A Meta authorization code is single-use. The same code must NEVER reach

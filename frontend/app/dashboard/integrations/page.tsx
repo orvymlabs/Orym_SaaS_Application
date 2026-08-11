@@ -137,14 +137,13 @@ export default function IntegrationsPage() {
   // before React re-renders the disabled state). It is cleared again when the
   // flow finishes, cancels or errors, so reconnect/retry keeps working.
   const launchingRef = useRef(false);
-  // Hard wait timeout for the WA_EMBEDDED_SIGNUP session counterpart. The code
+  // Short wait timeout for the WA_EMBEDDED_SIGNUP session counterpart. The code
   // and the session message can arrive in either order; if one half lands
-  // without the other, we wait (with this generous ~5 min timeout) for the
-  // missing piece instead of discarding the code. The Meta popup/user
-  // interaction can legitimately take much longer than a few seconds, so a 5
-  // minute safety net is used only to avoid an infinite wait - it never fires
-  // merely because the OAuth code arrived first. If the FINISH session event
-  // truly never arrives, a clear onboarding error is shown.
+  // without the other, we wait briefly for the missing piece. Meta delivers the
+  // session event at the same time as the code, so ~20s is generous. If the
+  // FINISH session event does not arrive within that window the flow does NOT
+  // fail - the code is handed to the backend alone and the backend resolves the
+  // WABA ID / phone number ID server-side using the documented Meta fallback.
   const sessionWaitTimeoutRef = useRef<number | null>(null);
 
   const clearSessionWaitTimeout = () => {
@@ -158,12 +157,24 @@ export default function IntegrationsPage() {
   // exchangeable code AND the WA_EMBEDDED_SIGNUP session asset IDs are
   // available. The code and the session message can arrive in any order; this
   // single owner is called from both paths and only fires when both are
-  // present. The WABA ID and phone number ID MUST come from the session event
-  // (the source of truth) - the backend NEVER discovers or guesses them, so the
-  // exchange is never sent without them. When only the code has arrived, we do
-  // NOT discard it: we wait a safe timeout (5 min) for the session IDs to land,
-  // then show a clear onboarding error only if the FINISH event truly never
-  // arrives. The same code is never sent to the backend more than once.
+  // present. When the session event is delayed/unavailable (only the code
+  // arrived), a short wait gives the session event a chance to land and then
+  // the code is handed to the backend anyway - the backend resolves the WABA
+  // ID and phone number ID server-side using the documented Meta fallback
+  // (/debug_token granular_scopes target_ids + the WABA phone_numbers edge).
+  // The code is NEVER discarded and NEVER sent to the backend more than once
+  // (the one-time completingRef guard locks the exchange the moment it starts
+  // and the code is cleared before it is sent).
+  const startBackendExchange = (code: string) => {
+    if (completingRef.current) return;
+    clearSessionWaitTimeout();
+    completingRef.current = true;
+    setIsExchangeInProgress(true);
+    console.log('[EmbeddedSignup] READY_FOR_BACKEND_EXCHANGE');
+    signupCodeRef.current = null; // clear code immediately after capture
+    handleMetaOAuthCallback(code, { ...signupDataRef.current });
+  };
+
   const completeEmbeddedSignup = () => {
     if (completingRef.current) return;
     const code = signupCodeRef.current;
@@ -172,54 +183,27 @@ export default function IntegrationsPage() {
     if (!waba_id || !phone_number_id) {
       // The code arrived but the WA_EMBEDDED_SIGNUP FINISH session message has
       // not delivered the asset IDs yet. Keep the code (it is NOT discarded)
-      // and start a single long timeout: if the IDs still have not arrived when
-      // it fires, surface a clear onboarding error instead of silently skipping
-      // the exchange. The 5 minute window covers the whole popup interaction.
+      // and start a single short wait for the session event (Meta delivers it
+      // at the same time as the code, so ~20s is generous). If the IDs still
+      // have not arrived when it fires, proceed with the code ALONE - the
+      // backend resolves WABA ID / phone number ID server-side via the
+      // documented Meta fallback instead of failing the onboarding.
       if (sessionWaitTimeoutRef.current == null) {
-        console.log('[EmbeddedSignup] code received, waiting for WA_EMBEDDED_SIGNUP session asset IDs (waba_id / phone_number_id)');
+        console.log('[EmbeddedSignup] code received, waiting briefly for WA_EMBEDDED_SIGNUP session asset IDs (waba_id / phone_number_id)');
         sessionWaitTimeoutRef.current = window.setTimeout(() => {
           sessionWaitTimeoutRef.current = null;
-          // If the session event still has not arrived, the popup was closed
-          // before FINISH or the session could not complete - report the exact
-          // diagnostics observed during the attempt instead of silently
-          // dropping the code.
+          // Session event did not deliver the asset IDs in time. Do NOT fail -
+          // hand the code to the backend which resolves the IDs server-side
+          // (the complete recovery path).
           if (!signupDataRef.current.waba_id || !signupDataRef.current.phone_number_id) {
-            console.warn('[EmbeddedSignup] WA_EMBEDDED_SIGNUP FINISH event never arrived - showing onboarding error');
-            console.warn('[EmbeddedSignup] Timeout diagnostics:');
-            console.warn('  popup_since: attempt started, WA_EMBEDDED_SIGNUP session not delivered within 5 min');
-            console.warn('  messages_received:', JSON.stringify(messageDiagnosticsRef.current));
-            const sawSignup = messageDiagnosticsRef.current.some(m => m.type === 'WA_EMBEDDED_SIGNUP');
-            const sawCancel = messageDiagnosticsRef.current.some(m => m.event === 'CANCEL');
-            const sawError = messageDiagnosticsRef.current.some(m => m.event === 'ERROR');
-            console.warn('  saw_WA_EMBEDDED_SIGNUP_event:', sawSignup);
-            console.warn('  saw_CANCEL:', sawCancel);
-            console.warn('  saw_ERROR:', sawError);
-            console.warn('  sessionInfoVersion_requested: 3');
-            console.warn('  config_id:', configIdRef.current || 'unknown');
-            // Per-attempt value summary (safe - never prints codes/tokens).
-            const cur = signupDataRef.current;
-            console.warn('  oauthCodeReceived:', !!signupCodeRef.current || completingRef.current);
-            console.warn('  wabaIdReceived:', !!cur.waba_id);
-            console.warn('  phoneNumberIdReceived:', !!cur.phone_number_id);
-            console.warn('  businessIdReceived:', !!cur.business_id);
-            launchingRef.current = false;
-            setIsExchangeInProgress(false);
-            setConnectingWhatsApp(false);
-            showToast(
-              "We could not retrieve your WhatsApp Business Account details from Meta. Please try connecting again.",
-              "error"
-            );
+            console.log('[EmbeddedSignup] WA_EMBEDDED_SIGNUP session event not received - proceeding with code-only (backend server-side resolution)');
+            startBackendExchange(code);
           }
-        }, 300000);
+        }, 20000);
       }
       return;
     }
-    clearSessionWaitTimeout();
-    completingRef.current = true;
-    setIsExchangeInProgress(true);
-    console.log('[EmbeddedSignup] READY_FOR_BACKEND_EXCHANGE');
-    signupCodeRef.current = null; // clear code immediately after capture
-    handleMetaOAuthCallback(code, { ...signupDataRef.current });
+    startBackendExchange(code);
   };
 
   // Load and initialize the Facebook JS SDK (Official Meta Code). fbAsyncInit
@@ -322,22 +306,27 @@ export default function IntegrationsPage() {
         return;
       }
 
-      // LOG EVERY MESSAGE DURING AN ACTIVE ATTEMPT (Part 3 of the spec).
+      // LOG EVERY MESSAGE DURING AN ACTIVE ATTEMPT (Part 3 of the spec) using
+      // ONLY safe metadata - never the raw message body. The OAuth redirect
+      // message carries the exchangeable code (code=...) in its query string,
+      // so logging rawData would leak the single-use code; per the spec only
+      // origin, data type and presence booleans are logged.
       if (attemptActive) {
         console.log('[EmbeddedSignup] WINDOW MESSAGE RECEIVED');
         console.log('  origin:', origin);
         console.log('  dataType:', typeof event.data);
-        // Safe/truncated raw data - NEVER print codes/tokens/secrets.
-        let rawStr: string;
-        try {
-          rawStr = typeof event.data === 'string' ? event.data : JSON.stringify(event.data);
-        } catch {
-          rawStr = '[unserializable]';
-        }
-        if (rawStr.length > 500) {
-          rawStr = rawStr.slice(0, 500) + '...[truncated]';
-        }
-        console.log('  rawData:', rawStr);
+        const rawForMeta = typeof event.data === 'string' ? event.data : (event.data ? JSON.stringify(event.data) : '');
+        const isJSON = (() => {
+          if (typeof event.data !== 'string') return typeof event.data === 'object';
+          try { JSON.parse(event.data); return true; } catch { return false; }
+        })();
+        console.log('  isJSON:', isJSON);
+        console.log('  containsOAuthCode:', /(?:[?&]code=)([^&\s]+)/.test(rawForMeta) || !!event.data?.code || !!event.data?.authResponse?.code);
+        console.log('  containsWA_EMBEDDED_SIGNUP:', rawForMeta.includes('WA_EMBEDDED_SIGNUP') || event.data?.type === 'WA_EMBEDDED_SIGNUP' || event.data?.event === 'WA_EMBEDDED_SIGNUP');
+        console.log('  containsSessionInfo:', !!event.data?.data || rawForMeta.includes('"data"'));
+        console.log('  waba_id present:', !!event.data?.waba_id || !!event.data?.data?.waba_id || rawForMeta.includes('"waba_id"'));
+        console.log('  phone_number_id present:', !!event.data?.phone_number_id || !!event.data?.data?.phone_number_id || rawForMeta.includes('"phone_number_id"'));
+        console.log('  business_id present:', !!event.data?.business_id || !!event.data?.data?.business_id || rawForMeta.includes('"business_id"'));
       }
 
       // event.data may be a JSON string (Meta's documented format) or, in some
