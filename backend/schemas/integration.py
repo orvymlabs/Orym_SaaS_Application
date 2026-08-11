@@ -8,18 +8,17 @@ class MetaOAuthCallbackRequest(BaseModel):
     All fields are optional at the Pydantic layer so a request that is missing
     Embedded Signup data produces a structured 400 (with a useful detail
     message) instead of a generic 422. The endpoint explicitly validates the
-    required fields (code) before processing.
+    required fields (code and redirect_uri) before processing.
 
-    The exchangeable code is required. redirect_uri is optional and kept only
-    for backward compatibility with the deployed frontend - the Embedded
-    Signup token exchange NEVER sends redirect_uri to Meta (the documented
-    Meta Tech Provider exchange uses ONLY client_id + client_secret + code).
-    The WABA ID and phone number ID come from the WA_EMBEDDED_SIGNUP completion
-    event (captured on the frontend) when delivered; when absent the backend
-    resolves them server-side using the documented Meta fallback (/debug_token
-    granular_scopes target_ids + the WABA phone_numbers edge) and returns a
-    controlled WABA_NOT_RETURNED / PHONE_NUMBER_NOT_RETURNED error when nothing
-    can be resolved.
+    The exchangeable code and the redirect_uri are required. redirect_uri must
+    be the canonical production value (https://apps.orvym.com/dashboard/integrations/)
+    - never empty, never null - because Meta's code exchange fails with
+    error_subcode 36008 when redirect_uri is omitted or differs from the dialog
+    request. The WABA ID and phone number ID come from the WA_EMBEDDED_SIGNUP
+    completion event (captured on the frontend) and are REQUIRED by the
+    backend - the Embedded Signup session is the source of truth. The backend
+    NEVER discovers or guesses missing IDs; it returns a controlled
+    WABA_NOT_RETURNED / PHONE_NUMBER_NOT_RETURNED error when they are absent.
     """
     code: Optional[str] = None
     redirect_uri: Optional[str] = None

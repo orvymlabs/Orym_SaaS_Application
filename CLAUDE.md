@@ -1,304 +1,285 @@
-CRITICAL FIX — META WHATSAPP EMBEDDED SIGNUP OAUTH TOKEN EXCHANGE
+IMPORTANT: DO NOT REWRITE OR REDESIGN THE EXISTING WHATSAPP EMBEDDED SIGNUP FLOW.
 
-We have now isolated the exact failure point from production logs.
+The flow was previously working up to the Meta OAuth token exchange. A recent change broke that working behavior by removing redirect_uri from the token exchange.
 
-DO NOT rewrite or redesign the existing WhatsApp Embedded Signup implementation.
-DO NOT change the Config ID.
-DO NOT change the Facebook SDK initialization.
-DO NOT change the FB.login() flow.
-DO NOT change sessionInfoVersion=3.
-DO NOT change the existing postMessage listener unless absolutely required.
-DO NOT break the parts that are already working.
+CURRENT PROBLEM:
 
-CURRENT WORKING BEHAVIOR:
+Backend log now shows:
 
-Frontend successfully does:
+Parameter names: ['client_id', 'client_secret', 'code']
+redirect_uri included: False
+redirect_uri value: OMITTED
 
-Facebook SDK initialized
-FB.login() launched with Config ID 2432311603846818
-response_type=code
-override_default_response_type=true
-extras includes sessionInfoVersion=3
-oauth authorization code is successfully received
-code length = 451
+Meta returns:
 
-Therefore DO NOT touch these working parts unnecessarily.
+Error Code: 100
+Error Subcode: 36008
+Error Type: OAuthException
+Error Message:
+"Error validating verification code. Please make sure your redirect_uri is identical to the one you used in the OAuth dialog request"
 
-EXACT CURRENT FAILURE:
+THIS CHANGE MUST BE REVERTED.
 
-Backend production logs show:
+GOAL:
+
+Restore the previously working OAuth token exchange EXACTLY as it was, then fix only the remaining flow after that point.
+
+==================================================
+1. RESTORE REDIRECT_URI IN TOKEN EXCHANGE
+==================================================
+
+The backend MUST send redirect_uri to:
+
+https://graph.facebook.com/v26.0/oauth/access_token
+
+The request MUST contain:
+
+client_id
+client_secret
+code
+redirect_uri
+
+Use this exact redirect URI:
+
+https://apps.orvym.com/dashboard/integrations/
+
+The trailing slash MUST remain.
+
+Do NOT omit redirect_uri.
+
+Do NOT use:
+https://apps.orvym.com/dashboard/integrations
+
+Do NOT use another callback URL.
+
+Do NOT create a second redirect URI.
+
+The same exact URI must be used consistently by the existing frontend OAuth flow and backend token exchange.
+
+==================================================
+2. DO NOT BREAK THE EXISTING FRONTEND FLOW
+==================================================
+
+The following is ALREADY working and MUST NOT be rewritten:
+
+- Facebook SDK initialization
+- App ID: 3862862217342382
+- FB.login popup
+- Config ID: 2432311603846818
+- response_type=code
+- override_default_response_type=true
+- extras:
+  {
+    "setup": {},
+    "sessionInfoVersion": 3
+  }
+- window message listener
+- OAuth code extraction
+- non-JSON OAuth redirect fallback
+- LOGIN_CODE_RECEIVED handling
+
+The frontend is successfully receiving a 451-character OAuth code.
+
+For example:
+
+[EmbeddedSignup] OAuth code detected in non-JSON redirect message
+[EmbeddedSignup] code received
+[EmbeddedSignup] LOGIN_CODE_RECEIVED (length: 451)
+
+Therefore DO NOT change the OAuth code extraction logic.
+
+==================================================
+3. DO NOT FIX THE WRONG THING
+==================================================
+
+Do NOT remove the fallback OAuth-code handling.
+
+Do NOT require WA_EMBEDDED_SIGNUP event before accepting the OAuth code.
+
+Do NOT change FB.login to another OAuth implementation.
+
+Do NOT replace the official Meta Embedded Signup flow.
+
+Do NOT change the Config ID.
+
+Do NOT change the App ID.
+
+Do NOT change permissions just because the previous WABA discovery error existed.
+
+First restore the working token exchange.
+
+==================================================
+4. VERIFY THE TOKEN EXCHANGE
+==================================================
+
+After the fix, logs MUST show:
+
+META OAUTH TOKEN EXCHANGE
 
 Parameter names:
 ['client_id', 'client_secret', 'code', 'redirect_uri']
 
 redirect_uri included: True
 
-redirect_uri:
+redirect_uri value:
 https://apps.orvym.com/dashboard/integrations/
 
-Meta response:
+Then Meta should return:
 
-HTTP 400
-Error code: 100
-Error subcode: 36008
-Error type: OAuthException
+Status Code: 200
+Access token received: YES
+Token exchange successful
 
-Error message:
-"Error validating verification code. Please make sure your redirect_uri is identical to the one you used in the OAuth dialog request"
+The expected sequence is:
 
-The failure occurs at:
+Step 1/6 - Meta token exchange started
+→ Meta token exchange successful
 
-POST /api/integrations/meta/oauth/callback
+Only after this succeeds should the code continue to the next Embedded Signup step.
 
-services.meta_oauth
+==================================================
+5. CONTINUE THE EXISTING FLOW AFTER TOKEN EXCHANGE
+==================================================
 
-Step 1/6 Token exchange
+Once token exchange succeeds, DO NOT stop.
 
-IMPORTANT:
-The Meta Tech Provider documentation we are following specifies the Embedded Signup token exchange as:
-
-GET https://graph.facebook.com/{API_VERSION}/oauth/access_token
-
-Parameters:
-client_id=<APP_ID>
-client_secret=<APP_SECRET>
-code=<CODE>
-
-The documented Step 1 does NOT include redirect_uri.
-
-Therefore fix the backend token exchange so that the Embedded Signup authorization code is exchanged using ONLY:
-
-client_id
-client_secret
-code
-
-Do NOT send redirect_uri in this Embedded Signup token exchange request.
-
-CURRENT BAD IMPLEMENTATION:
-
-params = {
-    "client_id": APP_ID,
-    "client_secret": APP_SECRET,
-    "code": code,
-    "redirect_uri": redirect_uri
-}
-
-CHANGE IT TO:
-
-params = {
-    "client_id": APP_ID,
-    "client_secret": APP_SECRET,
-    "code": code
-}
-
-Do not append redirect_uri conditionally either.
-For this Embedded Signup code-exchange path, redirect_uri must not be sent to Meta.
-
-IMPORTANT SECURITY/RELIABILITY REQUIREMENTS:
-
-1. The authorization code is short-lived and single-use.
-2. Exchange it immediately after receiving it.
-3. Do not exchange the same code twice.
-4. Do not retry the same code automatically after a failed exchange.
-5. Do not store/log the full OAuth code or business token.
-6. Log only safe metadata such as code length, request stage, HTTP status and Meta error code/subcode.
-7. Make sure the frontend calls the backend callback exactly once for each newly received code.
-8. Prevent duplicate callback requests caused by React effects, rerenders, popup callbacks or message listeners.
-9. Do not delay the code exchange while waiting for WABA/phone IDs if the code itself has already been received.
-
-VERY IMPORTANT ABOUT SESSION INFORMATION:
-
-The frontend currently receives the OAuth code through the oauth.facebook.com window message.
-
-The existing logs show:
-
-containsOAuthCode: true
-containsWA_EMBEDDED_SIGNUP: false
-containsSessionInfo: false
-waba_id present: false
-phone_number_id present: false
-business_id present: false
-
-Do NOT treat the absence of these IDs in the OAuth redirect string as an OAuth failure.
-
-The implementation must correctly listen for Meta's WA_EMBEDDED_SIGNUP session event according to the current Embedded Signup implementation documentation.
-
-The OAuth code and WA_EMBEDDED_SIGNUP session information are separate pieces of the flow.
-
-DO NOT invent fake WABA IDs or phone_number IDs.
-
-AFTER TOKEN EXCHANGE SUCCEEDS:
-
-Continue the existing Meta Tech Provider onboarding flow:
-
-STEP 1:
-Exchange code for BUSINESS TOKEN.
-
-STEP 2:
-Use the business token + WABA ID to:
-
-POST /{WABA_ID}/subscribed_apps
-
-Expected:
-{"success": true}
-
-STEP 3:
-Register the customer's business phone number:
-
-POST /{PHONE_NUMBER_ID}/register
-
-with:
-{
-  "messaging_product": "whatsapp",
-  "pin": "<6-digit PIN>"
-}
-
-STEP 4:
-Persist the successfully resolved:
-- WABA ID
-- phone_number_id
-- business/customer business ID if available
-- business token securely
-- integration status
-
-Then continue the existing webhook/message integration.
-
-DO NOT implement the remaining onboarding steps until Step 1 is successfully fixed.
-
-SESSION EVENT HANDLING:
-
-Audit the existing window.message listener against Meta's official Embedded Signup session logging/message listener behavior.
-
-The listener must:
-- remain registered before FB.login()
-- accept only the expected Meta origin(s)
-- correctly handle Meta's actual event/message format
-- correctly detect the WA_EMBEDDED_SIGNUP event
-- extract session information when Meta sends it
-- not ignore valid session messages simply because they are not JSON
-- not mistake the oauth.facebook.com OAuth redirect string for the WA_EMBEDDED_SIGNUP session event
-- not require WABA IDs to be present inside the OAuth redirect string itself
-
-Do NOT simply parse every non-JSON OAuth redirect as a WA_EMBEDDED_SIGNUP event.
-Keep OAuth code handling and session-event handling as separate paths.
-
-CURRENT FRONTEND LOGIC:
-
-It currently correctly detects:
-
-OAuth code detected in non-JSON redirect message
-code received
-LOGIN_CODE_RECEIVED
-
-The current problem is that after this the backend exchanges the code with an incorrect redirect_uri parameter.
-
-Fix that first.
-
-REDIRECT URI:
-
-Do NOT remove or change the existing production redirect URI configuration from Meta App Dashboard unless investigation proves it is independently required.
-
-Do NOT randomly change:
-
-https://apps.orvym.com/dashboard/integrations/
-
-Do not add/remove trailing slashes as a trial-and-error fix.
-
-The primary fix for the current 36008 failure is:
-REMOVE redirect_uri FROM THE BACKEND /oauth/access_token REQUEST FOR THIS EMBEDDED SIGNUP TOKEN EXCHANGE.
-
-IMPORTANT:
-There may be other OAuth flows in the application. Do not globally remove redirect_uri from unrelated OAuth integrations.
-
-Scope the change specifically to:
-WhatsApp Embedded Signup → authorization code → business token exchange.
-
-REGRESSION SAFETY:
-
-Before modifying anything:
-- inspect the current implementation
-- identify exact frontend Embedded Signup files
-- identify exact backend Meta OAuth service/router
-- identify all callers of the token exchange function
-- identify whether any other Meta OAuth flow depends on redirect_uri
-
-Make the smallest possible change.
-
-Do NOT modify:
-- authentication
-- dashboard
-- notifications
-- conversations
-- bots
-- leads
-- database schema unless absolutely necessary
-- webhook verification
-- existing WhatsApp messaging logic
-- Facebook SDK initialization
-- Config ID
-- Embedded Signup popup behavior
-- unrelated OAuth integrations
-
-VALIDATION:
-
-After implementation, test the production flow from a clean session.
-
-Expected sequence:
-
-1. User clicks Connect WhatsApp.
-2. Facebook SDK initializes.
-3. Embedded Signup popup opens.
-4. Customer completes WhatsApp onboarding.
-5. OAuth code is received.
-6. Frontend sends the code ONCE to backend.
-7. Backend logs:
-   META GRAPH API TOKEN EXCHANGE
-   parameters should be ONLY:
-   client_id
-   client_secret
-   code
-8. There must be NO:
-   redirect_uri
-   in the token exchange request.
-9. Meta returns HTTP 200 and a business token.
-10. Continue to WABA/session asset resolution.
-11. Obtain WABA ID and phone_number_id through the correct Embedded Signup session mechanism/API.
-12. Subscribe app to customer's WABA.
-13. Register customer's phone number if required by the current onboarding flow.
-14. Save integration successfully.
-15. Existing WhatsApp messaging/webhooks continue working.
-
-SUCCESS CRITERIA:
-
-The current error:
-
-Error code 100
-Error subcode 36008
-OAUTH_REDIRECT_URI_MISMATCH
-
-must disappear.
-
-Do not declare success merely because the popup opens or the OAuth code is received.
-
-The actual success condition is:
+Continue the existing flow:
 
 OAuth code
-→ business token
+→ access token
+→ WABA/business discovery
+→ Embedded Signup session information
 → WABA ID
 → phone_number_id
-→ subscribed app
-→ registered/usable WhatsApp number
-→ saved integration
-→ messaging/webhooks working.
+→ business_id
+→ integration creation
+→ save integration
+→ return success to frontend
 
-If Step 1 succeeds but Step 2/3 fails, report the exact next Meta API error rather than masking it.
+Use the existing implementation wherever possible.
+
+Do not rewrite these parts unless there is an actual error after Step 1.
+
+==================================================
+6. IMPORTANT ABOUT WA_EMBEDDED_SIGNUP FINISH
+==================================================
+
+The frontend currently receives the OAuth code even when the WA_EMBEDDED_SIGNUP message is not received.
+
+Example:
+
+LOGIN_CODE_RECEIVED (length: 451)
+
+Therefore the frontend MUST NOT block the backend OAuth flow solely because:
+
+WA_EMBEDDED_SIGNUP FINISH event never arrived
+
+The OAuth code should continue through the existing fallback path.
+
+If WABA/phone IDs are available from the Embedded Signup session event, use them.
+
+If they are not available, preserve the existing server-side discovery mechanism.
+
+Do NOT make the entire OAuth flow fail just because the optional session message is delayed/missing.
+
+==================================================
+7. SEARCH BEFORE MODIFYING
+==================================================
+
+Search the entire codebase for:
+
+oauth/access_token
+redirect_uri
+META_REDIRECT_URI
+FACEBOOK_REDIRECT_URI
+META_OAUTH_REDIRECT_URI
+FB.login
+config_id
+WA_EMBEDDED_SIGNUP
+LOGIN_CODE_RECEIVED
+
+Find the code that previously included redirect_uri in the token exchange.
+
+Restore that behavior instead of creating a completely new implementation.
+
+==================================================
+8. DO NOT BREAK OTHER FEATURES
+==================================================
+
+This is a production SaaS application.
+
+DO NOT modify unrelated:
+
+- authentication
+- bots
+- notifications
+- dashboard
+- database models
+- existing integrations
+- frontend layout
+- API routes unrelated to Meta
+- CSS
+- popup behavior
+
+Only modify the minimum code required for Meta Embedded Signup.
+
+==================================================
+9. DO NOT MAKE RANDOM "FIXES"
+==================================================
+
+Do NOT:
+
+- remove redirect_uri
+- change the App ID
+- change the Config ID
+- change the Meta API version unless absolutely required
+- replace FB.login
+- replace the message listener
+- remove the OAuth fallback
+- disable security checks
+- hardcode access tokens
+- log client secrets
+- log OAuth codes
+- rewrite the complete integration
+
+The OAuth code and client secret MUST NEVER be printed in logs.
+
+==================================================
+10. FINAL VERIFICATION
+==================================================
+
+After making the change, test the complete flow from a fresh WhatsApp Embedded Signup attempt.
+
+Expected:
+
+Frontend:
+
+Message listener registered
+Facebook SDK initialized
+Launching WhatsApp Embedded Signup
+OAuth code received
+
+Backend:
+
+Step 1/6 - Meta token exchange started
+redirect_uri included: True
+redirect_uri value: https://apps.orvym.com/dashboard/integrations/
+Token exchange successful
+
+Then:
+
+Step 2/6 and subsequent steps continue normally.
+
+If another error occurs AFTER Step 1 succeeds, DO NOT undo the redirect_uri fix.
+
+Instead diagnose the NEW error as the next stage of the flow.
 
 FINAL REQUIREMENT:
 
-Preserve everything that is already working.
-Make the smallest targeted fix.
-Do not rewrite the entire Embedded Signup implementation.
-Do not introduce a second OAuth flow.
-Do not create a fake fallback.
-Do not bypass Meta.
-Use the official Meta Embedded Signup / Tech Provider flow.
+The priority is:
+
+1. RESTORE the previously working redirect_uri behavior.
+2. Confirm Meta token exchange returns HTTP 200.
+3. Continue the existing flow after token exchange.
+4. Fix only the next actual error encountered.
+5. Do NOT break any previously working part.

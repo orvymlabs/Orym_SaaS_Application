@@ -237,7 +237,7 @@ def main():
         detail = r.json().get("detail", "")
         check("Meta error message propagated", "redirect_uri is identical" in detail, detail[:120])
 
-    print("=== TEST 6: POST callback - redirect_uri NOT forwarded to the exchange ===")
+    print("=== TEST 6: POST callback - exact dialog redirect_uri forwarded to the exchange ===")
     calls = {}
     async def fake_setup_record(self, code, redirect_uri=None, waba_id=None, phone_number_id=None, business_id=None):
         calls["redirect_uri"] = redirect_uri
@@ -257,10 +257,10 @@ def main():
         },
         headers=headers,
     )
-    check("callback 200 with redirect_uri in payload (accepted, ignored)", r.status_code == 200, str(r.status_code))
+    check("callback 200 with redirect_uri in payload", r.status_code == 200, str(r.status_code))
     check(
-        "redirect_uri NOT forwarded to the service exchange (Embedded Signup sends only code + IDs)",
-        calls.get("redirect_uri") is None,
+        "exact redirect_uri forwarded to the service (manual dialog flow)",
+        calls.get("redirect_uri") == "https://apps.orvym.com/dashboard/integrations/",
         str(calls),
     )
     check("service received waba_id from Embedded Signup", calls.get("waba_id") == "waba_555", str(calls))
