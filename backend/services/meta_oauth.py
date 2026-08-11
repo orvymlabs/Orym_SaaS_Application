@@ -54,6 +54,8 @@ import httpx
 import logging
 from typing import Dict, Optional, Tuple
 
+from config import get_settings
+
 logger = logging.getLogger(__name__)
 
 # Canonical production redirect URI. This exact value is used everywhere:
@@ -73,6 +75,7 @@ WABA_NOT_RETURNED = "WABA_NOT_RETURNED"
 PHONE_NUMBER_NOT_RETURNED = "PHONE_NUMBER_NOT_RETURNED"
 WABA_ACCESS_DENIED = "WABA_ACCESS_DENIED"
 PHONE_REGISTRATION_FAILED = "PHONE_REGISTRATION_FAILED"
+PHONE_ALREADY_REGISTERED = "PHONE_ALREADY_REGISTERED"
 WEBHOOK_SUBSCRIPTION_FAILED = "WEBHOOK_SUBSCRIPTION_FAILED"
 
 # Meta error_subcode for "Error validating verification code ... make sure your
@@ -603,6 +606,103 @@ class MetaOAuthService:
             return False, None, str(e)
 
     # ============================================================
+    # Step 6 - Register the customer's business phone number
+    # ============================================================
+
+    async def register_phone_number(
+        self, phone_number_id: str, access_token: str, pin: Optional[str] = None
+    ) -> Tuple[bool, Optional[Dict], Optional[str]]:
+        """
+        Register the customer's business phone number for Cloud API use and
+        enable two-step verification:
+
+            POST /<PHONE_NUMBER_ID>/register
+            { "messaging_product": "whatsapp", "pin": "<6-DIGIT-PIN>" }
+
+        Meta's official "Registering business phone numbers" guide states that
+        Embedded Signup performs the number-creation and verification steps
+        automatically, but the Tech Provider MUST still register the verified
+        number for API use ("you only need to perform step 4 when a client
+        completes the flow"). A number must be registered within 14 days of the
+        Embedded Signup flow.
+
+        The PIN is a 6-digit two-step verification PIN chosen and stored
+        server-side (META_PHONE_REGISTRATION_PIN). It is sent to Meta ONLY in
+        the request body and is NEVER logged, returned to the frontend, or
+        stored in the database.
+
+        If the number is ALREADY registered, Meta returns error 131048
+        (PHONE_ALREADY_REGISTERED) - that is treated as SUCCESS because the
+        number is already usable with Cloud API.
+
+        Args:
+            phone_number_id: Business phone number ID to register.
+            access_token: Customer business access token.
+            pin: 6-digit two-step verification PIN. When omitted/empty, the
+                registration step is skipped (never a hard failure) and the
+                caller is told via the returned data.
+
+        Returns:
+            (success, {"registered": bool, "skipped": bool}, error_message)
+        """
+        try:
+            pin = str(pin or "").strip()
+            if not pin:
+                logger.info(
+                    "[EmbeddedSignup] Phone registration skipped - no "
+                    "META_PHONE_REGISTRATION_PIN configured"
+                )
+                return True, {"registered": False, "skipped": True}, None
+
+            url = f"{self.GRAPH_API_BASE}/{phone_number_id}/register"
+            body = {"messaging_product": "whatsapp", "pin": pin}
+
+            logger.info("=" * 80)
+            logger.info("META GRAPH API REQUEST - PHONE REGISTRATION")
+            logger.info("=" * 80)
+            logger.info(f"  Graph API endpoint: {url}")
+            logger.info("  HTTP method: POST")
+            logger.info(f"  Object ID / edge: /{phone_number_id}/register")
+            logger.info("  Body parameters: messaging_product, pin (REDACTED - never logged)")
+            logger.info("=" * 80)
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(url, json=body, params={"access_token": access_token})
+
+            if response.status_code == 200:
+                logger.info(f"Phone number {phone_number_id} registered successfully")
+                return True, {"registered": True, "skipped": False}, None
+
+            try:
+                error_obj = response.json().get("error", {})
+            except Exception:
+                error_obj = {}
+
+            code = error_obj.get("code")
+            if code == 131048:  # already registered - treat as success
+                logger.info(
+                    f"Phone number {phone_number_id} is already registered "
+                    f"(code {code}) - PHONE_ALREADY_REGISTERED treated as success"
+                )
+                return True, {"registered": True, "skipped": False}, None
+
+            last_error = error_obj.get("message", "Failed to register phone number")
+            detail = (
+                f"{PHONE_REGISTRATION_FAILED}: phone registration failed "
+                f"(code: {code}, error_subcode: {error_obj.get('error_subcode')}, "
+                f"message: {last_error}, fbtrace_id: {error_obj.get('fbtrace_id')})"
+            )
+            logger.error(detail)
+            return False, None, detail
+
+        except httpx.TimeoutException:
+            logger.error("Phone registration timed out")
+            return False, None, "Request timed out. Please try again."
+        except Exception as e:
+            logger.error(f"Phone registration error: {e}", exc_info=True)
+            return False, None, str(e)
+
+    # ============================================================
     # Orchestration - full Embedded Signup setup
     # ============================================================
 
@@ -642,18 +742,23 @@ class MetaOAuthService:
         exchange with error_subcode 36008.
 
         Flow:
-        1. Exchange code for access token (server-side, always with the
-           canonical redirect_uri)
-        2. Validate the exchanged token via /debug_token (app_id + scopes +
-           granular_scopes WABA target_ids)
-        3. Resolve the WABA ID: session event, then /debug_token granular
-           scopes target_ids (no /me/businesses)
-        4. Resolve the phone number ID: session event, then the WABA's
-           phone_numbers edge
-        5. Validate the WABA via GET /<WABA_ID> (only supported fields: id,name)
-        6. GET /<WABA_ID>/phone_numbers (WABA edge) and verify the resolved
-           phone number ID is present
-        7. POST /<WABA_ID>/subscribed_apps to subscribe the WABA to the app
+         1. Exchange code for access token (server-side, always with the
+            canonical redirect_uri)
+         2. Validate the exchanged token via /debug_token (app_id + scopes +
+            granular_scopes WABA target_ids)
+         3. Resolve the WABA ID: session event, then /debug_token granular
+            scopes target_ids (no /me/businesses)
+         4. Resolve the phone number ID: session event, then the WABA's
+            phone_numbers edge
+         5. Validate the WABA via GET /<WABA_ID> (only supported fields: id,name)
+         6. GET /<WABA_ID>/phone_numbers (WABA edge) and verify the resolved
+            phone number ID is present
+         7. POST /<WABA_ID>/subscribed_apps to subscribe the WABA to the app
+         8. POST /<PHONE_NUMBER_ID>/register to register the verified number
+            for Cloud API use and enable two-step verification (the 6-digit PIN
+            is read from META_PHONE_REGISTRATION_PIN and is NEVER logged or
+            stored; an already-registered number - Meta code 131048 - is
+            treated as success).
 
         Args:
             code: Authorization code from Meta Embedded Signup
@@ -839,6 +944,34 @@ class MetaOAuthService:
                 )
             logger.info("[EmbeddedSignup] Step 6/6 - WABA subscription succeeded")
 
+            # Register the customer's business phone number for Cloud API use
+            # and enable two-step verification (Meta "Registering business phone
+            # numbers": Embedded Signup does steps 1-3 automatically, the Tech
+            # Provider still performs step 4 - register - when a client
+            # completes the flow). The 6-digit PIN comes from
+            # META_PHONE_REGISTRATION_PIN (server-side only); it is never
+            # logged, returned to the frontend or stored. An already-registered
+            # number (Meta code 131048) is treated as success. If registration
+            # is skipped or fails, the rest of the flow is NOT rolled back - the
+            # number remains usable within the 14-day Embedded Signup window and
+            # the result is reported in the response.
+            reg_pin = (get_settings().META_PHONE_REGISTRATION_PIN or "").strip()
+            reg_ok, reg_data, reg_error = await self.register_phone_number(
+                phone_number_id, access_token, pin=reg_pin
+            )
+            phone_registered = bool((reg_data or {}).get("registered"))
+            phone_registration_skipped = bool((reg_data or {}).get("skipped"))
+            if not reg_ok:
+                logger.warning(
+                    f"[EmbeddedSignup] Phone registration did not complete: "
+                    f"{reg_error} (integration will still be saved; the number "
+                    "must be registered within 14 days of Embedded Signup)"
+                )
+            logger.info(
+                f"[EmbeddedSignup] Phone registration: registered={phone_registered} "
+                f"skipped={phone_registration_skipped}"
+            )
+
             # Business ID: use only the actual ID returned by Embedded Signup.
             # Never invent or guess one.
             if business_id:
@@ -853,11 +986,13 @@ class MetaOAuthService:
                 "phone_number_id": phone_number_id,
                 "display_phone_number": display_phone_number,
                 "verified_name": verified_name,
+                "phone_registered": phone_registered,
             }
 
             logger.info(
                 f"[EmbeddedSignup] WhatsApp integration setup complete: WABA {waba_id}, "
-                f"phone {display_phone_number}, subscribed_apps={bool(sub_data)}"
+                f"phone {display_phone_number}, subscribed_apps={bool(sub_data)}, "
+                f"phone_registered={phone_registered}"
             )
             return True, integration_data, None
 

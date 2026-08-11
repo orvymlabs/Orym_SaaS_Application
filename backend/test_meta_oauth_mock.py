@@ -167,7 +167,8 @@ def test_exchange_meta_error_returned():
 
 def build_client(get_responses, post_responses):
     """Return an AsyncClient mock recording every request, with separate
-    sequences for GET and POST responses."""
+    sequences for GET and POST responses. JSON bodies sent to POST are
+    recorded in the request log."""
     client = mock.AsyncMock()
     client.__aenter__.return_value = client
     client.__aexit__.return_value = False
@@ -181,7 +182,10 @@ def build_client(get_responses, post_responses):
         return get_responses.pop(0)
 
     async def fake_post(url, params=None, **kwargs):
-        requests_log.append({"method": "POST", "url": url, "params": dict(params or {})})
+        requests_log.append({
+            "method": "POST", "url": url, "params": dict(params or {}),
+            "json": kwargs.get("json"),
+        })
         return post_responses.pop(0)
 
     client.get.side_effect = fake_get
@@ -554,6 +558,183 @@ def test_phone_numbers_edge_regression():
     assert requests_log[4]["method"] == "POST"
     assert requests_log[4]["url"] == f"{GRAPH_BASE}/{waba_id}/subscribed_apps"
     print("PASS: no fields=phone_numbers; WABA validated then phone_numbers + subscribed_apps on the Embedded Signup WABA only")
+
+
+def test_setup_whatsapp_integration_registers_phone_number():
+    """
+    After subscribing the WABA, the Tech Provider MUST register the customer's
+    business phone number for Cloud API use (Meta "Registering business phone
+    numbers" - Embedded Signup does steps 1-3, the Tech Provider still performs
+    step 4). The register call is:
+
+        POST /<PHONE_NUMBER_ID>/register
+        { "messaging_product": "whatsapp", "pin": "<6-DIGIT-PIN>" }
+
+    The 6-digit PIN comes from META_PHONE_REGISTRATION_PIN (server-side only)
+    and must NEVER appear in the request log or be returned to the caller.
+    """
+    svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
+    svc.GRAPH_API_BASE = GRAPH_BASE
+    code = "AQ" + ("r" * 449)
+    waba_id = "123456789"
+    phone_number_id = "987654321"
+
+    get_responses = [
+        FakeResponse(200, {"access_token": "EAA_business_token", "token_type": "bearer"}),
+        FakeResponse(200, {"data": {
+            "app_id": "3862862217342382", "type": "BUSINESS",
+            "scopes": ["whatsapp_business_messaging", "whatsapp_business_management"],
+            "granular_scopes": [],
+        }}),
+        FakeResponse(200, {"id": waba_id, "name": "My Business"}),
+        FakeResponse(200, {"data": [{
+            "id": phone_number_id,
+            "display_phone_number": "+15551234567",
+            "verified_name": "Verified Business",
+        }]}),
+    ]
+    post_responses = [
+        FakeResponse(200, {"success": True}),  # subscribed_apps
+        FakeResponse(200, {"success": True}),  # register
+    ]
+
+    client, requests_log = build_client(get_responses, post_responses)
+
+    # Configure the server-side registration PIN (never the frontend's)
+    fake_settings = mock.MagicMock()
+    fake_settings.META_PHONE_REGISTRATION_PIN = "481516"
+
+    # Capture the APPLICATION's log output so we can prove the PIN is never
+    # written to logs (the outbound request body legitimately contains it).
+    import logging
+    captured_logs = []
+    handler = logging.Handler()
+    handler.emit = lambda record: captured_logs.append(record.getMessage())
+    logger = logging.getLogger("services.meta_oauth")
+    logger.addHandler(handler)
+    try:
+        with mock.patch("httpx.AsyncClient", return_value=client), \
+             mock.patch("services.meta_oauth.get_settings", return_value=fake_settings):
+            ok, data, err = run(svc.setup_whatsapp_integration(
+                code, waba_id=waba_id, phone_number_id=phone_number_id, business_id=None,
+            ))
+    finally:
+        logger.removeHandler(handler)
+
+    assert ok is True, err
+    assert data["phone_registered"] is True
+
+    # 1) subscribe then register - both POSTs against the resolved IDs
+    sub_req = requests_log[4]
+    assert sub_req["method"] == "POST"
+    assert sub_req["url"] == f"{GRAPH_BASE}/{waba_id}/subscribed_apps"
+
+    reg_req = requests_log[5]
+    assert reg_req["method"] == "POST"
+    assert reg_req["url"] == f"{GRAPH_BASE}/{phone_number_id}/register"
+    assert reg_req["json"] == {"messaging_product": "whatsapp", "pin": "481516"}, \
+        "register body must carry messaging_product + the 6-digit PIN"
+
+    # 2) the PIN must NEVER be written to application logs or returned to the caller
+    assert "481516" not in "\n".join(captured_logs), "the PIN must never be logged"
+    assert "481516" not in json.dumps(data), "the PIN must never be returned to the caller"
+    print("PASS: phone registered via POST /<PHONE_NUMBER_ID>/register with messaging_product + PIN (never logged/returned)")
+
+
+def test_setup_registers_already_registered_phone_treated_as_success():
+    """
+    Meta error 131048 means the number is ALREADY registered for Cloud API use.
+    That is a SUCCESS - the number is usable, so the flow must not fail.
+    """
+    svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
+    svc.GRAPH_API_BASE = GRAPH_BASE
+    code = "AQ" + ("q" * 449)
+    waba_id = "123456789"
+    phone_number_id = "987654321"
+
+    get_responses = [
+        FakeResponse(200, {"access_token": "EAA_business_token", "token_type": "bearer"}),
+        FakeResponse(200, {"data": {
+            "app_id": "3862862217342382", "type": "BUSINESS",
+            "scopes": ["whatsapp_business_messaging", "whatsapp_business_management"],
+            "granular_scopes": [],
+        }}),
+        FakeResponse(200, {"id": waba_id, "name": "My Business"}),
+        FakeResponse(200, {"data": [{
+            "id": phone_number_id,
+            "display_phone_number": "+15551234567",
+            "verified_name": "Verified Business",
+        }]}),
+    ]
+    post_responses = [
+        FakeResponse(200, {"success": True}),  # subscribed_apps
+        FakeResponse(400, {"error": {
+            "message": "The phone number is already registered.",
+            "type": "GraphMethodException", "code": 131048,
+        }}),
+    ]
+
+    client, requests_log = build_client(get_responses, post_responses)
+
+    fake_settings = mock.MagicMock()
+    fake_settings.META_PHONE_REGISTRATION_PIN = "112233"
+
+    with mock.patch("httpx.AsyncClient", return_value=client), \
+         mock.patch("services.meta_oauth.get_settings", return_value=fake_settings):
+        ok, data, err = run(svc.setup_whatsapp_integration(
+            code, waba_id=waba_id, phone_number_id=phone_number_id, business_id=None,
+        ))
+
+    assert ok is True, err
+    assert data["phone_registered"] is True, "an already-registered number must be treated as success"
+    print("PASS: already-registered phone (Meta 131048) treated as success")
+
+
+def test_setup_skips_registration_when_pin_not_configured():
+    """
+    Without META_PHONE_REGISTRATION_PIN the registration step is skipped
+    (not a hard failure) and the rest of the flow still completes.
+    """
+    svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
+    svc.GRAPH_API_BASE = GRAPH_BASE
+    code = "AQ" + ("p" * 449)
+    waba_id = "123456789"
+    phone_number_id = "987654321"
+
+    get_responses = [
+        FakeResponse(200, {"access_token": "EAA_business_token", "token_type": "bearer"}),
+        FakeResponse(200, {"data": {
+            "app_id": "3862862217342382", "type": "BUSINESS",
+            "scopes": ["whatsapp_business_messaging", "whatsapp_business_management"],
+            "granular_scopes": [],
+        }}),
+        FakeResponse(200, {"id": waba_id, "name": "My Business"}),
+        FakeResponse(200, {"data": [{
+            "id": phone_number_id,
+            "display_phone_number": "+15551234567",
+            "verified_name": "Verified Business",
+        }]}),
+    ]
+    post_responses = [
+        FakeResponse(200, {"success": True}),  # subscribed_apps only - no register call
+    ]
+
+    client, requests_log = build_client(get_responses, post_responses)
+
+    fake_settings = mock.MagicMock()
+    fake_settings.META_PHONE_REGISTRATION_PIN = ""
+
+    with mock.patch("httpx.AsyncClient", return_value=client), \
+         mock.patch("services.meta_oauth.get_settings", return_value=fake_settings):
+        ok, data, err = run(svc.setup_whatsapp_integration(
+            code, waba_id=waba_id, phone_number_id=phone_number_id, business_id=None,
+        ))
+
+    assert ok is True, err
+    assert data["phone_registered"] is False
+    assert all("/register" not in r["url"] for r in requests_log), \
+        "register must be skipped when no PIN is configured"
+    print("PASS: phone registration skipped (no PIN configured) without failing the flow")
 
 
 if __name__ == "__main__":

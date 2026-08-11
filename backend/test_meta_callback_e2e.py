@@ -44,7 +44,8 @@ async def fake_setup_success(self, code, redirect_uri=None, waba_id=None, phone_
     # WA_EMBEDDED_SIGNUP session event when it delivered them. When Meta did not
     # return them (code-only callback), the service resolves them server-side
     # via the documented fallback (/debug_token granular_scopes target_ids +
-    # the WABA phone_numbers edge) instead of failing.
+    # the WABA phone_numbers edge) instead of failing. The real service also
+    # registers the phone (POST /<PHONE_NUMBER_ID>/register) after subscribing.
     resolved_waba = waba_id or "waba_111"
     resolved_phone = phone_number_id or "phone_222"
     resolved_biz = business_id or "biz_333"
@@ -56,6 +57,7 @@ async def fake_setup_success(self, code, redirect_uri=None, waba_id=None, phone_
         "phone_number_id": resolved_phone,
         "display_phone_number": "+15551234567",
         "verified_name": "Test Business",
+        "phone_registered": True,
     }, None
 
 async def fake_setup_no_resolution(self, code, redirect_uri=None, waba_id=None, phone_number_id=None, business_id=None):
@@ -148,6 +150,7 @@ def main():
         check("response success true", body.get("success") is True, str(body))
         check("phone number echoed", body.get("data", {}).get("phone_number") == "+15551234567", str(body))
         check("waba_id echoed", body.get("data", {}).get("waba_id") == "waba_111", str(body))
+        check("phone_registered echoed", body.get("phone_registered") is True, str(body))
 
         # Verify the integration row was saved
         db = SessionLocal()

@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     META_APP_SECRET: str = "" # REQUIRED: Your Meta App Secret for webhook signature verification
     META_CONFIG_ID: str = ""  # Your Meta Configuration ID for Embedded Signup
     META_OAUTH_REDIRECT_URI: str = "https://apps.orvym.com/dashboard/integrations/"  # Exact OAuth redirect URI used in the dialog + code exchange
+    META_PHONE_REGISTRATION_PIN: str = ""  # 6-digit two-step verification PIN set server-side on the customer's business phone number (POST /<PHONE_NUMBER_ID>/register). NEVER exposed to the frontend and NEVER logged.
 
     # ===========================================
     # Stripe Payment Processing

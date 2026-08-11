@@ -848,6 +848,7 @@ async def meta_oauth_callback_post(
             "waba_id": integration_data["waba_id"],
             "phone_number_id": integration_data["phone_number_id"],
             "business_id": integration_data.get("business_id") or "",
+            "phone_registered": integration_data.get("phone_registered", False),
             "data": {
                 "business_name": integration_data.get("business_name", ""),
                 "phone_number": integration_data["display_phone_number"],
