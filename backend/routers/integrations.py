@@ -9,7 +9,6 @@ from services.website_fetcher import fetch_website_content as fetch_website_serv
 from services.universal_website_fetcher import UniversalWebsiteFetcher
 from services.meta_oauth import (
     MetaOAuthService,
-    CANONICAL_REDIRECT_URI,
     OAUTH_CODE_ALREADY_PROCESSED,
 )
 from config import get_settings
@@ -578,8 +577,8 @@ async def verify_meta_config(
     checks["facebook_login_for_business"] = check(
         "manual",
         "In the Meta App Dashboard confirm the app is set up with the Facebook "
-        "Login for Business product (Tech Provider). This configuration decides "
-        "whether the code exchange requires a redirect_uri.",
+        "Login for Business product (Tech Provider). The Embedded Signup token "
+        "exchange sends ONLY client_id + client_secret + code (no redirect_uri).",
     )
     checks["client_oauth_login"] = check(
         "manual",
@@ -666,15 +665,16 @@ async def meta_oauth_callback_post(
 
     The frontend forwards the following from Embedded Signup:
       - code             : exchangeable authorization code (REQUIRED)
-      - redirect_uri     : the canonical production redirect URI
-                           (https://apps.orvym.com/dashboard/integrations/) -
-                           REQUIRED, never empty, never null
+      - redirect_uri     : optional, backward-compatible. The Embedded Signup
+                           token exchange NEVER sends redirect_uri to Meta (the
+                           documented Meta Tech Provider exchange uses ONLY
+                           client_id + client_secret + code), so this field is
+                           accepted for compatibility but NOT used in the
+                           exchange.
       - waba_id          : WhatsApp Business Account ID from the
-                           WA_EMBEDDED_SIGNUP completion event (REQUIRED - the
-                           Embedded Signup session is the source of truth; the
-                           backend NEVER guesses or discovers it)
+                           WA_EMBEDDED_SIGNUP completion event (when available)
       - phone_number_id  : business phone number ID from the completion event
-                           (REQUIRED - never replaced with the first number)
+                           (when available)
       - business_id      : business portfolio ID from the completion event
                            (optional)
 
@@ -682,8 +682,8 @@ async def meta_oauth_callback_post(
       1. Rejects duplicate authorization codes (SHA-256 hash ledger) - a code
          is NEVER exchanged twice.
       2. Exchanges the code server-side for the customer business token
-         (client_id + client_secret + code + redirect_uri - redirect_uri is
-         ALWAYS the canonical value, never omitted, never empty)
+         (client_id + client_secret + code - redirect_uri is NEVER sent on
+         this Embedded Signup exchange path)
       3. Validates the exchanged token via /debug_token (app_id + scopes)
       4. Validates the WABA via GET /<WABA_ID> and the phone number via
          GET /<WABA_ID>/phone_numbers - using ONLY the IDs returned by the
@@ -693,11 +693,10 @@ async def meta_oauth_callback_post(
     """
     settings = get_settings()
 
-    # The exchangeable code is required. The redirect_uri is ALSO required -
-    # omitting it (or sending an empty value) is exactly what causes Meta's
-    # error_subcode 36008 on the code exchange. In production the canonical
-    # exact URI is enforced so the frontend, backend and Meta App Dashboard
-    # can never drift apart.
+    # The exchangeable code is required. The WABA / phone / business IDs are
+    # optional: when the WA_EMBEDDED_SIGNUP session event did not deliver them,
+    # the backend resolves them server-side using the documented Meta fallback
+    # (/debug_token granular_scopes target_ids + the WABA phone_numbers edge).
     if not payload.code or len(str(payload.code).strip()) < 10:
         raise HTTPException(400, "Missing authorization code from Embedded Signup completion data")
 
@@ -706,20 +705,11 @@ async def meta_oauth_callback_post(
     phone_number_id = (str(payload.phone_number_id).strip() if payload.phone_number_id else "") or None
     business_id = (str(payload.business_id).strip() if payload.business_id else "") or None
 
+    # redirect_uri is optional and is NOT used by the Embedded Signup token
+    # exchange (the exchange sends only client_id + client_secret + code). It
+    # is kept in the payload for backward compatibility with the deployed
+    # frontend and only logged.
     redirect_uri = (str(payload.redirect_uri).strip() if payload.redirect_uri else "")
-    if not redirect_uri:
-        raise HTTPException(
-            400,
-            "redirect_uri is required. Send the canonical production redirect "
-            "URI: " + CANONICAL_REDIRECT_URI,
-        )
-    if redirect_uri != CANONICAL_REDIRECT_URI:
-        raise HTTPException(
-            400,
-            f"redirect_uri must be exactly '{CANONICAL_REDIRECT_URI}' "
-            f"(received: '{redirect_uri}'). Use the same canonical production "
-            "value everywhere.",
-        )
 
     # Idempotency guard: a Meta authorization code is single-use and short-lived.
     # Only the SHA-256 hash is stored (never the raw code). If the same code
@@ -745,7 +735,7 @@ async def meta_oauth_callback_post(
     logger.info("=" * 80)
     logger.info(f"User ID: {user_id}")
     logger.info(f"Code received: {masked_code}")
-    logger.info(f"Redirect URI: {redirect_uri}")
+    logger.info(f"Redirect URI (optional, NOT sent to Meta in the exchange): {redirect_uri or '(not provided)'}")
     logger.info(f"WABA ID: {waba_id or '(NOT provided - session info missing)'}")
     logger.info(f"Phone Number ID: {phone_number_id or '(NOT provided - session info missing)'}")
     logger.info(f"Business ID: {business_id or '(not provided)'}")
@@ -790,17 +780,18 @@ async def meta_oauth_callback_post(
         logger.error(f"Failed to persist OAuth code ledger entry: {e}")
         raise HTTPException(500, "Failed to record the authorization code")
 
-    # Initialize OAuth service and complete the Embedded Signup setup using ONLY
-    # the WABA ID / phone number ID / business ID returned by the Embedded
-    # Signup session event. The backend NEVER discovers or guesses missing IDs
-    # (no /me/businesses fallback) - it returns a controlled error instead.
+    # Initialize OAuth service and complete the Embedded Signup setup. The WABA
+    # ID / phone number ID come from the Embedded Signup session event when it
+    # delivered them; otherwise the backend resolves them server-side using the
+    # documented Meta fallback (/debug_token granular_scopes target_ids + the
+    # WABA phone_numbers edge). redirect_uri is NOT forwarded - the Embedded
+    # Signup exchange never sends redirect_uri to Meta.
     oauth_service = MetaOAuthService(settings.META_APP_ID, settings.META_APP_SECRET)
     success, integration_data, error = await oauth_service.setup_whatsapp_integration(
         code,
         waba_id=waba_id,
         phone_number_id=phone_number_id,
         business_id=business_id,
-        redirect_uri=redirect_uri,
     )
 
     if not success:

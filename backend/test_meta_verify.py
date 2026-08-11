@@ -124,7 +124,8 @@ def test_exchange_36008_error_includes_actionable_hint():
     """
     When Meta returns error_subcode 36008 the surfaced error is the
     CLAUDE.md-approved user-facing message (never suggesting changing
-    redirect_uri) and the exchange STILL carried the canonical redirect_uri.
+    redirect_uri) and the exchange carried NO redirect_uri (the Embedded
+    Signup exchange sends ONLY client_id + client_secret + code).
     """
     captured = {}
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
@@ -147,9 +148,9 @@ def test_exchange_36008_error_includes_actionable_hint():
     assert "OAUTH_REDIRECT_URI_MISMATCH" in err
     assert "Please restart WhatsApp Embedded Signup" in err
     assert "add redirect_uri" not in err.lower()
-    # The canonical redirect_uri is ALWAYS sent in the exchange (even on error)
-    assert captured["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/"
-    print("PASS: 36008 surfaces the approved message; exchange still carried the canonical redirect_uri")
+    # The Embedded Signup exchange NEVER sends redirect_uri (even on error)
+    assert "redirect_uri" not in captured["params"]
+    print("PASS: 36008 surfaces the approved message; exchange carried no redirect_uri")
 
 
 if __name__ == "__main__":

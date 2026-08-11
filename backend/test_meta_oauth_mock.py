@@ -4,7 +4,8 @@ Comprehensive mock-based tests for MetaOAuthService.exchange_code_for_token.
 These tests verify the EXACT HTTP request the backend sends to Meta:
   - endpoint URL
   - query parameters
-  - redirect_uri forwarding (exact value, never empty string)
+  - redirect_uri is NEVER sent on the Embedded Signup exchange (the documented
+    Meta Tech Provider exchange sends ONLY client_id + client_secret + code)
   - success and error handling
 
 They mock httpx.AsyncClient so no real network call is made.
@@ -49,12 +50,12 @@ def run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
-def test_exchange_always_sends_canonical_redirect_uri():
+def test_exchange_never_sends_redirect_uri():
     """
-    The exchange ALWAYS sends redirect_uri. When invoked WITHOUT an explicit
-    redirect_uri (or with an empty one) the canonical production value is
-    used - never omitted, never an empty string, never null. Omitting it is
-    exactly what triggers Meta error_subcode 36008.
+    The Embedded Signup token exchange sends ONLY client_id + client_secret +
+    code. redirect_uri is NEVER included - the documented Meta Tech Provider
+    exchange omits it (sending it triggers error_subcode 36008 when it does not
+    byte-match the OAuth dialog request).
     """
     captured = {}
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
@@ -72,15 +73,18 @@ def test_exchange_always_sends_canonical_redirect_uri():
     assert captured["params"]["client_id"] == "3862862217342382"
     assert captured["params"]["client_secret"] == "secret"
     assert captured["params"]["code"] == code
-    assert captured["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/", \
-        "canonical redirect_uri must ALWAYS be sent"
-    print("PASS: exchange always sends the canonical redirect_uri (never omitted)")
+    assert "redirect_uri" not in captured["params"], \
+        "redirect_uri must NEVER be sent in the Embedded Signup exchange"
+    print("PASS: exchange sends ONLY client_id + client_secret + code (no redirect_uri)")
 
-    assert set(captured["params"].keys()) == {"client_id", "client_secret", "code", "redirect_uri"}
+    assert set(captured["params"].keys()) == {"client_id", "client_secret", "code"}
 
 
-def test_exchange_without_redirect_uri_uses_canonical():
-    """When no redirect_uri is supplied the exchange uses the canonical value."""
+def test_exchange_ignores_redirect_uri_argument():
+    """
+    Even when a redirect_uri is passed to exchange_code_for_token (older
+    callers), it is IGNORED - it is never appended to the request sent to Meta.
+    """
     captured = {}
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
     svc.GRAPH_API_BASE = GRAPH_BASE
@@ -88,40 +92,21 @@ def test_exchange_without_redirect_uri_uses_canonical():
     with mock.patch("httpx.AsyncClient", return_value=captured_request(
         captured, 200, {"access_token": "EAA_token", "token_type": "bearer"}
     )):
-        ok, data, err = run(svc.exchange_code_for_token("AQcode"))
+        ok, data, err = run(svc.exchange_code_for_token("AQcode", redirect_uri="https://apps.orvym.com/dashboard/integrations/"))
 
     assert ok is True, err
-    assert captured["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/"
-    print("PASS: redirect_uri falls back to the canonical production value")
+    assert "redirect_uri" not in captured["params"], \
+        "redirect_uri must not be appended even when one is passed in"
+    assert set(captured["params"].keys()) == {"client_id", "client_secret", "code"}
+    print("PASS: passed redirect_uri is ignored - never sent to Meta")
 
 
-def test_exchange_forwards_exact_redirect_uri():
+def test_exchange_empty_string_redirect_uri_still_not_sent():
     """
-    An explicit redirect_uri is forwarded verbatim (byte-for-byte) to Meta's
-    "redirect_uri identical" check. The canonical value
-    (https://apps.orvym.com/dashboard/integrations/) is what production sends.
+    Empty/whitespace redirect_uri is NEVER turned into the canonical value and
+    sent - the Embedded Signup exchange simply does not include redirect_uri at
+    all.
     """
-    captured = {}
-    svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
-    svc.GRAPH_API_BASE = GRAPH_BASE
-    code = "AQ" + ("r" * 449)
-    redirect_uri = "https://apps.orvym.com/dashboard/integrations/"
-
-    with mock.patch("httpx.AsyncClient", return_value=captured_request(
-        captured, 200, {"access_token": "EAA_token", "token_type": "bearer"}
-    )):
-        ok, data, err = run(svc.exchange_code_for_token(code, redirect_uri=redirect_uri))
-
-    assert ok is True, err
-    assert captured["params"]["client_id"] == "3862862217342382"
-    assert captured["params"]["code"] == code
-    assert captured["params"]["redirect_uri"] == redirect_uri, \
-        "redirect_uri must be forwarded byte-identically"
-    print("PASS: exact redirect_uri forwarded to Meta")
-
-
-def test_exchange_empty_string_redirect_uri_uses_canonical():
-    """redirect_uri="" must NEVER be sent - the canonical value is used instead."""
     captured = {}
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
     svc.GRAPH_API_BASE = GRAPH_BASE
@@ -132,13 +117,13 @@ def test_exchange_empty_string_redirect_uri_uses_canonical():
         ok, data, err = run(svc.exchange_code_for_token("AQcode", redirect_uri="   "))
 
     assert ok is True, err
-    assert captured["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/", \
-        "empty/whitespace redirect_uri must fall back to the canonical value"
-    print("PASS: empty-string redirect_uri is never sent - canonical value used")
+    assert "redirect_uri" not in captured["params"], \
+        "redirect_uri must never be sent (empty or otherwise)"
+    print("PASS: empty redirect_uri never sent - exchange omits redirect_uri entirely")
 
 
 def test_exchange_meta_error_returned():
-    """Meta 400 errors (e.g. redirect_uri validation) must propagate to caller."""
+    """Meta 400 errors must propagate to caller with the raw error object."""
     captured = {}
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
     svc.GRAPH_API_BASE = GRAPH_BASE
@@ -160,9 +145,9 @@ def test_exchange_meta_error_returned():
     assert data is None
     assert "OAUTH_REDIRECT_URI_MISMATCH" in err, err
     assert "redirect_uri" in err.lower() or "redirect URI" in err, err
-    assert captured["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/", \
-        "the canonical redirect_uri is always sent, even on error"
-    print("PASS: Meta 400 error propagated, exchange still carried the canonical redirect_uri")
+    assert "redirect_uri" not in captured["params"], \
+        "redirect_uri is never sent in the exchange, even on error"
+    print("PASS: Meta 400 error propagated; exchange still carried no redirect_uri")
 
 
 def build_client(get_responses, post_responses):
@@ -245,13 +230,13 @@ def test_setup_whatsapp_integration_full_flow():
     assert data["display_phone_number"] == "+15551234567"
     assert data["verified_name"] == "Verified Business"
 
-    # 1) Exchange request carries client_id + client_secret + code + the
-    #    canonical redirect_uri (https://apps.orvym.com/dashboard/integrations/)
+    # 1) Exchange request carries ONLY client_id + client_secret + code
+    #    (redirect_uri is NEVER sent on the Embedded Signup exchange)
     exchange = requests_log[0]
     assert exchange["method"] == "GET"
     assert exchange["url"] == f"{GRAPH_BASE}/oauth/access_token"
-    assert exchange["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/", \
-        "canonical redirect_uri must ALWAYS be sent in the exchange"
+    assert "redirect_uri" not in exchange["params"], \
+        "redirect_uri must NEVER be sent in the Embedded Signup exchange"
     assert exchange["params"]["code"] == code
 
     # 2) Token validated via /debug_token (input_token + app access token)
@@ -317,12 +302,12 @@ def test_setup_whatsapp_integration_code_only_returns_waba_not_returned():
     assert data is None
     assert "WABA_NOT_RETURNED" in err, err
 
-    # 1) Exchange still carried the canonical redirect_uri (never omitted)
+    # 1) Exchange carried ONLY client_id + client_secret + code (no redirect_uri)
     exchange = requests_log[0]
     assert exchange["method"] == "GET"
     assert exchange["url"] == f"{GRAPH_BASE}/oauth/access_token"
-    assert exchange["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/", \
-        "canonical redirect_uri must ALWAYS be sent in the exchange"
+    assert "redirect_uri" not in exchange["params"], \
+        "redirect_uri must NEVER be sent in the Embedded Signup exchange"
 
     # 2) Token validated via /debug_token
     dbg = requests_log[1]
@@ -385,12 +370,12 @@ def test_setup_whatsapp_integration_code_only_resolves_ids_server_side():
     assert data["display_phone_number"] == "+19998887777"
     assert data["business_name"] == "Recovered WABA"
 
-    # 1) Exchange still carried the canonical redirect_uri (never omitted)
+    # 1) Exchange carried ONLY client_id + client_secret + code (no redirect_uri)
     exchange = requests_log[0]
     assert exchange["method"] == "GET"
     assert exchange["url"] == f"{GRAPH_BASE}/oauth/access_token"
-    assert exchange["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/", \
-        "canonical redirect_uri must ALWAYS be sent in the exchange"
+    assert "redirect_uri" not in exchange["params"], \
+        "redirect_uri must NEVER be sent in the Embedded Signup exchange"
 
     # 2) Token validated via /debug_token - the WABA is recovered from ITS
     #    granular_scopes target_ids, never from /me/businesses or /me.
@@ -533,11 +518,12 @@ def test_phone_numbers_edge_regression():
     assert data["waba_id"] == waba_id
     assert data["business_id"] == business_id
 
-    # The exchange (first request) MUST carry the canonical redirect_uri; the
-    # other Graph API calls must never include redirect_uri, fields=phone_numbers,
+    # The exchange (first request) MUST NOT carry redirect_uri (the Embedded
+    # Signup exchange sends ONLY client_id + client_secret + code); the other
+    # Graph API calls must never include redirect_uri, fields=phone_numbers,
     # /me, or /me/businesses.
-    assert requests_log[0]["params"]["redirect_uri"] == "https://apps.orvym.com/dashboard/integrations/", \
-        "canonical redirect_uri must ALWAYS be sent in the exchange"
+    assert "redirect_uri" not in requests_log[0]["params"], \
+        "redirect_uri must NEVER be sent in the Embedded Signup exchange"
     for req in requests_log[1:]:
         assert "redirect_uri" not in req["params"], f"redirect_uri must not be sent to {req['url']}"
         assert req["params"].get("fields") != "phone_numbers", f"fields=phone_numbers used in {req['url']}"

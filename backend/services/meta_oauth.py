@@ -2,27 +2,34 @@
 Meta Embedded Signup OAuth Service
 Handles WhatsApp Business API authentication via Meta Embedded Signup
 
-CANONICAL PRODUCTION REDIRECT URI:
+EMBEDDED SIGNUP TOKEN EXCHANGE - redirect_uri MUST NOT BE SENT:
 
-The Meta token exchange MUST always send redirect_uri exactly as:
+The Meta Tech Provider documentation for WhatsApp Embedded Signup specifies
+the code exchange as:
 
-    https://apps.orvym.com/dashboard/integrations/
+    GET https://graph.facebook.com/{API_VERSION}/oauth/access_token
 
-This is the ONE canonical production value used by the OAuth dialog, the
-frontend, the backend callback and the Meta App Dashboard (Valid OAuth
-Redirect URIs). A previous production run proved that exchanging with
-client_id + client_secret + code + redirect_uri (this exact value) returns
-HTTP 200 and a valid access token.
+Parameters:
+    client_id=<APP_ID>
+    client_secret=<APP_SECRET>
+    code=<CODE>
 
-The exchange request is therefore:
+The documented exchange does NOT include redirect_uri. Therefore this
+Embedded Signup token exchange request carries ONLY client_id, client_secret
+and code:
 
-    GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>&redirect_uri=https://apps.orvym.com/dashboard/integrations/
+    GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>
 
-redirect_uri MUST NEVER be omitted, must NEVER be sent as an empty string and
-must NEVER be sent as null. Omitting it (or sending a value that differs from
-the one Meta recorded for the dialog request) triggers error_subcode 36008
-("make sure your redirect_uri is identical to the one you used in the OAuth
-dialog request").
+redirect_uri MUST NOT be sent on this Embedded Signup exchange path - neither
+the canonical value, nor an empty string, nor null, nor any other value.
+Sending a redirect_uri that does not byte-match the value Meta recorded for
+the dialog request triggers error_subcode 36008 ("make sure your redirect_uri
+is identical to the one you used in the OAuth dialog request").
+
+The canonical production redirect URI
+(https://apps.orvym.com/dashboard/integrations/) is still the value used by
+the OAuth dialog / spawning domain, but it is deliberately NOT sent by the
+backend token exchange for Embedded Signup.
 
 IMPORTANT - Where the WABA ID and phone number ID come from:
 
@@ -58,10 +65,11 @@ from config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Canonical production redirect URI. This exact value is used everywhere:
-# the Meta OAuth dialog configuration, the frontend callback payload, the
-# backend callback validation and the server-side token exchange. Never use a
-# different value and never omit it from the exchange.
+# Canonical production redirect URI used by the OAuth dialog / spawning
+# domain. It is NEVER sent in the Embedded Signup token exchange (the
+# documented Meta Tech Provider exchange sends only client_id, client_secret
+# and code). Kept here so the frontend/backend dialog configuration stays
+# consistent and so any other (non-Embedded-Signup) OAuth flow can reference it.
 CANONICAL_REDIRECT_URI = "https://apps.orvym.com/dashboard/integrations/"
 
 # Explicit, machine-readable error codes. Errors returned by the service are
@@ -173,11 +181,11 @@ class MetaOAuthService:
     def _parse_error(self, response: httpx.Response) -> Tuple[str, Dict]:
         """Extract (error_message, error_object) from a Meta error response.
 
-        Meta error_subcode 36008 means the exchange redirect_uri did not match
-        the value Meta recorded for this single-use authorization code (or the
-        code is invalid/expired). The message is exactly the CLAUDE.md-approved
-        user-facing text; the code must NEVER be retried and a completely new
-        Embedded Signup flow is required.
+        Meta error_subcode 36008 means the single-use authorization code is
+        invalid/expired or was issued under a different OAuth dialog
+        redirect_uri than the one Meta recorded. The message is exactly the
+        CLAUDE.md-approved user-facing text; the code must NEVER be retried
+        and a completely new Embedded Signup flow is required.
         """
         try:
             error_obj = response.json().get("error", {})
@@ -207,22 +215,25 @@ class MetaOAuthService:
         """
         Exchange the Embedded Signup authorization code for an access token.
 
-        The exchange ALWAYS includes the canonical production redirect_uri:
+        The Meta Tech Provider documentation for Embedded Signup specifies
+        this exchange WITHOUT a redirect_uri:
 
-            GET /oauth/access_token?client_id&client_secret&code&redirect_uri
+            GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>
 
-        with redirect_uri = https://apps.orvym.com/dashboard/integrations/ (see
-        the module docstring). Omitting redirect_uri - or sending an empty
-        string or a value different from the one Meta recorded for the dialog
-        request - fails with error_subcode 36008 ("make sure your redirect_uri
-        is identical to the one you used in the OAuth dialog request").
+        So the request sent to Meta carries ONLY client_id, client_secret and
+        code. redirect_uri is deliberately NEVER included in this Embedded
+        Signup exchange (neither the canonical value, nor empty, nor null):
+        sending a redirect_uri that differs from the one Meta recorded for the
+        OAuth dialog request fails with error_subcode 36008 ("make sure your
+        redirect_uri is identical to the one you used in the OAuth dialog
+        request").
 
         Args:
             code: The exchangeable authorization code from Meta Embedded Signup.
-            redirect_uri: Optional. When provided it is normalized (stripped)
-                and sent. When omitted or empty, the canonical production
-                redirect_uri is sent. redirect_uri is NEVER omitted from the
-                exchange and NEVER sent as an empty string.
+            redirect_uri: Accepted only for backward compatibility with older
+                callers. It is intentionally IGNORED for this Embedded Signup
+                exchange - it is never appended to the request and never sent
+                to Meta. Do NOT rely on it here.
 
         Returns:
             (success, data, error_message)
@@ -230,12 +241,14 @@ class MetaOAuthService:
         try:
             url = f"{self.GRAPH_API_BASE}/oauth/access_token"
 
-            redirect_uri = (redirect_uri or "").strip() or CANONICAL_REDIRECT_URI
+            # Embedded Signup exchange: ONLY client_id + client_secret + code.
+            # redirect_uri MUST NOT be sent to Meta on this path (see the
+            # module docstring) - sending it is what triggers error_subcode
+            # 36008 when it does not byte-match the dialog request.
             params = {
                 "client_id": self.app_id,
                 "client_secret": self.app_secret,
                 "code": code,
-                "redirect_uri": redirect_uri,
             }
 
             self._log_exchange_request(url, params)
@@ -736,14 +749,16 @@ class MetaOAuthService:
         WABA_NOT_RETURNED error - the backend NEVER uses /me/businesses or any
         other business-portfolio edge to guess it.
 
-        The code exchange ALWAYS sends the canonical production redirect_uri
-        (https://apps.orvym.com/dashboard/integrations/) - it is NEVER omitted
-        and NEVER sent empty. A mismatched or missing redirect_uri fails the
-        exchange with error_subcode 36008.
+        The code exchange follows the documented Meta Tech Provider Embedded
+        Signup flow: GET /oauth/access_token with ONLY client_id, client_secret
+        and code. redirect_uri is NEVER sent on this exchange path - sending it
+        fails the exchange with error_subcode 36008 when it does not byte-match
+        the OAuth dialog request.
 
         Flow:
-         1. Exchange code for access token (server-side, always with the
-            canonical redirect_uri)
+         1. Exchange code for access token (server-side, Embedded Signup
+            exchange with client_id + client_secret + code only - no
+            redirect_uri)
          2. Validate the exchanged token via /debug_token (app_id + scopes +
             granular_scopes WABA target_ids)
          3. Resolve the WABA ID: session event, then /debug_token granular
@@ -770,10 +785,9 @@ class MetaOAuthService:
                 WABA's phone_numbers edge when absent).
             business_id: Business portfolio ID returned by the Embedded Signup
                 session (optional - stored when provided, never fabricated).
-            redirect_uri: The EXACT redirect_uri used in the OAuth dialog
-                request. Optional - when omitted or empty the canonical
-                production redirect_uri is used. redirect_uri is NEVER omitted
-                from the exchange and NEVER sent empty.
+            redirect_uri: Accepted only for backward compatibility. It is NOT
+                used by the Embedded Signup code exchange - redirect_uri is
+                never sent to Meta on this path (see exchange_code_for_token).
 
         Returns:
             (success, integration_data, error_message)
@@ -788,11 +802,12 @@ class MetaOAuthService:
         - verified_name: Verified display name
         """
         try:
-            # Step 1: Exchange code for token. The exchange ALWAYS sends the
-            # canonical production redirect_uri (see module docstring and
-            # exchange_code_for_token) - it is never omitted and never empty.
+            # Step 1: Exchange code for token. The Embedded Signup exchange
+            # sends ONLY client_id + client_secret + code (see module docstring
+            # and exchange_code_for_token) - redirect_uri is never sent to Meta
+            # on this path.
             logger.info(f"[EmbeddedSignup] Step 1/6 - Meta token exchange started (code length: {len(code)})")
-            success, token_data, error = await self.exchange_code_for_token(code, redirect_uri=redirect_uri)
+            success, token_data, error = await self.exchange_code_for_token(code)
             if not success:
                 logger.error(f"[EmbeddedSignup] Step 1/6 failed - Token exchange: {error}")
                 return False, None, error or "Failed to exchange authorization code"
