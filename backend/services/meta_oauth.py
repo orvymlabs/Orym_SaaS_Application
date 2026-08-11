@@ -4,25 +4,30 @@ Handles WhatsApp Business API authentication via Meta Embedded Signup
 
 CANONICAL PRODUCTION REDIRECT URI:
 
-The Meta token exchange MUST always send redirect_uri exactly as:
+The canonical production redirect URI used by the OAuth dialog frontend and
+the backend callback is:
 
     https://apps.orvym.com/dashboard/integrations/
 
-This is the ONE canonical production value used by the OAuth dialog, the
-frontend, the backend callback and the Meta App Dashboard (Valid OAuth
-Redirect URIs). A previous production run proved that exchanging with
-client_id + client_secret + code + redirect_uri (this exact value) returns
-HTTP 200 and a valid access token.
+CRITICAL - what the TOKEN EXCHANGE sends:
 
-The exchange request is therefore:
-
-    GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>&redirect_uri=https://apps.orvym.com/dashboard/integrations/
-
-redirect_uri MUST NEVER be omitted, must NEVER be sent as an empty string and
-must NEVER be sent as null. Omitting it (or sending a value that differs from
-the one Meta recorded for the dialog request) triggers error_subcode 36008
+The current authorization code comes from the FB.login popup (config_id
+Embedded Signup flow). Meta's JS SDK binds that code to Meta's INTERNAL
+redirect URI - the app never sees or supplies it, and the canonical
+apps.orvym.com value is NOT the value Meta recorded for this code. Sending the
+canonical value in the exchange is exactly what triggers error_subcode 36008
 ("make sure your redirect_uri is identical to the one you used in the OAuth
 dialog request").
+
+Meta's Embedded Signup token exchange therefore carries NO custom redirect
+URI. The request is:
+
+    GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>
+
+The service keeps the redirect_uri parameter present but sends it as an empty
+string ("") so Meta resolves the code against the internal value it recorded.
+A genuinely custom, non-canonical redirect_uri (manual OAuth dialog flow) is
+still forwarded verbatim.
 
 IMPORTANT - Where the WABA ID and phone number ID come from:
 
@@ -58,10 +63,11 @@ from config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Canonical production redirect URI. This exact value is used everywhere:
-# the Meta OAuth dialog configuration, the frontend callback payload, the
-# backend callback validation and the server-side token exchange. Never use a
-# different value and never omit it from the exchange.
+# Canonical production redirect URI. This exact value is used by the OAuth
+# dialog frontend, the frontend callback payload and the backend callback
+# validation. It is NOT sent to Meta in the token exchange: the Embedded
+# Signup FB.login popup code is bound to Meta's INTERNAL redirect URI, so the
+# exchange sends redirect_uri as an empty string (see exchange_code_for_token).
 CANONICAL_REDIRECT_URI = "https://apps.orvym.com/dashboard/integrations/"
 
 # Explicit, machine-readable error codes. Errors returned by the service are
@@ -137,18 +143,27 @@ class MetaOAuthService:
         logger.info(f"  Safe parameters: {self._safe_params(params)}")
         logger.info("=" * 80)
 
-    def _log_exchange_request(self, url: str, params: Dict) -> None:
-        """Log the exact request being sent to Meta (never the app secret or full code)."""
+    def _log_exchange_request(self, url: str, params: Dict, auth_redirect_uri: str = "") -> None:
+        """Log the exact request being sent to Meta (never the app secret or full code).
+
+        Also logs the temporary 36008 diagnostic required by CLAUDE.md:
+        AUTHORIZATION REDIRECT URI (the value the authorization code was
+        issued against / supplied by the frontend), TOKEN EXCHANGE REDIRECT
+        URI (the value actually sent to Meta) and WHETHER THEY MATCH.
+        """
         log_params = self._safe_params(params)
+        exchange_redirect_uri = log_params.get("redirect_uri", "OMITTED")
         logger.info("=" * 80)
         logger.info("META OAUTH TOKEN EXCHANGE")
         logger.info("=" * 80)
         logger.info(f"  Meta endpoint: {url}")
         logger.info(f"  Method: GET")
         logger.info(f"  App ID: {self.app_id}")
+        logger.info(f"  AUTHORIZATION REDIRECT URI: {auth_redirect_uri or '(empty)'}")
+        logger.info(f"  TOKEN EXCHANGE REDIRECT URI: {exchange_redirect_uri}")
+        logger.info(f"  WHETHER THEY MATCH: {bool(auth_redirect_uri) and auth_redirect_uri == exchange_redirect_uri}")
         logger.info(f"  Parameter names: {list(params.keys())}")
         logger.info(f"  redirect_uri included: {'redirect_uri' in params}")
-        logger.info(f"  redirect_uri value: {log_params.get('redirect_uri', 'OMITTED')}")
         logger.info(f"  Code length: {len(params.get('code', ''))}")
         logger.info("=" * 80)
 
@@ -207,22 +222,26 @@ class MetaOAuthService:
         """
         Exchange the Embedded Signup authorization code for an access token.
 
-        The exchange ALWAYS includes the canonical production redirect_uri:
+        The current code comes from the FB.login popup (config_id Embedded
+        Signup flow). Meta's JS SDK binds the code to Meta's INTERNAL redirect
+        URI, so the canonical apps.orvym.com value is NOT what Meta recorded
+        for this code - sending it triggers error_subcode 36008. Per Meta's
+        Embedded Signup docs the exchange carries NO custom redirect URI:
 
-            GET /oauth/access_token?client_id&client_secret&code&redirect_uri
+            GET /oauth/access_token?client_id&client_secret&code
 
-        with redirect_uri = https://apps.orvym.com/dashboard/integrations/ (see
-        the module docstring). Omitting redirect_uri - or sending an empty
-        string or a value different from the one Meta recorded for the dialog
-        request - fails with error_subcode 36008 ("make sure your redirect_uri
-        is identical to the one you used in the OAuth dialog request").
+        This service keeps the redirect_uri parameter present but sends it as
+        an empty string ("") so Meta resolves the code against the internal
+        value it recorded. A genuinely custom, non-canonical redirect_uri
+        (manual OAuth dialog flow) is still forwarded verbatim.
 
         Args:
             code: The exchangeable authorization code from Meta Embedded Signup.
-            redirect_uri: Optional. When provided it is normalized (stripped)
-                and sent. When omitted or empty, the canonical production
-                redirect_uri is sent. redirect_uri is NEVER omitted from the
-                exchange and NEVER sent as an empty string.
+            redirect_uri: Optional. When it is empty, whitespace or the
+                canonical production value, the exchange sends redirect_uri=""
+                (the Embedded Signup FB.login popup flow). A genuinely custom,
+                non-canonical value is normalized (stripped) and forwarded
+                verbatim.
 
         Returns:
             (success, data, error_message)
@@ -230,15 +249,23 @@ class MetaOAuthService:
         try:
             url = f"{self.GRAPH_API_BASE}/oauth/access_token"
 
-            redirect_uri = (redirect_uri or "").strip() or CANONICAL_REDIRECT_URI
+            supplied_redirect_uri = (redirect_uri or "").strip()
+            if supplied_redirect_uri and supplied_redirect_uri != CANONICAL_REDIRECT_URI:
+                exchange_redirect_uri = supplied_redirect_uri
+            else:
+                # Embedded Signup FB.login popup flow: the code is bound to
+                # Meta's internal redirect URI - send "" so Meta resolves it
+                # against the value it recorded. Sending the canonical value
+                # here is what caused error_subcode 36008.
+                exchange_redirect_uri = ""
             params = {
                 "client_id": self.app_id,
                 "client_secret": self.app_secret,
                 "code": code,
-                "redirect_uri": redirect_uri,
+                "redirect_uri": exchange_redirect_uri,
             }
 
-            self._log_exchange_request(url, params)
+            self._log_exchange_request(url, params, auth_redirect_uri=supplied_redirect_uri)
 
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(url, params=params)
@@ -736,14 +763,15 @@ class MetaOAuthService:
         WABA_NOT_RETURNED error - the backend NEVER uses /me/businesses or any
         other business-portfolio edge to guess it.
 
-        The code exchange ALWAYS sends the canonical production redirect_uri
-        (https://apps.orvym.com/dashboard/integrations/) - it is NEVER omitted
-        and NEVER sent empty. A mismatched or missing redirect_uri fails the
-        exchange with error_subcode 36008.
+        The code exchange sends redirect_uri="" for the Embedded Signup
+        FB.login popup flow (the code is bound to Meta's internal redirect
+        URI - the canonical apps.orvym.com value is NEVER sent in the
+        exchange; sending it is what caused error_subcode 36008). A custom
+        non-canonical redirect_uri is forwarded verbatim.
 
         Flow:
-         1. Exchange code for access token (server-side, always with the
-            canonical redirect_uri)
+         1. Exchange code for access token (server-side; redirect_uri="" for
+            the Embedded Signup popup flow)
          2. Validate the exchanged token via /debug_token (app_id + scopes +
             granular_scopes WABA target_ids)
          3. Resolve the WABA ID: session event, then /debug_token granular
@@ -770,10 +798,11 @@ class MetaOAuthService:
                 WABA's phone_numbers edge when absent).
             business_id: Business portfolio ID returned by the Embedded Signup
                 session (optional - stored when provided, never fabricated).
-            redirect_uri: The EXACT redirect_uri used in the OAuth dialog
-                request. Optional - when omitted or empty the canonical
-                production redirect_uri is used. redirect_uri is NEVER omitted
-                from the exchange and NEVER sent empty.
+            redirect_uri: The redirect_uri from the OAuth dialog payload.
+                Optional. When empty, whitespace or the canonical production
+                value it is sent to Meta as "" (Embedded Signup FB.login popup
+                flow - see exchange_code_for_token). A genuinely custom,
+                non-canonical value is forwarded verbatim.
 
         Returns:
             (success, integration_data, error_message)
@@ -788,9 +817,10 @@ class MetaOAuthService:
         - verified_name: Verified display name
         """
         try:
-            # Step 1: Exchange code for token. The exchange ALWAYS sends the
-            # canonical production redirect_uri (see module docstring and
-            # exchange_code_for_token) - it is never omitted and never empty.
+            # Step 1: Exchange code for token. For the Embedded Signup FB.login
+            # popup flow the exchange sends redirect_uri="" (the code is bound
+            # to Meta's internal redirect URI - see exchange_code_for_token and
+            # the module docstring).
             logger.info(f"[EmbeddedSignup] Step 1/6 - Meta token exchange started (code length: {len(code)})")
             success, token_data, error = await self.exchange_code_for_token(code, redirect_uri=redirect_uri)
             if not success:

@@ -12,13 +12,15 @@ class MetaOAuthCallbackRequest(BaseModel):
 
     The exchangeable code and the redirect_uri are required. redirect_uri must
     be the canonical production value (https://apps.orvym.com/dashboard/integrations/)
-    - never empty, never null - because Meta's code exchange fails with
-    error_subcode 36008 when redirect_uri is omitted or differs from the dialog
-    request. The WABA ID and phone number ID come from the WA_EMBEDDED_SIGNUP
-    completion event (captured on the frontend) and are REQUIRED by the
-    backend - the Embedded Signup session is the source of truth. The backend
-    NEVER discovers or guesses missing IDs; it returns a controlled
-    WABA_NOT_RETURNED / PHONE_NUMBER_NOT_RETURNED error when they are absent.
+    so the frontend, backend and Meta App Dashboard share ONE dialog
+    configuration. The code exchange itself sends redirect_uri="" to Meta
+    because the FB.login popup code is bound to Meta's internal redirect URI
+    (sending the canonical value triggers error_subcode 36008). The WABA ID and
+    phone number ID come from the WA_EMBEDDED_SIGNUP completion event (captured
+    on the frontend) and are REQUIRED by the backend - the Embedded Signup
+    session is the source of truth. The backend NEVER discovers or guesses
+    missing IDs; it returns a controlled WABA_NOT_RETURNED /
+    PHONE_NUMBER_NOT_RETURNED error when they are absent.
     """
     code: Optional[str] = None
     redirect_uri: Optional[str] = None

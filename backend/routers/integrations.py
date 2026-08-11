@@ -682,8 +682,9 @@ async def meta_oauth_callback_post(
       1. Rejects duplicate authorization codes (SHA-256 hash ledger) - a code
          is NEVER exchanged twice.
       2. Exchanges the code server-side for the customer business token
-         (client_id + client_secret + code + redirect_uri - redirect_uri is
-         ALWAYS the canonical value, never omitted, never empty)
+         (client_id + client_secret + code; redirect_uri is sent as "" because
+         the FB.login popup code is bound to Meta's internal redirect URI -
+         sending the canonical value triggers error_subcode 36008)
       3. Validates the exchanged token via /debug_token (app_id + scopes)
       4. Validates the WABA via GET /<WABA_ID> and the phone number via
          GET /<WABA_ID>/phone_numbers - using ONLY the IDs returned by the
@@ -693,11 +694,10 @@ async def meta_oauth_callback_post(
     """
     settings = get_settings()
 
-    # The exchangeable code is required. The redirect_uri is ALSO required -
-    # omitting it (or sending an empty value) is exactly what causes Meta's
-    # error_subcode 36008 on the code exchange. In production the canonical
-    # exact URI is enforced so the frontend, backend and Meta App Dashboard
-    # can never drift apart.
+    # The exchangeable code is required. The redirect_uri in the callback
+    # payload is validated against the canonical value so the frontend, backend
+    # and Meta App Dashboard share ONE dialog configuration. It is forwarded to
+    # the exchange, which sends it to Meta as "" for the FB.login popup flow.
     if not payload.code or len(str(payload.code).strip()) < 10:
         raise HTTPException(400, "Missing authorization code from Embedded Signup completion data")
 
