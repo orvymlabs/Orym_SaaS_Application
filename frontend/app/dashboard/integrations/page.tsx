@@ -196,6 +196,12 @@ export default function IntegrationsPage() {
             console.warn('  saw_ERROR:', sawError);
             console.warn('  sessionInfoVersion_requested: 3');
             console.warn('  config_id:', configIdRef.current || 'unknown');
+            // Per-attempt value summary (safe - never prints codes/tokens).
+            const cur = signupDataRef.current;
+            console.warn('  oauthCodeReceived:', !!signupCodeRef.current || completingRef.current);
+            console.warn('  wabaIdReceived:', !!cur.waba_id);
+            console.warn('  phoneNumberIdReceived:', !!cur.phone_number_id);
+            console.warn('  businessIdReceived:', !!cur.business_id);
             launchingRef.current = false;
             setIsExchangeInProgress(false);
             setConnectingWhatsApp(false);
@@ -380,39 +386,79 @@ export default function IntegrationsPage() {
       // Detect the Embedded Signup session message (Part 8 of the spec). The
       // documented format uses data.type === 'WA_EMBEDDED_SIGNUP' with the event
       // name in data.event, but some Meta payloads mark the message type in the
-      // event field instead - accept BOTH so no official session event is
-      // discarded, while still rejecting arbitrary messages.
-      const isSignupMessage =
-        !!data &&
+      // event field instead, and the signup envelope can occasionally arrive
+      // nested one level down (data.data) - accept ALL of these so no official
+      // session event is discarded, while still rejecting arbitrary messages.
+      let signup: any = data;
+      if (
+        data &&
         typeof data === 'object' &&
-        (data.type === 'WA_EMBEDDED_SIGNUP' || data.event === 'WA_EMBEDDED_SIGNUP');
+        data.data &&
+        typeof data.data === 'object' &&
+        (data.data.type === 'WA_EMBEDDED_SIGNUP' || data.data.event === 'WA_EMBEDDED_SIGNUP')
+      ) {
+        signup = data.data;
+      }
+
+      const isSignupMessage =
+        !!signup &&
+        typeof signup === 'object' &&
+        (signup.type === 'WA_EMBEDDED_SIGNUP' || signup.event === 'WA_EMBEDDED_SIGNUP');
 
       if (!isSignupMessage) {
         if (attemptActive) {
-          console.log('[EmbeddedSignup] Ignored message (not WA_EMBEDDED_SIGNUP). type:', data?.type || 'undefined');
+          console.log('[EmbeddedSignup] Ignored message (not WA_EMBEDDED_SIGNUP). type:', data?.type || 'undefined', 'event:', data?.event || 'undefined');
           messageDiagnosticsRef.current.push({ origin, type: data?.type || 'non-wa-embedded-signup' });
         }
         return;
       }
 
-      // Event name: normally data.event is FINISH / CANCEL / ERROR. When the
+      // Collect every container that may hold the session payload. Meta's
+      // documented FINISH format places the asset IDs directly on the data key:
+      //   { data: { waba_id, phone_number_id, business_id }, type, event }
+      // but real payloads have also been observed with the asset IDs nested one
+      // level deeper (data.data.data) or directly on the envelope. All
+      // candidates are searched and merged so no legitimate session event is
+      // ever dropped because of its nesting depth.
+      const payloadCandidates: any[] = [];
+      if (signup.data && typeof signup.data === 'object') {
+        payloadCandidates.push(signup.data);
+        if (signup.data.data && typeof signup.data.data === 'object') {
+          payloadCandidates.push(signup.data.data);
+        }
+      }
+      if (signup !== data && data && typeof data === 'object') {
+        payloadCandidates.push(data);
+      }
+      payloadCandidates.push(signup);
+
+      const sessionPayload: any = {};
+      for (const candidate of payloadCandidates) {
+        if (!candidate || typeof candidate !== 'object') continue;
+        for (const field of ['waba_id', 'phone_number_id', 'business_id', 'waba_ids', 'error_message', 'error_code', 'current_step', 'session_id', 'timestamp']) {
+          if (sessionPayload[field] === undefined && candidate[field] !== undefined) {
+            sessionPayload[field] = candidate[field];
+          }
+        }
+      }
+
+      // Event name: normally signup.event is FINISH / CANCEL / ERROR. When the
       // event field itself is the WA_EMBEDDED_SIGNUP type marker, treat a
       // payload carrying asset IDs as FINISH and one carrying an error_message
       // as ERROR - never silently drop the session.
-      let eventName = String(data.event || 'UNKNOWN');
+      let eventName = String(signup.event || 'UNKNOWN');
       if (eventName === 'WA_EMBEDDED_SIGNUP') {
-        const payload = data.data || {};
-        const hasAssets = !!(payload.waba_id || payload.phone_number_id || payload.waba_ids || payload.business_id);
-        eventName = hasAssets ? 'FINISH' : (payload.error_message ? 'ERROR' : 'UNKNOWN');
+        const hasAssets = !!(sessionPayload.waba_id || sessionPayload.phone_number_id || sessionPayload.waba_ids || sessionPayload.business_id);
+        eventName = hasAssets ? 'FINISH' : (sessionPayload.error_message ? 'ERROR' : 'UNKNOWN');
       }
-      const dataObj = data.data || {};
+      const dataObj = sessionPayload;
 
       if (attemptActive) {
         messageDiagnosticsRef.current.push({ origin, type: 'WA_EMBEDDED_SIGNUP', event: eventName });
       }
       console.log('[EmbeddedSignup] WA_EMBEDDED_SIGNUP EVENT RECEIVED');
       console.log('  event:', eventName);
-      console.log('  version:', data.version);
+      console.log('  version:', signup.version);
 
       // CANCEL - abandoned flow (capture current_step) or user-reported error
       // (capture error_message, error_code, session_id, timestamp).
@@ -471,10 +517,13 @@ export default function IntegrationsPage() {
       // provided - never fabricate missing values. The WABA ID and phone
       // number ID are the source of truth for the customer onboarding session.
       console.log('[EmbeddedSignup] SESSION_FINISH_RECEIVED');
-      const waba_id = dataObj.waba_id ||
-        (Array.isArray(dataObj.waba_ids) && dataObj.waba_ids.length > 0 ? String(dataObj.waba_ids[0]) : undefined);
-      const phone_number_id = dataObj.phone_number_id || undefined;
-      const business_id = dataObj.business_id || undefined;
+      const waba_id = String(
+        dataObj.waba_id ||
+        (Array.isArray(dataObj.waba_ids) && dataObj.waba_ids.length > 0 ? dataObj.waba_ids[0] : undefined) ||
+        ''
+      ) || undefined;
+      const phone_number_id = String(dataObj.phone_number_id || '') || undefined;
+      const business_id = String(dataObj.business_id || '') || undefined;
 
       if (waba_id) console.log('[EmbeddedSignup] WABA_ID_RECEIVED:', waba_id);
       if (phone_number_id) console.log('[EmbeddedSignup] PHONE_NUMBER_ID_RECEIVED:', phone_number_id);
@@ -606,6 +655,17 @@ export default function IntegrationsPage() {
           // User cancelled / denied, or the popup was blocked / errored.
           const status = response?.status || 'unknown';
           const fbError = response?.error;
+          if (status === 'connected') {
+            // Meta already authorized the user and the actual exchangeable code
+            // is delivered through the window.message fallback (the non-JSON
+            // redirect message from www.facebook.com), not necessarily through
+            // this response. The code may arrive here or there - DO NOT stop
+            // the flow: keep waiting for the window message events and let
+            // completeEmbeddedSignup fire exactly once when both the code and
+            // the WA_EMBEDDED_SIGNUP asset IDs are present.
+            console.log('[EmbeddedSignup] FB.login returned without a code. status: connected - continuing to wait for the window message code/session events');
+            return;
+          }
           console.log('[EmbeddedSignup] FB.login returned without a code. status:', status, fbError || '');
           clearSessionWaitTimeout();
           launchingRef.current = false;
