@@ -460,6 +460,17 @@ export default function IntegrationsPage() {
       console.log('  event:', eventName);
       console.log('  version:', signup.version);
 
+      // Safe session-event diagnostics (never logs codes/tokens/secrets).
+      const wabaReceived = !!sessionPayload.waba_id ||
+        (Array.isArray(sessionPayload.waba_ids) && sessionPayload.waba_ids.length > 0);
+      console.log('[EmbeddedSignup] SESSION EVENT RECEIVED');
+      console.log('  event:', eventName);
+      console.log('  sessionInfoVersion: 3');
+      console.log('  waba_id:', wabaReceived ? 'received' : 'missing');
+      console.log('  phone_number_id:', sessionPayload.phone_number_id ? 'received' : 'missing');
+      console.log('  business_id:', sessionPayload.business_id ? 'received' : 'missing');
+      console.log('  origin:', origin);
+
       // CANCEL - abandoned flow (capture current_step) or user-reported error
       // (capture error_message, error_code, session_id, timestamp).
       if (eventName === 'CANCEL') {
