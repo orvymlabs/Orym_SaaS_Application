@@ -1,9 +1,13 @@
 """
-Test Official Meta Embedded Signup Implementation
+Test Embedded Signup Token Exchange Parameters
 
-This test verifies that the token exchange follows Meta's official documentation:
-- Only client_id, client_secret, and code parameters are sent
-- redirect_uri is OMITTED entirely
+This test verifies the token exchange for the FB.login() + config_id Embedded
+Signup popup flow:
+- client_id, client_secret, code, and redirect_uri (empty string) are sent
+- redirect_uri='' is the ONLY value Meta accepts for the popup flow (the code
+  is bound to Meta's internal xd_arbiter redirect URI). Omitting redirect_uri
+  or sending a real URL triggers Meta error_subcode 36008 (proven in
+  production).
 """
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
@@ -14,8 +18,8 @@ class TestOfficialMetaImplementation:
     """Test suite for official Meta Embedded Signup implementation."""
 
     @pytest.mark.asyncio
-    async def test_token_exchange_omits_redirect_uri(self):
-        """Verify that token exchange omits redirect_uri parameter."""
+    async def test_token_exchange_sends_empty_redirect_uri(self):
+        """Verify that token exchange sends redirect_uri='' (empty string)."""
         service = MetaOAuthService(
             app_id="3862862217342382",
             app_secret="test_secret"
@@ -46,26 +50,30 @@ class TestOfficialMetaImplementation:
             # Get the params that were sent
             params = call_args[1]['params']
 
-            # CRITICAL VERIFICATION: redirect_uri must NOT be in params
-            assert 'redirect_uri' not in params, "redirect_uri should be OMITTED per official Meta docs"
+            # CRITICAL VERIFICATION: redirect_uri must be present as '' - the
+            # code is bound to Meta's internal xd_arbiter redirect URI, so the
+            # empty string is the ONLY value Meta accepts. Omitting the
+            # parameter or sending a real URL triggers error_subcode 36008.
+            assert 'redirect_uri' in params, "redirect_uri must be present in the exchange"
+            assert params['redirect_uri'] == "", "redirect_uri must be the EMPTY STRING"
 
-            # Verify only the three required parameters are present
+            # Verify the four parameters are present
             assert 'client_id' in params
             assert 'client_secret' in params
             assert 'code' in params
-            assert len(params) == 3, "Only 3 parameters should be sent: client_id, client_secret, code"
+            assert len(params) == 4, "Exactly 4 params: client_id, client_secret, code, redirect_uri"
 
             # Verify correct values
             assert params['client_id'] == "3862862217342382"
             assert params['code'] == test_code
 
-            print("[PASS] Token exchange correctly omits redirect_uri")
+            print("[PASS] Token exchange sends redirect_uri='' (empty string)")
             print(f"[PASS] Parameters sent: {list(params.keys())}")
-            print("[PASS] Official Meta implementation verified")
+            print("[PASS] Embedded Signup popup exchange verified")
 
     @pytest.mark.asyncio
     async def test_token_exchange_success(self):
-        """Test successful token exchange with official implementation."""
+        """Test successful token exchange."""
         service = MetaOAuthService(
             app_id="3862862217342382",
             app_secret="test_secret"
@@ -142,9 +150,9 @@ if __name__ == "__main__":
 
     test = TestOfficialMetaImplementation()
 
-    print("Test 1: Verify redirect_uri is omitted")
+    print("Test 1: Verify redirect_uri='' is sent")
     print("-" * 80)
-    asyncio.run(test.test_token_exchange_omits_redirect_uri())
+    asyncio.run(test.test_token_exchange_sends_empty_redirect_uri())
     print()
 
     print("Test 2: Verify successful token exchange")
@@ -158,5 +166,5 @@ if __name__ == "__main__":
     print()
 
     print("=" * 80)
-    print("ALL TESTS PASSED - OFFICIAL META IMPLEMENTATION VERIFIED")
+    print("ALL TESTS PASSED - EMBEDDED SIGNUP EXCHANGE VERIFIED")
     print("=" * 80)

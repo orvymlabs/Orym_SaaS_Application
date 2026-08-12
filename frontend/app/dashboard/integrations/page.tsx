@@ -111,8 +111,10 @@ export default function IntegrationsPage() {
   //      (response.authResponse.code)
   //
   // The code + asset IDs are sent to the backend. The backend exchanges the
-  // code with Meta using the official token exchange (client_id, client_secret,
-  // code only - redirect_uri is OMITTED per official Meta documentation).
+  // code with Meta sending redirect_uri="" (empty string) - the code is bound
+  // to Meta's internal xd_arbiter redirect URI. Omitting redirect_uri or
+  // sending a real URL triggers Meta error subcode 36008 (proven in
+  // production). The frontend never sends redirect_uri.
   //
   // The single-use code is exchanged EXACTLY ONCE - a one-time guard
   // (completingRef) locks the exchange the moment it starts.
@@ -582,10 +584,12 @@ export default function IntegrationsPage() {
   //   - the customer's asset IDs (waba_id / phone_number_id / business_id)
   //     via the WA_EMBEDDED_SIGNUP session message posted to THIS window.
   //
-  // OFFICIAL META IMPLEMENTATION (per CLAUDE.md requirements):
-  // The backend token exchange omits redirect_uri per official Meta
-  // documentation. Only client_id, client_secret, and code are sent.
-  // This is the standard approach for FB.login() + config_id Embedded Signup.
+  // NOTE on redirect_uri: the code is bound to Meta's INTERNAL xd_arbiter
+  // redirect URI, so the backend exchange sends client_id + client_secret +
+  // code + redirect_uri='' (empty string). The callback payload does NOT send
+  // redirect_uri - never the canonical value, never an empty string, never
+  // null (omitting it on the backend or sending a real URL triggers
+  // error_subcode 36008).
   const launchWhatsAppSignup = () => {
     if (!metaConfig) {
       showToast("Meta Embedded Signup is not configured", "error");
@@ -697,10 +701,11 @@ export default function IntegrationsPage() {
   // when the session event did not deliver them (documented Meta fallback);
   // the IDs are never fabricated.
   //
-  // OFFICIAL META IMPLEMENTATION (per CLAUDE.md requirements):
-  // The backend token exchange follows Meta's official documentation and
-  // omits the redirect_uri parameter entirely. Only client_id, client_secret,
-  // and code are sent to Meta's /oauth/access_token endpoint.
+  // redirect_uri is deliberately NOT sent in this payload. The FB.login popup
+  // code is bound to Meta's INTERNAL xd_arbiter redirect URI, so the backend
+  // exchange sends redirect_uri='' (empty string) - omitting it on the
+  // backend, or sending any real URL, is exactly what triggers Meta error
+  // subcode 36008.
   const handleMetaOAuthCallback = async (
     code: string,
     metaData?: { waba_id?: string; phone_number_id?: string; business_id?: string }

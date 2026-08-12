@@ -664,8 +664,6 @@ async def meta_oauth_callback_post(
     """
     Handle Meta Embedded Signup callback via POST.
 
-    OFFICIAL META IMPLEMENTATION (per CLAUDE.md requirements):
-
     The frontend forwards the following from Embedded Signup:
       - code             : exchangeable authorization code (REQUIRED)
       - waba_id          : WhatsApp Business Account ID from the
@@ -676,25 +674,24 @@ async def meta_oauth_callback_post(
       - business_id      : business portfolio ID from the completion event
                            (optional)
 
-    The backend token exchange follows Meta's official Embedded Signup
-    documentation and sends ONLY three parameters:
+    The backend token exchange follows the Embedded Signup FB.login popup
+    flow and sends:
       - client_id
       - client_secret
       - code
+      - redirect_uri (EMPTY STRING - the only value Meta accepts for this
+        popup flow; the code is bound to Meta's internal xd_arbiter redirect
+        URI. Omitting the parameter or sending a real URL triggers Meta error
+        subcode 36008 - proven in production.)
 
-    The redirect_uri parameter is OMITTED entirely per official Meta
-    documentation. This is the standard approach for FB.login() + config_id
-    Embedded Signup flow.
-
-    Official Meta token exchange:
-        GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>
+    Token exchange:
+        GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>&redirect_uri=
 
     The backend then:
       1. Rejects duplicate authorization codes (SHA-256 hash ledger) - a code
          is NEVER exchanged twice.
       2. Exchanges the code server-side for the customer business token
-         (client_id + client_secret + code; redirect_uri OMITTED per official
-         Meta documentation)
+         (client_id + client_secret + code + redirect_uri='')
       3. Validates the exchanged token via /debug_token (app_id + scopes)
       4. Validates the WABA via GET /<WABA_ID> and the phone number via
          GET /<WABA_ID>/phone_numbers - using ONLY IDs Meta itself returned
@@ -788,8 +785,9 @@ async def meta_oauth_callback_post(
     # WABA ID / phone number ID / business ID come from the Embedded Signup
     # session event when available and are resolved server-side (the documented
     # /debug_token granular_scopes + WABA phone_numbers edge fallback) when
-    # absent. redirect_uri is intentionally NOT forwarded: the Embedded Signup
-    # exchange sends only client_id + client_secret + code + redirect_uri="".
+    # absent. redirect_uri is intentionally NOT forwarded from the frontend:
+    # the Embedded Signup exchange sends redirect_uri="" (empty string) - the
+    # code is bound to Meta's internal xd_arbiter redirect URI.
     oauth_service = MetaOAuthService(settings.META_APP_ID, settings.META_APP_SECRET)
     success, integration_data, error = await oauth_service.setup_whatsapp_integration(
         code,

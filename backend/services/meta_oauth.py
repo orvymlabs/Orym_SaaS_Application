@@ -6,29 +6,21 @@ OFFICIAL META IMPLEMENTATION (per CLAUDE.md requirements)
 
 This implementation follows Meta's official Embedded Signup documentation.
 
-TOKEN EXCHANGE (Official Meta Implementation):
+TOKEN EXCHANGE (Embedded Signup FB.login popup flow):
 
-For FB.login() with config_id Embedded Signup flow, Meta's official token
-exchange uses ONLY three parameters:
+For FB.login() with config_id Embedded Signup flow, the authorization code is
+issued inside Meta's JS SDK popup. The popup opens the OAuth dialog with
+redirect_uri set to Meta's INTERNAL xd_arbiter redirect URI (dynamic,
+unreproducible by the app), and Meta binds the code to that value. The token
+exchange therefore sends redirect_uri as the EMPTY STRING:
 
-    GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>
+    GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>&redirect_uri=
 
-The redirect_uri parameter is OMITTED entirely. This is the standard approach
-for Meta's Embedded Signup flow where the authorization code is generated
-through Meta's internal popup flow handler.
-
-Reference: Meta for Developers - WhatsApp Embedded Signup Implementation
-https://developers.facebook.com/docs/whatsapp/embedded-signup/
-
-# ============================================================================
-# OLD IMPLEMENTATION - COMMENTED OUT (per CLAUDE.md requirements)
-# ============================================================================
-# Previous implementation sent redirect_uri="" (empty string) based on the
-# assumption that the FB.login popup code was bound to Meta's internal
-# xd_arbiter redirect URI and that the empty string would match it.
-# This has been replaced with the official Meta implementation which omits
-# the redirect_uri parameter entirely.
-# ============================================================================
+PROVEN IN PRODUCTION: omitting redirect_uri entirely (the "official docs
+example") returns Meta error code 100 / subcode 36008 ("make sure your
+redirect_uri is identical to the one you used in the OAuth dialog request").
+Sending any real URL (including the canonical apps.orvym.com value) is also
+rejected. The empty string is the ONLY value Meta accepts for this popup flow.
 
 IMPORTANT - Where the WABA ID and phone number ID come from:
 
@@ -65,28 +57,21 @@ from config import get_settings
 logger = logging.getLogger(__name__)
 
 # ============================================================================
-# OLD IMPLEMENTATION - COMMENTED OUT (per CLAUDE.md requirements)
+# TOKEN EXCHANGE REDIRECT URI (Embedded Signup FB.login popup flow)
 # ============================================================================
+# The FB.login popup code is bound to Meta's INTERNAL xd_arbiter redirect URI,
+# which cannot be reproduced. Meta accepts the empty string for this JS SDK
+# popup flow. Sending any real URL OR omitting the parameter entirely triggers
+# error_subcode 36008 (proven in production).
+EXCHANGE_REDIRECT_URI = ""
+
 # Canonical production redirect URI. This exact value is used by the OAuth
 # dialog frontend for configuration/verification purposes. It is NOT sent to
 # Meta in the Embedded Signup token exchange: the FB.login popup code is bound
 # to Meta's INTERNAL xd_arbiter redirect URI, so the exchange sends
 # redirect_uri="" (empty string) - the only value Meta accepts for the JS SDK
-# popup flow. Sending the canonical value (or any URL) triggers 36008, and
-# omitting redirect_uri entirely is also rejected (see exchange_code_for_token).
-# CANONICAL_REDIRECT_URI = "https://apps.orvym.com/dashboard/integrations/"
-
-# redirect_uri sent in the Embedded Signup token exchange. The FB.login popup
-# code is bound to Meta's INTERNAL xd_arbiter redirect URI, which cannot be
-# reproduced. Meta accepts the empty string for this JS SDK popup flow; any
-# real URL or an omitted parameter triggers error_subcode 36008.
-# EXCHANGE_REDIRECT_URI = ""
-# ============================================================================
-
-# OFFICIAL META IMPLEMENTATION (per CLAUDE.md requirements)
-# For FB.login() with config_id Embedded Signup flow, Meta's official
-# documentation states that redirect_uri should be OMITTED entirely from the
-# token exchange request. The code is bound to Meta's internal flow handler.
+# popup flow. Sending the canonical value (or any URL) or omitting the
+# parameter triggers error_subcode 36008 (proven in production).
 CANONICAL_REDIRECT_URI = "https://apps.orvym.com/dashboard/integrations/"
 
 # Explicit, machine-readable error codes. Errors returned by the service are
@@ -165,24 +150,24 @@ class MetaOAuthService:
     def _log_exchange_request(self, url: str, params: Dict) -> None:
         """Log the exact request being sent to Meta (never the app secret or full code).
 
-        OFFICIAL META EMBEDDED SIGNUP TOKEN EXCHANGE (per CLAUDE.md requirements):
-        For FB.login() with config_id flow, the token exchange sends ONLY:
+        EMBEDDED SIGNUP FB.LOGIN POPUP TOKEN EXCHANGE:
+        The code is bound to Meta's INTERNAL xd_arbiter redirect URI, so the
+        exchange sends:
         - client_id
         - client_secret
         - code
-
-        The redirect_uri parameter is OMITTED entirely per official Meta
-        documentation. This is the standard approach for Embedded Signup.
+        - redirect_uri (EMPTY STRING - the only value Meta accepts for this
+          popup flow; omitting it or sending a real URL triggers 36008)
         """
         logger.info("=" * 80)
-        logger.info("META EMBEDDED SIGNUP TOKEN EXCHANGE - OFFICIAL IMPLEMENTATION")
+        logger.info("META EMBEDDED SIGNUP TOKEN EXCHANGE")
         logger.info("=" * 80)
         logger.info(f"  Meta endpoint: {url}")
         logger.info(f"  Method: GET")
         logger.info(f"  App ID: {self.app_id}")
         logger.info(f"  Parameter names: {list(params.keys())}")
         logger.info(f"  redirect_uri included: {'redirect_uri' in params}")
-        logger.info(f"  redirect_uri value: {params.get('redirect_uri', 'OMITTED (per official Meta docs)')!r}")
+        logger.info(f"  redirect_uri value: {params.get('redirect_uri', 'MISSING')!r}")
         logger.info(f"  Code length: {len(params.get('code', ''))}")
         logger.info("=" * 80)
 
@@ -207,11 +192,12 @@ class MetaOAuthService:
     def _parse_error(self, response: httpx.Response) -> Tuple[str, Dict]:
         """Extract (error_message, error_object) from a Meta error response.
 
-        Meta error_subcode 36008 ("Error validating verification code") can occur
-        if the authorization code is invalid, expired, or already consumed. With
-        the official Meta implementation (omitting redirect_uri), this error
-        indicates the code itself is no longer valid. The code must NEVER be
-        retried and a completely new Embedded Signup flow is required.
+        Meta error_subcode 36008 ("Error validating verification code") means
+        the redirect_uri did not match the value Meta recorded when it issued
+        the code, or the code is invalid/expired/already consumed. With the
+        correct exchange (redirect_uri=''), a 36008 indicates the code itself
+        is no longer valid. The code must NEVER be retried and a completely new
+        Embedded Signup flow is required.
         """
         try:
             error_obj = response.json().get("error", {})
@@ -241,17 +227,19 @@ class MetaOAuthService:
         """
         Exchange the Embedded Signup authorization code for an access token.
 
-        OFFICIAL META IMPLEMENTATION (per CLAUDE.md requirements):
-        For FB.login() with config_id Embedded Signup flow, Meta's official
-        token exchange omits the redirect_uri parameter entirely. The code is
-        generated through Meta's internal popup flow handler and is exchanged
-        with only client_id, client_secret, and code parameters.
+        EMBEDDED SIGNUP FB.LOGIN POPUP TOKEN EXCHANGE (proven in production):
+        For FB.login() with config_id Embedded Signup flow, the authorization
+        code is issued inside Meta's JS SDK popup, whose OAuth dialog request
+        carries Meta's INTERNAL xd_arbiter redirect URI. The code is bound to
+        that value. The token exchange sends redirect_uri as the EMPTY STRING -
+        the only value Meta accepts for this popup flow:
 
-        Official Meta token exchange:
-            GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>
+            GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>&redirect_uri=
 
-        This follows the official Meta documentation for Embedded Signup
-        implementation. No redirect_uri parameter is sent.
+        Omitting redirect_uri entirely (the "official docs example") or sending
+        any real URL triggers Meta error code 100 / subcode 36008 ("make sure
+        your redirect_uri is identical to the one you used in the OAuth dialog
+        request") - proven in production.
 
         Args:
             code: The exchangeable authorization code from Meta Embedded Signup.
@@ -262,24 +250,16 @@ class MetaOAuthService:
         try:
             url = f"{self.GRAPH_API_BASE}/oauth/access_token"
 
-            # OFFICIAL META EMBEDDED SIGNUP TOKEN EXCHANGE
-            # Only client_id, client_secret, and code are sent
-            # redirect_uri is OMITTED per official Meta documentation
+            # EMBEDDED SIGNUP FB.LOGIN POPUP TOKEN EXCHANGE
+            # The code is bound to Meta's internal xd_arbiter redirect URI, so
+            # the exchange sends redirect_uri="" (empty string). Omitting the
+            # parameter or sending any real URL triggers Meta subcode 36008.
             params = {
                 "client_id": self.app_id,
                 "client_secret": self.app_secret,
                 "code": code,
+                "redirect_uri": EXCHANGE_REDIRECT_URI,
             }
-
-            # ============================================================================
-            # OLD IMPLEMENTATION - COMMENTED OUT (per CLAUDE.md requirements)
-            # ============================================================================
-            # The FB.login popup code is bound to Meta's INTERNAL xd_arbiter
-            # redirect URI (unreproducible). Meta accepts the empty string
-            # for this JS SDK popup flow; any URL or an omitted parameter
-            # triggers error_subcode 36008.
-            # "redirect_uri": EXCHANGE_REDIRECT_URI,  # Was: ""
-            # ============================================================================
 
             self._log_exchange_request(url, params)
 
@@ -759,8 +739,6 @@ class MetaOAuthService:
         """
         Complete WhatsApp integration setup from the Embedded Signup data.
 
-        OFFICIAL META IMPLEMENTATION (per CLAUDE.md requirements):
-
         The WABA ID and phone number ID are resolved in this order (both are
         IDs Meta itself returned - the backend NEVER invents them):
 
@@ -780,16 +758,17 @@ class MetaOAuthService:
         WABA_NOT_RETURNED error - the backend NEVER uses /me/businesses or any
         other business-portfolio edge to guess it.
 
-        The token exchange follows Meta's official implementation:
-        - Sends ONLY client_id, client_secret, and code parameters
-        - redirect_uri is OMITTED per official Meta documentation
-        - This is the standard approach for FB.login() + config_id Embedded Signup
+        The token exchange follows the Embedded Signup FB.login popup flow:
+        - Sends client_id, client_secret, code, and redirect_uri (EMPTY STRING)
+        - redirect_uri='' is the only value Meta accepts for this popup flow
+          (the code is bound to Meta's internal xd_arbiter redirect URI);
+          omitting it or sending a real URL triggers error 36008
 
-        Official Meta token exchange:
-            GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>
+        Token exchange:
+            GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>&redirect_uri=
 
         Flow:
-         1. Exchange code for access token (server-side; redirect_uri OMITTED)
+         1. Exchange code for access token (server-side; redirect_uri='')
          2. Validate the exchanged token via /debug_token (app_id + scopes +
             granular_scopes WABA target_ids)
          3. Resolve the WABA ID: session event, then /debug_token granular
@@ -831,7 +810,8 @@ class MetaOAuthService:
         """
         try:
             # Step 1: Exchange code for token. For the Embedded Signup FB.login
-            # popup flow the exchange omits redirect_uri per official Meta docs.
+            # popup flow the exchange sends redirect_uri="" (empty string) -
+            # the code is bound to Meta's internal xd_arbiter redirect URI.
             logger.info(f"[EmbeddedSignup] Step 1/6 - Meta token exchange started (code length: {len(code)})")
             success, token_data, error = await self.exchange_code_for_token(code)
             if not success:
