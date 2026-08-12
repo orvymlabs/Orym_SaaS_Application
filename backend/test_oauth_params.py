@@ -1,98 +1,100 @@
 """
-Test script to verify OAuth token exchange parameters (CORRECTED).
-This simulates what parameters will be sent to Meta for the OAuth dialog
-flow used by WhatsApp Embedded Signup.
+Test script to verify OAuth token exchange parameters for the WhatsApp
+Embedded Signup FB.login popup flow.
 
-Rule: the exchange ALWAYS includes the redirect_uri parameter, but for the
-Embedded Signup FB.login popup flow it sends redirect_uri="" (empty string).
-The code is bound to Meta's INTERNAL redirect URI, so sending the canonical
-https://apps.orvym.com/dashboard/integrations/ value is exactly what triggers
-Meta error_subcode 36008. A genuinely custom, non-canonical redirect_uri is
-forwarded verbatim.
+Rule: the exchange sends redirect_uri="" (empty string). The code from the
+FB.login popup (config_id Embedded Signup) is bound to Meta's INTERNAL
+xd_arbiter redirect URI, so the request carries client_id + client_secret +
+code + redirect_uri="". Sending any real URL - the canonical
+https://apps.orvym.com/dashboard/integrations/ or any other - or omitting
+redirect_uri entirely, is exactly what triggers Meta error_subcode 36008
+("make sure your redirect_uri is identical to the one you used in the OAuth
+dialog request").
+
+This script exercises the REAL service method (exchange_code_for_token) with a
+mocked httpx client and verifies the exact parameters Meta receives.
 """
 import asyncio
-from services.meta_oauth import MetaOAuthService, CANONICAL_REDIRECT_URI
+import json
+from unittest import mock
 
-CANONICAL = "https://apps.orvym.com/dashboard/integrations/"
+from services.meta_oauth import MetaOAuthService
 
-
-def exchange_redirect_uri(redirect_uri):
-    """Mirror of the exchange's redirect_uri normalization logic."""
-    supplied = (redirect_uri or "").strip()
-    if supplied and supplied != CANONICAL_REDIRECT_URI:
-        return supplied
-    return ""
+GRAPH_BASE = "https://graph.facebook.com/v26.0"
 
 
-async def test_token_exchange_params():
-    """Test what parameters are constructed for token exchange"""
+class FakeResponse:
+    def __init__(self, status_code, payload):
+        self.status_code = status_code
+        self._payload = payload
+        self.text = json.dumps(payload) if payload is not None else ""
 
+    def json(self):
+        return self._payload
+
+
+def captured_request(captured, status_code, payload):
+    client = mock.AsyncMock()
+    response = FakeResponse(status_code, payload)
+    client.__aenter__.return_value = client
+    client.__aexit__.return_value = False
+
+    async def fake_get(url, params=None):
+        captured["url"] = url
+        captured["params"] = dict(params or {})
+        return response
+
+    client.get.side_effect = fake_get
+    return client
+
+
+def run(coro):
+    return asyncio.get_event_loop().run_until_complete(coro)
+
+
+def test_token_exchange_params():
+    """Test what parameters are actually constructed for token exchange"""
     service = MetaOAuthService(app_id="test_app_id_123", app_secret="test_secret_456")
+    service.GRAPH_API_BASE = GRAPH_BASE
     test_code = "test_authorization_code_from_dialog"
+
+    captured = {}
+    with mock.patch("httpx.AsyncClient", return_value=captured_request(
+        captured, 200, {"access_token": "EAA_token", "token_type": "bearer"}
+    )):
+        ok, data, err = run(service.exchange_code_for_token(test_code))
+
+    assert ok is True, err
+    assert captured["url"] == f"{GRAPH_BASE}/oauth/access_token"
 
     print("=" * 80)
     print("TEST: Token Exchange Parameter Construction")
     print("=" * 80)
     print()
-
-    # Test 1: Frontend sends the canonical redirect_uri
-    print("TEST 1: Frontend sends the canonical dialog redirect_uri")
-    print("-" * 80)
-    redirect_uri = CANONICAL
-
-    params = {
-        "client_id": service.app_id,
-        "client_secret": "***REDACTED***",
-        "code": test_code,
-        "redirect_uri": exchange_redirect_uri(redirect_uri),
-    }
-
     print("Parameters that will be sent to Meta:")
-    for key, value in params.items():
+    for key, value in captured["params"].items():
         print(f"  {key}: '{value}'")
     print()
-    print(f"redirect_uri is present: {('redirect_uri' in params)}")
-    print(f"redirect_uri value: '{params['redirect_uri']}' (empty for the Embedded Signup popup flow)")
+    print(f"redirect_uri present: {'redirect_uri' in captured['params']}  (should be True)")
+    print(f"redirect_uri value: '{captured['params'].get('redirect_uri')}'  (should be empty)")
+    print(f"Parameter names: {sorted(captured['params'].keys())}")
     print()
 
-    # Test 2: No redirect_uri -> empty string is sent (never the canonical value)
-    print("TEST 2: No redirect_uri -> exchange sends '' (canonical value NEVER sent)")
-    print("-" * 80)
-    redirect_uri = None
-
-    params = {
-        "client_id": service.app_id,
-        "client_secret": "***REDACTED***",
-        "code": test_code,
-        "redirect_uri": exchange_redirect_uri(redirect_uri),
-    }
-
-    print("Parameters that will be sent to Meta:")
-    for key, value in params.items():
-        print(f"  {key}: '{value}'")
-    print()
-    print(f"redirect_uri present: {('redirect_uri' in params)}  (should be True)")
-    print(f"redirect_uri value: '{params['redirect_uri']}'")
-    print()
-
-    # Test 3: A custom non-canonical redirect_uri is forwarded verbatim
-    print("TEST 3: Custom non-canonical redirect_uri is forwarded verbatim")
-    print("-" * 80)
-    custom = "https://manual-dialog.example.com/callback"
-    custom_value = exchange_redirect_uri(custom)
-    print(f"redirect_uri value: '{custom_value}'")
-    assert custom_value == custom
+    assert set(captured["params"].keys()) == {"client_id", "client_secret", "code", "redirect_uri"}, \
+        "exchange must send ONLY client_id + client_secret + code + redirect_uri"
+    assert captured["params"]["redirect_uri"] == "", \
+        "redirect_uri must be the EMPTY STRING for the Embedded Signup popup flow"
+    print("PASS: exchange sends exactly client_id + client_secret + code + redirect_uri=''")
     print()
 
     print("=" * 80)
     print("CONCLUSION:")
     print("=" * 80)
-    print("✓ The exchange ALWAYS includes the redirect_uri parameter")
-    print("✓ Embedded Signup popup flow sends redirect_uri='' (never the canonical value)")
-    print("✓ A custom non-canonical redirect_uri is forwarded verbatim")
-    print("✓ Sending the canonical value in the exchange is what triggers 36008")
+    print("✓ The exchange sends client_id + client_secret + code + redirect_uri=''")
+    print("✓ redirect_uri is the empty string (never a real URL, never omitted)")
+    print("✓ This is what prevents Meta error_subcode 36008")
     print("=" * 80)
 
 
 if __name__ == "__main__":
-    asyncio.run(test_token_exchange_params())
+    test_token_exchange_params()

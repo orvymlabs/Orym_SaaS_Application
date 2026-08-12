@@ -16,10 +16,12 @@ class MetaOAuthCallbackRequest(BaseModel):
     granular_scopes target_ids + the WABA phone_numbers edge).
 
     redirect_uri is intentionally NOT part of this payload. The Embedded
-    Signup FB.login popup code is bound to Meta's INTERNAL redirect URI, so the
-    backend token exchange sends ONLY client_id + client_secret + code - never
-    redirect_uri (sending it triggers Meta error_subcode 36008). Any
-    redirect_uri value in the request body is ignored by the endpoint.
+    Signup FB.login popup code is bound to Meta's INTERNAL xd_arbiter redirect
+    URI, so the backend token exchange sends client_id + client_secret + code
+    + redirect_uri="" - never a real redirect_uri from the frontend (sending
+    the canonical value or any URL, or omitting redirect_uri, triggers Meta
+    error_subcode 36008). Any redirect_uri value in the request body is ignored
+    by the endpoint.
     """
     code: Optional[str] = None
     waba_id: Optional[str] = None

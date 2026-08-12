@@ -1,41 +1,67 @@
-I need you to FIX ONE SPECIFIC PRODUCTION ISSUE in the existing ORVYM WhatsApp Embedded Signup integration.
+IMPORTANT — REPLACE THE CURRENT CUSTOM EMBEDDED SIGNUP WITH META'S OFFICIAL IMPLEMENTATION
 
-The current Embedded Signup itself is already working.
+I do NOT want the current custom ORVYM Embedded Signup implementation patched anymore.
 
-DO NOT redesign it.
-DO NOT replace it.
-DO NOT change the App ID.
-DO NOT change the Config ID.
-DO NOT change the working message listener/code parser.
-DO NOT modify unrelated ORVYM functionality.
+Temporarily COMMENT OUT the current Embedded Signup implementation and implement Meta's official documented Embedded Signup flow instead.
 
-The ONLY current target is:
+DO NOT DELETE the old code.
+Keep the old implementation commented out so it can be restored if necessary.
 
-OAUTH REDIRECT_URI MISMATCH
-Meta Error Code: 100
-Meta Error Subcode: 36008
+==================================================
+1. CURRENT CUSTOM IMPLEMENTATION — COMMENT OUT
+==================================================
 
-Fix this properly at the root cause so this error does NOT happen again.
+Find and COMMENT OUT the current code responsible for:
 
-============================================================
-PRODUCTION CONFIGURATION
-============================================================
+- FB.login() Embedded Signup launch
+- current config_id launch implementation
+- custom window.message listener
+- custom SDK_QUERY_STRING parsing
+- custom OAuth code extraction
+- custom WA_EMBEDDED_SIGNUP parsing
+- custom redirect_uri handling
+- custom Meta OAuth/token exchange logic related to this flow
 
-Frontend:
-https://apps.orvym.com
+Do NOT delete it.
 
-Backend:
-https://orym-saas-application.onrender.com
+Do NOT continue adding fixes to this old implementation.
 
-Meta App ID:
+==================================================
+2. USE META OFFICIAL EMBEDDED SIGNUP IMPLEMENTATION
+==================================================
+
+Use Meta's official Embedded Signup implementation from:
+
+https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/implementation
+
+Use the official implementation pattern rather than our custom implementation.
+
+The Meta configuration is:
+
+APP ID:
 3862862217342382
 
-WhatsApp Embedded Signup Config ID:
+CONFIG ID:
 2432311603846818
 
-Current Embedded Signup launch is:
+Production:
+https://apps.orvym.com
 
-FB.login(..., {
+==================================================
+3. OFFICIAL META EMBEDDED SIGNUP LAUNCH
+==================================================
+
+Implement the official Meta JS SDK flow.
+
+The official flow should be equivalent to:
+
+FB.login(function(response) {
+    if (response.authResponse) {
+        console.log("Embedded Signup completed");
+    } else {
+        console.log("Embedded Signup cancelled");
+    }
+}, {
     config_id: "2432311603846818",
     response_type: "code",
     override_default_response_type: true,
@@ -43,671 +69,364 @@ FB.login(..., {
         setup: {},
         sessionInfoVersion: 3
     }
-})
+});
 
-DO NOT change these values unless you inspect the actual Meta configuration and prove something is wrong.
+IMPORTANT:
 
-============================================================
-IMPORTANT: EMBEDDED SIGNUP IS ALREADY WORKING
-============================================================
+Do NOT blindly copy this snippet if the current Meta documentation specifies a newer syntax/version.
 
-These parts are already confirmed working:
+Use the CURRENT official Meta documentation implementation corresponding to the configured Embedded Signup version.
 
-Facebook SDK initialization:
+The code above is the reference structure only.
 
-[EmbeddedSignup] Message listener registered
+Do NOT invent additional redirect_uri logic.
 
-Facebook SDK initialized with App ID: 3862862217342382
+Do NOT add redirect_uri fallbacks.
 
-Embedded Signup launch:
+Do NOT make multiple OAuth attempts.
 
-[EmbeddedSignup] Launching WhatsApp Embedded Signup via FB.login popup (official Meta flow)
+==================================================
+4. OFFICIAL META MESSAGE EVENT HANDLING
+==================================================
 
-Config ID:
-2432311603846818
+Use Meta's documented session logging/message event listener implementation.
 
-Meta sends the OAuth message:
+The implementation must listen for the official:
 
-origin:
-https://oauth.facebook.com
+WA_EMBEDDED_SIGNUP
 
-or sometimes:
+session event
 
-https://www.facebook.com
+and correctly obtain the documented session information, including when provided:
 
-The frontend successfully detects:
+- WABA ID
+- Phone Number ID
 
-containsOAuthCode: true
+Do NOT rely on the old custom SDK_QUERY_STRING parser.
 
-The frontend successfully receives:
+Do NOT fabricate WABA ID, Phone Number ID, or Business ID.
 
-[EmbeddedSignup] LOGIN_CODE_RECEIVED (length: 451)
+Follow the exact event structure documented by Meta.
 
-Therefore:
+The listener must:
 
-DO NOT BREAK:
+- verify the event origin according to Meta's documentation
+- parse the documented message format
+- handle successful completion
+- handle cancellation/failure
+- avoid duplicate processing
 
-- Facebook SDK initialization
-- FB.login()
-- Embedded Signup popup
-- Config ID
-- response_type
-- override_default_response_type
-- sessionInfoVersion
-- window message listener
-- non-JSON OAuth message fallback parser
-- authorization code extraction
-- duplicate-login protection
-- retry behavior
+==================================================
+5. IMPORTANT — DO NOT WAIT FOREVER FOR SESSION DATA
+==================================================
 
-These are working.
+The exchangeable authorization code and the Embedded Signup session information are separate pieces of information.
 
-The authorization code IS being generated.
+Do not create a race condition where:
 
-The authorization code IS being received.
-
-The problem starts AFTER that.
-
-============================================================
-CURRENT BROKEN FLOW
-============================================================
-
-Current flow:
-
-FB.login()
+code is received
 ↓
-Meta Embedded Signup
+frontend waits forever
 ↓
-Meta authorization
-↓
-451-character authorization code received
-↓
-frontend sends code to backend
-↓
-POST:
+backend exchange never happens
 
-https://orym-saas-application.onrender.com/api/integrations/meta/oauth/callback
+Implement Meta's documented event flow correctly.
 
-↓
-backend calls Meta Graph API /oauth/access_token
-↓
-Meta returns HTTP 400
-↓
-Error Code 100
-↓
-Error Subcode 36008
-↓
-OAUTH_REDIRECT_URI_MISMATCH
+If Meta's current documentation specifies that the WABA/phone information should be obtained through session logging or API requests, follow that exact mechanism.
 
-Previous backend logs prove:
+==================================================
+6. BACKEND — USE META'S OFFICIAL ONBOARDING FLOW
+==================================================
 
-META GRAPH API RESPONSE:
+Use the official Meta documentation:
 
-Status Code: 400
-Error code: 100
-Error subcode: 36008
-Error type: OAuthException
+"Onboarding business customers as a Tech Provider or Tech Partner"
 
-Error message:
-
-"Error validating verification code. Please make sure your redirect_uri is identical to the one you used in the OAuth dialog request"
-
-The backend was sending:
-
-redirect_uri:
-https://apps.orvym.com/dashboard/integrations/
-
-This is the issue that MUST be investigated.
-
-============================================================
-DO NOT BLINDLY CHANGE THE TRAILING SLASH
-============================================================
-
-Do NOT simply change:
-
-https://apps.orvym.com/dashboard/integrations/
-
-to:
-
-https://apps.orvym.com/dashboard/integrations
-
-and assume it is fixed.
-
-That is NOT enough.
-
-Determine EXACTLY what redirect URI/context Meta used when issuing the authorization code.
-
-The value used during authorization and the value used during token exchange must follow Meta's exact requirements for THIS Embedded Signup flow.
-
-They must not be guessed.
-
-They must not be normalized differently.
-
-They must not be constructed independently in multiple places.
-
-============================================================
-CRITICAL ROOT-CAUSE INVESTIGATION
-============================================================
-
-Inspect the REAL authorization request generated by the current:
-
-FB.login({
-    config_id,
-    response_type: "code",
-    override_default_response_type: true,
-    extras: {...}
-})
-
-Use browser DevTools Network tab and inspect the actual Meta OAuth request.
-
-Determine:
-
-1. Whether redirect_uri is actually present in the authorization request.
-2. If present, determine its EXACT value.
-3. If absent, determine whether the current Embedded Signup/config_id flow expects redirect_uri to be omitted during token exchange.
-4. Determine what exact OAuth contract Meta is using for this config_id Embedded Signup flow.
-5. Compare that with the backend request to Meta /oauth/access_token.
-6. Determine why Meta considers the code to have a different redirect URI.
-
-DO NOT rely only on application variables.
-
-DO NOT assume window.location.origin is the redirect URI.
-
-DO NOT assume /dashboard/integrations is automatically the redirect URI.
-
-DO NOT assume /dashboard/integrations/ is automatically the redirect URI.
-
-Inspect the actual Meta authorization request.
-
-============================================================
-VERY IMPORTANT: CORRECT EMBEDDED SIGNUP CONTRACT
-============================================================
-
-This is WhatsApp Embedded Signup using:
-
-config_id
-+
-response_type=code
-+
-override_default_response_type=true
-
-Do NOT treat this as a generic manually constructed Facebook OAuth flow.
-
-Verify the CURRENT official Meta WhatsApp Embedded Signup documentation and determine the correct code exchange contract for this exact flow.
-
-Specifically verify whether the backend token exchange for the Embedded Signup authorization code requires:
-
-redirect_uri
-
-OR
-
-whether redirect_uri must be omitted for this exact Embedded Signup/config_id authorization flow.
-
-Do NOT invent the answer.
-
-Use the actual Meta documentation and the actual authorization request.
-
-If Meta's current Embedded Signup flow does NOT require redirect_uri during the code exchange, remove the incorrect redirect_uri parameter from the backend Meta token exchange.
-
-If Meta DOES require it, then use the exact redirect_uri that Meta used when generating the authorization code.
-
-The correct implementation must match Meta's actual flow.
-
-============================================================
-BACKEND CODE TO INSPECT
-============================================================
-
-Inspect:
-
-services.meta_oauth
-
-and:
-
-POST /api/integrations/meta/oauth/callback
-
-Trace the complete implementation.
-
-Find:
-
-- where redirect_uri is created
-- where redirect_uri comes from
-- frontend payload
-- environment variables
-- fallback values
-- trailing slash handling
-- Meta token exchange parameters
-- Meta Graph API version
-- any OAuth helper
-- any generic Facebook OAuth logic being incorrectly reused by WhatsApp Embedded Signup
-
-Do NOT create a new OAuth architecture if the existing implementation can be fixed.
-
-Make the smallest possible change.
-
-============================================================
-CANONICAL REDIRECT URI
-============================================================
-
-If redirect_uri is actually required for this flow:
-
-Create ONE canonical production value.
-
-It must be exactly:
-
-https://apps.orvym.com/dashboard/integrations
-
-OR the exact value proven by the actual Meta authorization request.
-
-Do not choose the value based on guesswork.
-
-Do not allow these to silently become interchangeable:
-
-https://apps.orvym.com/dashboard/integrations
-
-and
-
-https://apps.orvym.com/dashboard/integrations/
-
-They are different strings for OAuth validation.
-
-Use exactly one canonical value everywhere that Meta requires it.
-
-Check:
-
-- frontend environment variables
-- backend environment variables
-- frontend OAuth configuration
-- backend OAuth exchange
-- Meta App Dashboard
-- Valid OAuth Redirect URIs
-- App Domains
-- Website platform
-- Facebook Login for Business configuration
-
-If Meta's Embedded Signup config_id flow does not use redirect_uri, DO NOT force a redirect URI merely because a generic OAuth implementation expects one.
-
-============================================================
-FRONTEND
-============================================================
-
-The frontend must continue doing:
-
-ONE CLICK
-→ ONE FB.login()
-→ ONE Embedded Signup
-→ ONE authorization code
-→ ONE backend exchange
-
-The frontend must NOT send a misleading redirect_uri just because the current backend expects it.
-
-If the frontend currently sends:
-
-https://apps.orvym.com/dashboard/integrations/
-
-inspect whether that value is actually required.
-
-If not required, remove it from the Embedded Signup exchange request rather than blindly changing it.
-
-============================================================
-BACKEND
-============================================================
-
-Backend must securely perform:
-
-authorization code
-→ Meta token exchange
-→ access token
-→ token validation
-→ WABA discovery
-→ phone number discovery
-→ business information
-→ existing ORVYM WhatsApp connection
-
-Do NOT expose:
-
-- App Secret
-- client_secret
-- access tokens
-- system user tokens
-- other Meta credentials
-
-to the frontend.
-
-============================================================
-DO NOT STOP AFTER FIXING 36008
-============================================================
-
-Once the redirect_uri issue is fixed, continue the flow.
-
-The final flow must be:
+The documented flow is:
 
 Embedded Signup
 ↓
-authorization code
+exchange code
 ↓
-backend
+business token
 ↓
-Meta token exchange
+WABA
 ↓
-valid authorization/access token
+subscribe WABA
 ↓
-WABA discovery
-↓
-Phone Number ID discovery
-↓
-Business ID where required
-↓
-Display phone number where available
-↓
-existing ORVYM WhatsApp connection flow
-↓
-database save using existing architecture
-↓
-frontend success response
-↓
-WhatsApp CONNECTED
-↓
-refresh still shows CONNECTED
+phone registration if required
 
-Do not stop at:
+==================================================
+7. STEP 1 — TOKEN EXCHANGE
+==================================================
 
-"token exchange successful."
+Use Meta's documented server-to-server request:
 
-Continue until the existing ORVYM connection is actually completed.
+GET:
 
-============================================================
-WABA / PHONE / BUSINESS IDs
-============================================================
+https://graph.facebook.com/<API_VERSION>/oauth/access_token
 
-DO NOT expect these values from the SDK_QUERY_STRING/non-JSON OAuth message.
+Parameters:
 
-Current message contains:
+client_id=<APP_ID>
+client_secret=<APP_SECRET>
+code=<CODE>
 
-cb
-domain
-is_canvas
-origin
-relation
-frame
-code
-base_domain
+Reference implementation:
 
-The authorization code is the important value.
+curl --get \
+'https://graph.facebook.com/v21.0/oauth/access_token' \
+-d 'client_id=<APP_ID>' \
+-d 'client_secret=<APP_SECRET>' \
+-d 'code=<CODE>'
 
-Do NOT require:
+IMPORTANT:
 
-waba_id
-phone_number_id
-business_id
+Use the API version appropriate for the current Meta documentation.
 
-from this message.
+Our backend currently uses v26.0. Do not downgrade blindly.
 
-Obtain them through the correct backend Meta flow after authorization.
-
-Do NOT hardcode them.
-
-Do NOT fabricate them.
-
-If ORVYM already contains WABA discovery logic, reuse it.
-
-============================================================
-CODE EXPIRATION
-============================================================
-
-The authorization code is:
-
-- single-use
-- short-lived
-- approximately 30 seconds
-
-Therefore:
-
-Do not retry the same authorization code after an exchange failure.
-
-Do not exchange the same code twice.
-
-Prevent duplicate backend requests.
-
-If the code becomes invalid, require a fresh Embedded Signup attempt.
-
-============================================================
-SAFE DEBUGGING
-============================================================
-
-Add temporary diagnostics if required.
-
-NEVER log:
-
-- full authorization code
-- client_secret
-- App Secret
-- access token
-
-Safe diagnostics:
-
-- code length
-- whether code exists
-- redirect_uri presence
-- redirect_uri value
-- Graph API version
-- Meta error code
-- Meta error subcode
-- Meta error message
-- fbtrace_id
-
-I need to see exactly what backend sends to Meta.
-
-============================================================
-META APP CONFIGURATION
-============================================================
-
-Inspect the Meta App Dashboard for:
-
-- App Domains
-- Website platform
-- Facebook Login for Business
-- Valid OAuth Redirect URIs
-- WhatsApp Embedded Signup configuration
-- Embedded Signup configuration ID
-- required permissions
-- Advanced Access
-- App Review status
-- Business verification
-- WhatsApp Business permissions
-
-Do not change Meta settings blindly.
-
-Only change a setting if you can demonstrate it is required for this exact error.
-
-Do NOT claim that App Review or Advanced Access is the cause of Error 100/Subcode 36008 unless the evidence supports it.
-
-The current error explicitly indicates OAuth redirect URI validation.
-
-============================================================
-PRODUCTION ONLY
-============================================================
-
-Production frontend:
-
-https://apps.orvym.com
-
-Production backend:
-
-https://orym-saas-application.onrender.com
-
-DO NOT introduce localhost.
-
-DO NOT use:
-
-http://localhost:3000
-
-Do not use development URLs as fallback values in production.
-
-============================================================
-DO NOT BREAK ANYTHING ELSE
-============================================================
-
-This is extremely important.
-
-DO NOT modify:
-
-- ORVYM dashboard
-- UI design
-- AI
-- chatbot
-- inbox
-- campaigns
-- analytics
-- billing
-- subscriptions
-- authentication
-- tenant architecture
-- database architecture
-- existing webhook architecture
-- existing messaging logic
-- unrelated APIs
-- unrelated components
-- unrelated dependencies
-
-Do not refactor unrelated code.
-
-Do not replace the existing Embedded Signup implementation.
-
-Do not change the working Meta popup behavior.
-
-Do not remove reconnect/retry.
-
-Do not disable Embedded Signup session handling merely to hide an error.
-
-Make only the smallest changes required to correct the OAuth exchange.
-
-============================================================
-TEST WITH A FRESH CODE
-============================================================
-
-After making the fix:
-
-DO NOT test using an old authorization code.
-
-Start a completely fresh Embedded Signup session.
-
-Test:
-
-1. Connect WhatsApp.
-2. Embedded Signup opens.
-3. Meta onboarding completes.
-4. Fresh code is received.
-5. Code is sent exactly once.
-6. Backend receives it.
-7. Backend sends the correct parameters to Meta.
-8. Meta token exchange succeeds.
-9. No Error 100 / Subcode 36008.
-10. WABA is discovered.
-11. Phone Number ID is discovered.
-12. Existing ORVYM connection completes.
-13. Frontend shows CONNECTED.
-14. Refresh page.
-15. Connection remains CONNECTED.
-16. Cancel signup.
-17. Retry signup.
-18. Verify no duplicate FB.login().
-19. Verify no duplicate code exchange.
-
-============================================================
-SUCCESS CRITERIA
-============================================================
-
-This task is complete ONLY when:
-
-ONE CLICK
-→ ONE FB.login()
-→ ONE Embedded Signup
-→ ONE FRESH CODE
-→ ONE BACKEND EXCHANGE
-→ NO redirect_uri mismatch
-→ META TOKEN EXCHANGE SUCCESS
-→ WABA DISCOVERY SUCCESS
-→ PHONE DISCOVERY SUCCESS
-→ EXISTING ORVYM CONNECTION SUCCESS
-→ FRONTEND CONNECTED
-→ REFRESH PERSISTS CONNECTION
-
-============================================================
-FINAL REPORT
-============================================================
-
-After implementation, report exactly:
-
-1. Exact root cause of Error 100 / Subcode 36008.
-2. Exact authorization request inspected.
-3. Whether the authorization request contained redirect_uri.
-4. Exact redirect_uri/context Meta associated with the authorization code.
-5. Exact value backend was previously sending.
-6. Why those values did not match.
-7. Whether redirect_uri is required or must be omitted for this Embedded Signup flow.
-8. Exact code change made.
-9. Files changed.
-10. Meta Dashboard configuration checked.
-11. Whether any Meta Dashboard change was required.
-12. Confirmation that Facebook SDK/Embedded Signup launch was NOT changed unnecessarily.
-13. Confirmation that code extraction remains working.
-14. Token exchange result.
-15. WABA discovery result.
-16. Phone discovery result.
-17. Existing ORVYM connection result.
-18. Duplicate FB.login protection result.
-19. Duplicate code exchange protection result.
-20. Production test result.
-21. Any remaining blocker.
+Verify the current supported API version before implementation.
 
 MOST IMPORTANT:
 
-The current Embedded Signup is already successfully producing the 451-character authorization code.
+Do NOT add the old redirect_uri parameter unless the CURRENT official Meta Embedded Signup documentation explicitly requires it for this exact flow.
 
-DO NOT waste the fix by changing the working Embedded Signup again.
+Do not use:
 
-The broken section is specifically:
+- https://apps.orvym.com
+- https://apps.orvym.com/dashboard/integrations
+- https://apps.orvym.com/dashboard/integrations/
+- https://www.facebook.com/connect/login_success.html
 
-AUTHORIZATION CODE
-→ BACKEND
-→ META /oauth/access_token
-→ ERROR 100 / SUBCODE 36008
+as random fallbacks.
 
-Find out exactly why Meta considers the redirect URI different and correct the OAuth exchange according to the CURRENT official Meta WhatsApp Embedded Signup documentation.
+Use exactly what Meta's official flow requires.
 
-Do not guess.
+==================================================
+8. APP SECRET SECURITY
+==================================================
 
-Do not just remove the error message.
+APP_SECRET must NEVER be sent to the frontend.
 
-Do not fake success.
+The token exchange MUST happen server-to-server.
 
-Do not stop at code reception.
+Frontend only sends the exchangeable code/session information to the existing backend.
 
-Fix the actual Meta exchange and then continue through WABA + Phone + existing ORVYM connection.
+==================================================
+9. STEP 2 — WABA
+==================================================
 
-And absolutely do not break anything else in ORVYM.
+Use Meta's official method to obtain the customer's:
 
+WABA ID
 
+The documentation states this can be obtained through:
 
-Use the current official Meta WhatsApp Embedded Signup documentation and official sample implementation as the source of truth. Compare our current implementation line-by-line against Meta's official Embedded Signup code. Do not invent or assume OAuth behavior. Keep the existing ORVYM business logic, authentication, database, WABA discovery, webhook, and UI. Replace/fix only the Embedded Signup implementation where it differs from Meta's official documented flow.
+- Embedded Signup session logging
+OR
+- appropriate API request
 
-Most importantly, reproduce Meta's official authorization-code exchange exactly. Do not manually add redirect_uri unless Meta's official implementation for this exact Embedded Signup flow requires it.
+Use the method appropriate to the actual Embedded Signup implementation.
 
-Current error:
-Error 100 / Subcode 36008
-redirect_uri is not identical to the one used in the OAuth dialog request
+Do NOT hardcode WABA ID.
 
-Compare our implementation against the official Meta sample and identify exactly where our flow differs.
+==================================================
+10. STEP 3 — SUBSCRIBE WABA
+==================================================
 
-The current 451-character authorization code reception is already working, so preserve it unless the official Meta implementation shows a required correction.
+Use the official Meta endpoint:
 
-Then make the smallest possible change so:
+POST
 
-Meta official Embedded Signup
-→ authorization code
-→ official Meta token exchange
-→ WABA
-→ Phone Number
-→ existing ORVYM connection
+https://graph.facebook.com/<API_VERSION>/<WABA_ID>/subscribed_apps
 
-Do not modify anything unrelated and do not break the currently working Embedded Signup popup/code reception.
+Authorization:
+
+Bearer <BUSINESS_TOKEN>
+
+Expected response:
+
+{
+    "success": true
+}
+
+Use the business token returned from the official token exchange.
+
+==================================================
+11. STEP 4 — PHONE NUMBER
+==================================================
+
+Obtain the customer's:
+
+BUSINESS PHONE NUMBER ID
+
+using Meta's documented Embedded Signup/session/API mechanism.
+
+Do NOT expect it from the old SDK_QUERY_STRING implementation.
+
+Do NOT hardcode it.
+
+==================================================
+12. STEP 5 — REGISTER PHONE
+==================================================
+
+If phone registration is required for the customer's flow, use Meta's official Register API:
+
+POST
+
+https://graph.facebook.com/<API_VERSION>/<BUSINESS_CUSTOMER_PHONE_NUMBER_ID>/register
+
+Authorization:
+
+Bearer <BUSINESS_TOKEN>
+
+Body:
+
+{
+    "messaging_product": "whatsapp",
+    "pin": "<DESIRED_PIN>"
+}
+
+Do NOT invent a PIN.
+
+If ORVYM already has a phone registration mechanism, reuse it.
+
+==================================================
+13. EXISTING ORVYM CONNECTION
+==================================================
+
+After Meta onboarding succeeds:
+
+Business Token
+↓
+WABA ID
+↓
+Phone Number ID
+↓
+existing ORVYM WhatsApp connection
+
+Reuse the existing ORVYM database/connection mechanism.
+
+DO NOT redesign:
+
+- database
+- tenant architecture
+- webhooks
+- messaging
+- dashboard
+- inbox
+- AI
+- chatbot
+- campaigns
+- analytics
+- billing
+- authentication
+
+==================================================
+14. CURRENT ERROR — DO NOT PATCH IT AGAIN
+==================================================
+
+The current implementation repeatedly produces:
+
+Error Code: 100
+Error Subcode: 36008
+OAuthException
+
+"Error validating verification code. Please make sure your redirect_uri is identical to the one you used in the OAuth dialog request"
+
+STOP PATCHING THE CURRENT IMPLEMENTATION.
+
+The purpose of this task is to:
+
+COMMENT OUT OLD CUSTOM IMPLEMENTATION
+
+and replace it with:
+
+OFFICIAL META IMPLEMENTATION
+
+Do NOT add:
+
+- multiple redirect_uri attempts
+- retry with different redirect_uri
+- random URL fallbacks
+- custom OAuth workarounds
+- fake success responses
+
+==================================================
+15. IMPORTANT — PRESERVE EVERYTHING ELSE
+==================================================
+
+Only change the WhatsApp Embedded Signup/onboarding implementation.
+
+Everything unrelated must remain untouched.
+
+Make the smallest possible change.
+
+==================================================
+16. TEST
+==================================================
+
+Test the complete flow:
+
+User opens ORVYM
+↓
+Connect WhatsApp
+↓
+Official Meta Embedded Signup
+↓
+Customer completes onboarding
+↓
+Meta official completion/session event
+↓
+Exchangeable code
+↓
+Backend
+↓
+Meta official token exchange
+↓
+Business Token
+↓
+WABA ID
+↓
+Phone Number ID
+↓
+WABA subscribed_apps
+↓
+Phone registration if required
+↓
+Existing ORVYM connection
+↓
+CONNECTED
+
+Do not consider the task complete merely because:
+
+LOGIN_CODE_RECEIVED
+
+appears.
+
+The complete backend onboarding must succeed.
+
+==================================================
+17. FINAL REPORT
+==================================================
+
+After implementation report:
+
+1. Exact old Embedded Signup code commented out
+2. Files changed
+3. Exact Meta official implementation added
+4. Meta Embedded Signup version used
+5. Token exchange endpoint/version
+6. Whether redirect_uri is required or not according to the official flow
+7. WABA ID source
+8. Phone Number ID source
+9. WABA subscription result
+10. Phone registration result
+11. Final ORVYM connection result
+12. Test result
+13. Any remaining blocker
+
+DO NOT ONLY EXPLAIN.
+
+IMPLEMENT THE OFFICIAL META FLOW.

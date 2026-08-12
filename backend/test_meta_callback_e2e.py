@@ -237,10 +237,10 @@ def main():
         detail = r.json().get("detail", "")
         check("Meta error message propagated", "redirect_uri is identical" in detail, detail[:120])
 
-    print("=== TEST 6: POST callback - canonical dialog redirect_uri forwarded to the service ===")
+    print("=== TEST 6: POST callback - redirect_uri is NEVER forwarded to the service ===")
     calls = {}
-    async def fake_setup_record(self, code, redirect_uri=None, waba_id=None, phone_number_id=None, business_id=None):
-        calls["redirect_uri"] = redirect_uri
+    async def fake_setup_record(self, code, waba_id=None, phone_number_id=None, business_id=None, **kwargs):
+        calls["redirect_uri"] = kwargs.get("redirect_uri")
         calls["waba_id"] = waba_id
         return True, {
             "access_token": "EAA_t2", "business_id": "biz_444", "waba_id": waba_id or "waba_555",
@@ -259,8 +259,8 @@ def main():
     )
     check("callback 200 with redirect_uri in payload", r.status_code == 200, str(r.status_code))
     check(
-        "canonical redirect_uri forwarded to the service (converted to '' in the exchange)",
-        calls.get("redirect_uri") == "https://apps.orvym.com/dashboard/integrations/",
+        "redirect_uri NOT forwarded to the service (it causes error_subcode 36008)",
+        calls.get("redirect_uri") is None,
         str(calls),
     )
     check("service received waba_id from Embedded Signup", calls.get("waba_id") == "waba_555", str(calls))
