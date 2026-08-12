@@ -27,7 +27,8 @@
       "WebSearch",
       "WebFetch(domain:rollout.com)",
       "WebFetch(domain:developers.facebook.com)",
-      "Bash(python test_meta_oauth_mock.py)"
+      "Bash(python test_meta_oauth_mock.py)",
+      "Bash(python test_exchange_params.py)"
     ]
   }
 }

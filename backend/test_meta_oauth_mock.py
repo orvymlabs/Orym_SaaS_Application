@@ -3,9 +3,8 @@ Comprehensive mock-based tests for MetaOAuthService.exchange_code_for_token.
 
 These tests verify the EXACT HTTP request the backend sends to Meta:
   - endpoint URL
-  - query parameters
-  - redirect_uri handling (empty string "" for the Embedded Signup FB.login
-    popup flow; a custom non-canonical value forwarded verbatim)
+  - query parameters (client_id + client_secret + code ONLY - the Embedded
+    Signup FB.login popup flow must never send redirect_uri)
   - success and error handling
 
 They mock httpx.AsyncClient so no real network call is made.

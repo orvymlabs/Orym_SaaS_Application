@@ -101,13 +101,6 @@ export default function IntegrationsPage() {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? 'https://orym-saas-application.onrender.com' : '');
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : 'https://apps.orvym.com');
 
-  // Canonical production redirect URI. Meta binds the authorization code to the
-  // exact redirect_uri used in the OAuth dialog request, so the code exchange
-  // MUST send this exact value (never window.location.origin, never a
-  // dynamically-built URI, never a value without the trailing slash). The
-  // frontend and backend use exactly the same constant.
-  const CANONICAL_REDIRECT_URI = "https://apps.orvym.com/dashboard/integrations/";
-
   // Official Meta Embedded Signup flow (JS SDK): FB.login() opens the Embedded
   // Signup in a centered popup window and the SaaS page stays open behind it.
   // On completion Meta:
@@ -586,11 +579,11 @@ export default function IntegrationsPage() {
   //   - the customer's asset IDs (waba_id / phone_number_id / business_id)
   //     via the WA_EMBEDDED_SIGNUP session message posted to THIS window.
   //
-  // NOTE on redirect_uri: the code is bound to the canonical production
-  // redirect_uri (https://apps.orvym.com/dashboard/integrations/). The
-  // callback payload and the backend code exchange use this EXACT value - it
-  // is never omitted, never an empty string, never null, never a dynamically
-  // computed URI.
+  // NOTE on redirect_uri: the code is bound to Meta's INTERNAL redirect URI,
+  // so the backend exchange sends only client_id + client_secret + code. The
+  // callback payload does NOT send redirect_uri - never the canonical value,
+  // never an empty string, never null (sending it triggers error_subcode
+  // 36008).
   const launchWhatsAppSignup = () => {
     if (!metaConfig) {
       showToast("Meta Embedded Signup is not configured", "error");
@@ -696,18 +689,16 @@ export default function IntegrationsPage() {
     });
   };
 
-  // Handle Embedded Signup completion - send the exchangeable code, the
-  // canonical redirect_uri and the asset IDs captured from the official
-  // WA_EMBEDDED_SIGNUP message to the backend. The backend uses the supplied
-  // IDs directly to validate the WABA and phone number; the IDs MUST come from
-  // the Embedded Signup session event (the source of truth) - the backend never
-  // discovers or guesses them, so this is only called when they are present.
+  // Handle Embedded Signup completion - send the exchangeable code and the
+  // asset IDs captured from the official WA_EMBEDDED_SIGNUP message to the
+  // backend. The backend resolves the WABA ID / phone number ID server-side
+  // when the session event did not deliver them (documented Meta fallback);
+  // the IDs are never fabricated.
   //
-  // redirect_uri is the canonical production constant
-  // (https://apps.orvym.com/dashboard/integrations/). It is NEVER omitted,
-  // never empty and never null: Meta's code exchange fails with error_subcode
-  // 36008 if redirect_uri is missing or differs from the value used in the
-  // OAuth dialog request.
+  // redirect_uri is deliberately NOT sent. The FB.login popup code is bound
+  // to Meta's INTERNAL redirect URI, so the backend exchange sends only
+  // client_id + client_secret + code - sending redirect_uri is exactly what
+  // triggers Meta error_subcode 36008.
   const handleMetaOAuthCallback = async (
     code: string,
     metaData?: { waba_id?: string; phone_number_id?: string; business_id?: string }
@@ -719,7 +710,6 @@ export default function IntegrationsPage() {
 
       console.log('[EmbeddedSignup] BACKEND_EXCHANGE_STARTED');
       console.log('  Code length:', code.length);
-      console.log('  Frontend redirect_uri:', CANONICAL_REDIRECT_URI);
       console.log('  waba_id:', wabaId || 'not provided');
       console.log('  phone_number_id:', phoneNumberId || 'not provided');
       console.log('  business_id:', businessId || 'not provided');
@@ -727,7 +717,6 @@ export default function IntegrationsPage() {
 
       const result = await apiPost("/api/integrations/meta/oauth/callback", {
         code,
-        redirect_uri: CANONICAL_REDIRECT_URI,
         waba_id: wabaId || null,
         phone_number_id: phoneNumberId || null,
         business_id: businessId || null,

@@ -3,8 +3,8 @@ Meta Embedded Signup fresh-code exchange probe.
 
 Implements CLAUDE.md "SIXTH: TEST WITH A FRESH CODE": given a brand-new
 exchangeable code, perform EXACTLY ONE backend token exchange (identical to
-production: GET /oauth/access_token with client_id + client_secret + code +
-redirect_uri='' for the Embedded Signup FB.login popup flow) and capture Meta's
+production: GET /oauth/access_token with client_id + client_secret + code -
+NO redirect_uri for the Embedded Signup FB.login popup flow) and capture Meta's
 actual response.
 
 Also runs a production-parity check that compares the DEPLOYED
@@ -107,8 +107,8 @@ async def run_exchange(svc: MetaOAuthService, code: str) -> None:
     print("SINGLE TOKEN EXCHANGE (exactly one attempt)")
     print_sep()
     print(f"  Endpoint: {svc.GRAPH_API_BASE}/oauth/access_token")
-    print("  Params: client_id + client_secret + code + redirect_uri")
-    print("  redirect_uri: '' (empty - Embedded Signup FB.login popup flow)")
+    print("  Params: client_id + client_secret + code (NO redirect_uri)")
+    print("  redirect_uri: NOT sent (Embedded Signup FB.login popup flow)")
     print(f"  Code (masked): {mask(code)} (length {len(code)})")
     print_sep()
 
@@ -118,9 +118,9 @@ async def run_exchange(svc: MetaOAuthService, code: str) -> None:
         print("[RESULT] EXCHANGE FAILED")
         print(f"  Error: {redact(error)}")
         print()
-        print("  Meta rejected the code. The exchange request already sends")
-        print("  redirect_uri='' (client_id + client_secret + code + redirect_uri='')")
-        print("  for the Embedded Signup FB.login popup flow. Check")
+        print("  Meta rejected the code. The exchange request sends ONLY")
+        print("  client_id + client_secret + code (NO redirect_uri) for the")
+        print("  Embedded Signup FB.login popup flow. Check")
         print("  the checklist from GET /api/integrations/meta/verify and the Meta")
         print("  App Dashboard configuration, then retry with a FRESH code.")
         return

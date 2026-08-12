@@ -2,25 +2,35 @@
 Verify the code exchange parameter construction after the redirect_uri fix.
 
 Proves:
- 1. The exchange ALWAYS includes the redirect_uri parameter (never omitted).
- 2. For the Embedded Signup FB.login popup flow the exchange sends
-    redirect_uri="" (empty string) - the code is bound to Meta's internal
-    redirect URI, and sending the canonical apps.orvym.com value is what
-    caused error_subcode 36008.
- 3. A genuinely custom, non-canonical redirect_uri is forwarded verbatim.
+ 1. The WhatsApp Embedded Signup Step 1 exchange sends EXACTLY
+    client_id + client_secret + code - redirect_uri is NEVER present.
+ 2. Sending redirect_uri (canonical value, empty string or any other value)
+    is what caused Meta error_subcode 36008; it is therefore never appended.
 """
 import asyncio
+import httpx
+
 from services.meta_oauth import MetaOAuthService, CANONICAL_REDIRECT_URI
 
 CANONICAL = "https://apps.orvym.com/dashboard/integrations/"
 
+captured = {}
 
-def exchange_redirect_uri(redirect_uri):
-    """Mirror of the exchange's redirect_uri normalization logic."""
-    supplied = (redirect_uri or "").strip()
-    if supplied and supplied != CANONICAL_REDIRECT_URI:
-        return supplied
-    return ""
+
+class FakeClient:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    async def get(self, url, params=None):
+        captured["url"] = url
+        captured["params"] = dict(params or {})
+        return httpx.Response(200, json={"access_token": "FAKE_TOKEN"})
 
 
 async def main():
@@ -28,24 +38,22 @@ async def main():
     code = "AQ" + ("x" * 449)
 
     print("=" * 70)
-    print("TEST 1: Frontend sends the canonical dialog redirect_uri")
+    print("TEST 1: Embedded Signup exchange (no redirect_uri supplied)")
     print("=" * 70)
-    svc._log_exchange_request(
-        "https://graph.facebook.com/v26.0/oauth/access_token",
-        {"client_id": svc.app_id, "client_secret": svc.app_secret, "code": code,
-         "redirect_uri": exchange_redirect_uri(CANONICAL)},
-        auth_redirect_uri=CANONICAL,
-    )
+    orig = httpx.AsyncClient
+    httpx.AsyncClient = FakeClient
+    try:
+        ok, data, err = await svc.exchange_code_for_token(code)
+    finally:
+        httpx.AsyncClient = orig
 
-    print("=" * 70)
-    print("TEST 2: No redirect_uri supplied -> exchange sends '' (never canonical)")
-    print("=" * 70)
-    svc._log_exchange_request(
-        "https://graph.facebook.com/v26.0/oauth/access_token",
-        {"client_id": svc.app_id, "client_secret": svc.app_secret, "code": code,
-         "redirect_uri": exchange_redirect_uri(None)},
-        auth_redirect_uri="",
-    )
+    assert ok is True, err
+    assert captured["url"] == f"{svc.GRAPH_API_BASE}/oauth/access_token"
+    assert set(captured["params"].keys()) == {"client_id", "client_secret", "code"}, \
+        f"exchange must send exactly client_id+client_secret+code, got {sorted(captured['params'].keys())}"
+    assert "redirect_uri" not in captured["params"], "redirect_uri must NOT be sent to Meta"
+    assert captured["params"]["client_id"] == "3862862217342382"
+    assert captured["params"]["code"] == code
 
     print("=" * 70)
     print("ASSERTIONS")
@@ -54,24 +62,12 @@ async def main():
     assert CANONICAL_REDIRECT_URI == CANONICAL
     assert CANONICAL.endswith("/"), "canonical redirect_uri must include the trailing slash"
 
-    # The exchange ALWAYS includes the redirect_uri parameter
-    params = {"client_id": svc.app_id, "client_secret": svc.app_secret, "code": code}
-    params["redirect_uri"] = exchange_redirect_uri(params.get("redirect_uri"))
-    assert "redirect_uri" in params, "redirect_uri parameter must always be present"
+    # The Embedded Signup exchange NEVER includes the redirect_uri parameter
+    assert "redirect_uri" not in captured["params"]
 
-    # Embedded Signup FB.login popup flow -> empty string (canonical NEVER sent)
-    assert exchange_redirect_uri(CANONICAL) == ""
-    assert exchange_redirect_uri(None) == ""
-    assert exchange_redirect_uri("   ") == ""
-    assert exchange_redirect_uri("") == ""
-
-    # A genuinely custom, non-canonical redirect_uri is forwarded verbatim
-    custom = "https://manual-dialog.example.com/callback"
-    assert exchange_redirect_uri(custom) == custom
-
-    print("PASS: redirect_uri parameter always present in the exchange")
-    print("PASS: Embedded Signup exchange sends redirect_uri='' (canonical value never sent)")
-    print("PASS: custom non-canonical redirect_uri forwarded verbatim")
+    print("PASS: Embedded Signup exchange sends exactly ['client_id', 'client_secret', 'code']")
+    print("PASS: redirect_uri is NOT present in the Meta request")
+    print("PASS: canonical value, empty string or any redirect_uri is never forwarded to Meta")
 
 
 asyncio.run(main())
