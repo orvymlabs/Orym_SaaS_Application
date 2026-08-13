@@ -1,4 +1,11 @@
 
+> ⚠️⚠️ SUPERSEDED (2026-08-13) ⚠️⚠️
+> This report documents the OLD "manual OAuth dialog + redirect_uri in exchange"
+> implementation, which was reverted. The current official Embedded Signup flow uses
+> `FB.login({ config_id, ... })` and the token exchange sends NO `redirect_uri`. See
+> `PRODUCTION_META_CONFIG.md` and `IMPLEMENTATION_SUMMARY.md`. The checks below are
+> historical and do NOT reflect the current codebase.
+
 ═══════════════════════════════════════════════════════════════════════════════
    COMPREHENSIVE IMPLEMENTATION VERIFICATION
 ═══════════════════════════════════════════════════════════════════════════════
