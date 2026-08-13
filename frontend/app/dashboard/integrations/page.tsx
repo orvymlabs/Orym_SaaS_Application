@@ -22,6 +22,28 @@ interface IntegrationData {
   webhook_url: string | null;
 }
 
+// Meta can return localized (e.g. Russian) error text. Translate known
+// localized phrases back to the fixed English equivalents so the user NEVER
+// sees a non-English error, and fall back to a generic English message for any
+// remaining non-ASCII text.
+const META_ERROR_TRANSLATIONS: [string, string][] = [
+  ["Невозможно загрузить URL", "Unable to load URL"],
+  ["Домен этого URL не включен в список доменов приложения", "The domain of this URL isn't included in the app's domains"],
+  ["Чтобы загрузить этот URL, добавьте все домены и поддомены своего приложения", "To be able to load this URL, add all domains and subdomains of your app"],
+  ["в поле «Домены приложения» в настройках вашего приложения", "to the App Domains field in your app settings"],
+];
+
+const toEnglishErrorMessage = (message?: string | null): string => {
+  if (!message) return "";
+  let translated = message;
+  for (const [localized, english] of META_ERROR_TRANSLATIONS) {
+    if (translated.includes(localized)) translated = translated.replace(localized, english);
+  }
+  if (translated !== message) return translated;
+  if (/^[\x00-\x7F]*$/.test(message)) return message;
+  return "Meta request failed. Please try again or restart WhatsApp Embedded Signup.";
+};
+
 export default function IntegrationsPage() {
   const [integ, setInteg] = useState<IntegrationData | null>(null);
   const [userPlan, setUserPlan] = useState<string>("free");
@@ -478,7 +500,7 @@ export default function IntegrationsPage() {
           setIsExchangeInProgress(false);
           setConnectingWhatsApp(false);
           showToast(
-            "WhatsApp setup failed: " + (errorMessage || "An error occurred during WhatsApp setup"),
+            "WhatsApp setup failed: " + (toEnglishErrorMessage(errorMessage) || "An error occurred during WhatsApp setup"),
             "error"
           );
         } else {
@@ -504,7 +526,7 @@ export default function IntegrationsPage() {
         setIsExchangeInProgress(false);
         setConnectingWhatsApp(false);
         showToast(
-          "WhatsApp setup failed: " + (errorMessage || "An error occurred during WhatsApp setup"),
+          "WhatsApp setup failed: " + (toEnglishErrorMessage(errorMessage) || "An error occurred during WhatsApp setup"),
           "error"
         );
         return;
@@ -756,7 +778,7 @@ export default function IntegrationsPage() {
       }
     } catch (err: any) {
       console.error('[EmbeddedSignup] OAuth callback error:', err);
-      showToast("Error: " + err.message, "error");
+      showToast("Error: " + (toEnglishErrorMessage(err?.message) || err?.message || "An unexpected error occurred"), "error");
     } finally {
       // NOTE: the one-time exchange lock (completingRef) is deliberately NOT
       // reset here - it stays held until launchWhatsAppSignup starts a

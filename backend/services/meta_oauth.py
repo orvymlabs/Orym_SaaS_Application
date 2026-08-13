@@ -104,6 +104,21 @@ WEBHOOK_SUBSCRIPTION_FAILED = "WEBHOOK_SUBSCRIPTION_FAILED"
 # redirect_uri is identical to the one you used in the OAuth dialog request".
 _META_ERROR_SUBCODE_REDIRECT_MISMATCH = 36008
 
+# Force English error messages from Meta. Without this, Meta localizes its
+# Graph API / OAuth error responses to the app's default locale (e.g. Russian)
+# and those localized strings were previously surfaced to the user verbatim.
+META_REQUEST_LOCALE = "en_US"
+
+# Meta localizes a handful of recurring error messages. Map the localized
+# phrases back to the fixed English equivalents so the user NEVER sees a
+# non-English (e.g. Russian) error even if Meta still returns one.
+_LOCALIZED_ERROR_TRANSLATIONS = {
+    "Невозможно загрузить URL": "Unable to load URL",
+    "Домен этого URL не включен в список доменов приложения": "The domain of this URL isn't included in the app's domains",
+    "Чтобы загрузить этот URL, добавьте все домены и поддомены своего приложения": "To be able to load this URL, add all domains and subdomains of your app",
+    "в поле «Домены приложения» в настройках вашего приложения": "to the App Domains field in your app settings",
+}
+
 # Prevent httpx/httpcore from logging the full request URL (which would expose
 # the app secret and the full authorization code in the query string).
 for _lib in ("httpx", "httpcore"):
@@ -217,6 +232,13 @@ class MetaOAuthService:
             error_obj = {}
         message = error_obj.get("message", "Failed to exchange code")
 
+        # Always surface an English message. Meta can return localized (e.g.
+        # Russian) error text, so known localized phrases are translated back
+        # to the fixed English equivalents. Any message that is still not pure
+        # ASCII is treated as localized and replaced with an English message
+        # built from the machine-readable error code/subcode.
+        message = self._to_english_error(message, error_obj)
+
         if error_obj.get("error_subcode") == _META_ERROR_SUBCODE_REDIRECT_MISMATCH:
             return (
                 f"{OAUTH_REDIRECT_URI_MISMATCH}: OAuth authorization code is "
@@ -228,6 +250,35 @@ class MetaOAuthService:
             return f"{OAUTH_CODE_EXPIRED}: {message}", error_obj
 
         return message, error_obj
+
+    def _to_english_error(self, message: str, error_obj: Dict) -> str:
+        """Translate localized Meta error messages into English.
+
+        Meta localizes its error messages to the app's default locale (e.g.
+        Russian). This replaces known localized phrases with the English
+        equivalents, and for any message that still contains non-ASCII
+        characters falls back to a fixed English message built from the
+        machine-readable error code / subcode, so a user never sees a
+        non-English error.
+        """
+        translated = message or ""
+        for localized, english in _LOCALIZED_ERROR_TRANSLATIONS.items():
+            if localized in translated:
+                translated = translated.replace(localized, english)
+        if translated != message:
+            return translated
+
+        try:
+            is_ascii = message.isascii()
+        except Exception:
+            is_ascii = True
+        if is_ascii:
+            return message
+
+        code = error_obj.get("code")
+        subcode = error_obj.get("error_subcode")
+        code_part = f" (code: {code}" + (f", subcode: {subcode}" if subcode else "") + ")"
+        return f"Meta request failed{code_part}. Please try again or restart WhatsApp Embedded Signup."
 
     # ============================================================
     # Step 1 - Exchange code for access token
@@ -271,6 +322,7 @@ class MetaOAuthService:
                 "client_secret": self.app_secret,
                 "code": code,
                 "redirect_uri": EXCHANGE_REDIRECT_URI,
+                "locale": META_REQUEST_LOCALE,
             }
 
             self._log_exchange_request(url, params)
@@ -339,6 +391,7 @@ class MetaOAuthService:
             params = {
                 "fields": "id,name",
                 "access_token": app_access_token,
+                "locale": META_REQUEST_LOCALE,
             }
 
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -405,6 +458,7 @@ class MetaOAuthService:
             params = {
                 "input_token": access_token,
                 "access_token": f"{self.app_id}|{self.app_secret}",
+                "locale": META_REQUEST_LOCALE,
             }
 
             self._log_graph_request("GET", url, params)
@@ -518,6 +572,7 @@ class MetaOAuthService:
             params = {
                 "access_token": access_token,
                 "fields": "id,name",
+                "locale": META_REQUEST_LOCALE,
             }
 
             self._log_graph_request("GET", url, params)
@@ -563,7 +618,8 @@ class MetaOAuthService:
         try:
             url = f"{self.GRAPH_API_BASE}/{waba_id}/phone_numbers"
             params = {
-                "access_token": access_token
+                "access_token": access_token,
+                "locale": META_REQUEST_LOCALE,
             }
 
             self._log_graph_request("GET", url, params)
@@ -612,6 +668,7 @@ class MetaOAuthService:
             url = f"{self.GRAPH_API_BASE}/{waba_id}/subscribed_apps"
             params = {
                 "access_token": access_token,
+                "locale": META_REQUEST_LOCALE,
             }
 
             self._log_graph_request("POST", url, params)
@@ -702,7 +759,11 @@ class MetaOAuthService:
             logger.info("=" * 80)
 
             async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(url, json=body, params={"access_token": access_token})
+                response = await client.post(
+                    url,
+                    json=body,
+                    params={"access_token": access_token, "locale": META_REQUEST_LOCALE},
+                )
 
             if response.status_code == 200:
                 logger.info(f"Phone number {phone_number_id} registered successfully")
