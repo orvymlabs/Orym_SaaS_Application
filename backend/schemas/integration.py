@@ -17,12 +17,11 @@ class MetaOAuthCallbackRequest(BaseModel):
 
     redirect_uri is intentionally NOT part of this payload. The Embedded
     Signup FB.login + config_id (Facebook Login for Business) exchange is
-    handled server-side: the backend sends redirect_uri = the exact value the
-    JS SDK used in the OAuth dialog (the xd_arbiter channel URL
-    https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46). Sending
-    a DIFFERENT redirect_uri (the canonical value, the backend callback URL,
-    any URL, or the empty string) triggers Meta error_subcode 36008. Any
-    redirect_uri value in the request body is ignored by the endpoint.
+    handled server-side and - per Meta's current official docs - sends ONLY
+    client_id + client_secret + code (NO redirect_uri), because the
+    exchangeable code is returned directly to the JS popup callback (no
+    server-side redirect). Any redirect_uri value in the request body is
+    ignored by the endpoint.
     """
     code: Optional[str] = None
     waba_id: Optional[str] = None

@@ -2,18 +2,20 @@
 Production Readiness Test - WhatsApp Embedded Signup OAuth Flow
 
 Verifies the complete implementation is ready for production deployment:
-1. Token exchange sends redirect_uri = the EXACT value the JS SDK used in the
-   OAuth dialog (the xd_arbiter channel URL - the value Meta binds to the code;
-   sending a different redirect_uri causes error_subcode 36008)
+1. Token exchange sends NO redirect_uri - per Meta's current official
+   Embedded Signup / Facebook Login for Business docs the exchangeable code
+   is returned directly to the JS popup callback (no server-side redirect),
+   so the exchange sends client_id + client_secret + code only. Sending the
+   JS SDK's internal xd_arbiter channel URL (or any other value) as
+   redirect_uri triggers Meta error code 191 ("The domain of this URL isn't
+   included in the app's domains").
 2. Frontend callback payload does NOT include redirect_uri
 3. Backend correctly ignores any redirect_uri if accidentally sent
 4. Complete integration flow works end-to-end
 """
 import asyncio
 import httpx
-from services.meta_oauth import MetaOAuthService, EXCHANGE_REDIRECT_URI
-
-EXPECTED_EXCHANGE_REDIRECT_URI = "https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46"
+from services.meta_oauth import MetaOAuthService
 
 # Capture all requests for verification
 captured_requests = []
@@ -79,10 +81,10 @@ class FakeClient:
         return httpx.Response(200, json={"success": True})
 
 
-async def test_token_exchange_exact_dialog_redirect_uri():
-    """Test 1: Token exchange sends redirect_uri = the exact JS SDK dialog value"""
+async def test_token_exchange_no_redirect_uri():
+    """Test 1: Token exchange sends NO redirect_uri (per current official Meta docs)"""
     print("=" * 80)
-    print("TEST 1: Token Exchange - exact dialog redirect_uri")
+    print("TEST 1: Token Exchange - no redirect_uri")
     print("=" * 80)
 
     captured_requests.clear()
@@ -102,22 +104,21 @@ async def test_token_exchange_exact_dialog_redirect_uri():
 
     # Critical assertions
     params = exchange_req["params"]
-    assert params.get("redirect_uri") == EXPECTED_EXCHANGE_REDIRECT_URI, \
-        "[FAIL] FAIL: redirect_uri must equal the exact JS SDK dialog value (xd_arbiter channel URL)"
-    assert EXCHANGE_REDIRECT_URI == EXPECTED_EXCHANGE_REDIRECT_URI
-    assert set(params.keys()) == {"client_id", "client_secret", "code", "redirect_uri"}, \
-        f"[FAIL] FAIL: Expected exactly [client_id, client_secret, code, redirect_uri], got {sorted(params.keys())}"
+    assert "redirect_uri" not in params, \
+        "[FAIL] redirect_uri must NOT be sent (Meta current docs: code is returned directly to the JS callback)"
+    assert set(params.keys()) == {"client_id", "client_secret", "code", "locale"}, \
+        f"[FAIL] Expected exactly [client_id, client_secret, code, locale], got {sorted(params.keys())}"
     assert params["client_id"] == "3862862217342382"
     assert params["code"] == code
-    assert ok is True, f"[FAIL] FAIL: Exchange should succeed, got error: {err}"
+    assert ok is True, f"[FAIL] Exchange should succeed, got error: {err}"
 
-    print("PASS: Token exchange sends exactly [client_id, client_secret, code, redirect_uri]")
-    print(f"PASS: redirect_uri = {EXPECTED_EXCHANGE_REDIRECT_URI} (the exact value the JS SDK used in the OAuth dialog)")
+    print("PASS: Token exchange sends exactly [client_id, client_secret, code, locale]")
+    print("PASS: No redirect_uri sent - per Meta's current official Embedded Signup docs")
     print()
 
 
 async def test_full_integration_flow():
-    """Test 2: Complete integration flow with the exact dialog redirect_uri"""
+    """Test 2: Complete integration flow with no redirect_uri"""
     print("=" * 80)
     print("TEST 2: Full Integration Flow - Embedded Signup")
     print("=" * 80)
@@ -141,28 +142,28 @@ async def test_full_integration_flow():
     finally:
         httpx.AsyncClient = orig
 
-    # Verify the token exchange (first request) carries the exact dialog redirect_uri
+    # Verify the token exchange (first request) carries NO redirect_uri
     exchange_req = captured_requests[0]
     assert "/oauth/access_token" in exchange_req["url"]
-    assert exchange_req["params"].get("redirect_uri") == EXPECTED_EXCHANGE_REDIRECT_URI, \
-        "[FAIL] FAIL: redirect_uri should equal the exact JS SDK dialog value in token exchange"
+    assert "redirect_uri" not in exchange_req["params"], \
+        "[FAIL] redirect_uri must NOT be in the token exchange"
 
-    # Verify all other requests don't carry a redirect_uri param (only the exchange does)
+    # Verify all other requests don't carry a redirect_uri param
     for req in captured_requests[1:]:
         params = req.get("params", {})
         if "redirect_uri" in params:
-            raise AssertionError(f"[FAIL] FAIL: redirect_uri found in {req['url']}")
+            raise AssertionError(f"[FAIL] redirect_uri found in {req['url']}")
 
-    assert ok is True, f"[FAIL] FAIL: Integration should succeed, got error: {err}"
+    assert ok is True, f"[FAIL] Integration should succeed, got error: {err}"
     assert data["waba_id"] == waba_id
     assert data["phone_number_id"] == phone_number_id
     assert data["business_id"] == business_id
     assert "access_token" in data
 
-    print(f"[PASS] PASS: Complete integration flow successful")
-    print(f"[PASS] PASS: Token exchange sends redirect_uri = the exact JS SDK dialog value")
-    print(f"[PASS] PASS: All {len(captured_requests)} Graph API requests correct")
-    print(f"[PASS] PASS: WABA ID, Phone ID, Business ID resolved correctly")
+    print(f"[PASS] Complete integration flow successful")
+    print(f"[PASS] Token exchange sends NO redirect_uri (per Meta's current official docs)")
+    print(f"[PASS] All {len(captured_requests)} Graph API requests correct")
+    print(f"[PASS] WABA ID, Phone ID, Business ID resolved correctly")
     print()
 
 
@@ -172,7 +173,7 @@ async def test_frontend_payload_structure():
     print("TEST 3: Frontend Callback Payload Structure")
     print("=" * 80)
 
-    # Expected payload from frontend (per page.tsx line 718)
+    # Expected payload from frontend (per page.tsx)
     expected_payload = {
         "code": "AQ...",
         "waba_id": "123456789012345",
@@ -182,15 +183,15 @@ async def test_frontend_payload_structure():
 
     # Verify redirect_uri is NOT in the payload
     assert "redirect_uri" not in expected_payload, \
-        "[FAIL] FAIL: redirect_uri should NOT be in frontend payload"
+        "[FAIL] redirect_uri should NOT be in frontend payload"
 
     required_fields = {"code", "waba_id", "phone_number_id", "business_id"}
     assert set(expected_payload.keys()) == required_fields, \
-        f"[FAIL] FAIL: Payload should contain exactly {required_fields}"
+        f"[FAIL] Payload should contain exactly {required_fields}"
 
-    print("[PASS] PASS: Frontend payload structure correct")
-    print("[PASS] PASS: No redirect_uri in callback payload")
-    print(f"[PASS] PASS: Payload contains: {list(expected_payload.keys())}")
+    print("[PASS] Frontend payload structure correct")
+    print("[PASS] No redirect_uri in callback payload")
+    print(f"[PASS] Payload contains: {list(expected_payload.keys())}")
     print()
 
 
@@ -207,13 +208,13 @@ def test_schema_validation():
     expected_fields = {"code", "waba_id", "phone_number_id", "business_id"}
 
     assert schema_fields == expected_fields, \
-        f"[FAIL] FAIL: Schema fields should be {expected_fields}, got {schema_fields}"
+        f"[FAIL] Schema fields should be {expected_fields}, got {schema_fields}"
     assert "redirect_uri" not in schema_fields, \
-        "[FAIL] FAIL: redirect_uri should NOT be in schema"
+        "[FAIL] redirect_uri should NOT be in schema"
 
-    print("[PASS] PASS: Schema structure correct")
-    print("[PASS] PASS: redirect_uri NOT in MetaOAuthCallbackRequest schema")
-    print(f"[PASS] PASS: Schema fields: {sorted(schema_fields)}")
+    print("[PASS] Schema structure correct")
+    print("[PASS] redirect_uri NOT in MetaOAuthCallbackRequest schema")
+    print(f"[PASS] Schema fields: {sorted(schema_fields)}")
     print()
 
 
@@ -225,7 +226,7 @@ async def main():
     print()
 
     # Run all tests
-    await test_token_exchange_exact_dialog_redirect_uri()
+    await test_token_exchange_no_redirect_uri()
     await test_full_integration_flow()
     await test_frontend_payload_structure()
     test_schema_validation()
@@ -235,7 +236,7 @@ async def main():
     print("=" * 80)
     print()
     print("PRODUCTION VERIFICATION:")
-    print("[PASS] Token exchange sends redirect_uri = the exact JS SDK dialog value (prevents error 36008)")
+    print("[PASS] Token exchange sends NO redirect_uri (prevents error code 191 - domain rejection)")
     print("[PASS] Frontend payload excludes redirect_uri")
     print("[PASS] Schema enforces correct structure")
     print("[PASS] Complete integration flow works correctly")

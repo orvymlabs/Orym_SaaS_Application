@@ -259,7 +259,7 @@ def main():
     )
     check("callback 200 with redirect_uri in payload", r.status_code == 200, str(r.status_code))
     check(
-        "frontend redirect_uri NOT forwarded to the service (the service builds the exact dialog redirect_uri itself)",
+        "frontend redirect_uri NOT forwarded to the service (per Meta's current docs the exchange never sends redirect_uri)",
         calls.get("redirect_uri") is None,
         str(calls),
     )

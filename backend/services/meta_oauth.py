@@ -9,22 +9,20 @@ This implementation follows Meta's official Embedded Signup documentation.
 TOKEN EXCHANGE (Embedded Signup FB.login popup flow):
 
 For FB.login() with config_id (Facebook Login for Business) Embedded Signup
-flow, the authorization code is issued inside Meta's JS SDK popup. The JS SDK
-opens the OAuth dialog with redirect_uri set to its xd_arbiter channel URL:
+flow, the exchangeable authorization code is returned DIRECTLY to the JS SDK
+popup callback - there is NO server-side redirect. Meta's current official
+documentation therefore specifies a code exchange with ONLY three parameters:
 
-    https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46
+    GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>
 
-(the dynamic per-session URL fragment - #cb=...&origin=...&domain=... - is
-negligible). Meta binds the generated authorization code to EXACTLY this
-redirect URI, so the server-side exchange MUST send the SAME value:
-
-    GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>&redirect_uri=https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46
-
-Sending a different redirect_uri - the empty string, the backend callback URL,
-the canonical app URL, or any other value - triggers Meta error code 100 /
-subcode 36008 ("Error validating verification code. Please make sure your
-redirect_uri is identical to the one you used in the OAuth dialog request")
-because the value is not identical to the one Meta bound to the code.
+redirect_uri must NOT be sent. The JS SDK internally opens its OAuth dialog
+using Meta's own xd_arbiter channel URL
+(https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46); that is a
+Meta-internal domain, NOT our application domain, and it must never be added
+to App Domains. Sending it (or any other value) as redirect_uri in the token
+exchange makes Meta validate it against the app's domains and fails with
+error code 191: "The domain of this URL isn't included in the app's domains."
+The correct behavior is to omit redirect_uri entirely.
 
 IMPORTANT - Where the WABA ID and phone number ID come from:
 
@@ -61,29 +59,37 @@ from config import get_settings
 logger = logging.getLogger(__name__)
 
 # ============================================================================
-# TOKEN EXCHANGE REDIRECT URI (Embedded Signup FB.login popup flow)
+# EMBEDDED SIGNUP TOKEN EXCHANGE - NO redirect_uri (current official Meta flow)
 # ============================================================================
-# The FB.login() + config_id (Facebook Login for Business) Embedded Signup
-# flow binds the authorization code to the JS SDK's xd_arbiter channel URL -
-# NOT to the frontend page URL, the backend callback URL, or the canonical app
-# URL. The SDK opens the OAuth dialog with redirect_uri set to:
+# The WhatsApp Embedded Signup flow uses FB.login() with a config_id (Facebook
+# Login for Business). The exchangeable code is delivered DIRECTLY to the
+# FB.login() JavaScript callback in the popup - there is NO server-side
+# redirect. Consequently Meta does NOT bind the code to any redirect_uri, and
+# Meta's current official documentation for this exchange specifies ONLY:
 #
-#     https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46
+#     GET https://graph.facebook.com/v26.0/oauth/access_token
+#         ?client_id=<APP_ID>
+#         &client_secret=<APP_SECRET>
+#         &code=<CODE>
 #
-# (the trailing dynamic fragment - #cb=...&origin=...&domain=...&relation=... -
-# is negligible; community inspection of the SDK's dialog request confirms this
-# exact base value is what Meta records). The server-side token exchange MUST
-# send this EXACT same value. Sending redirect_uri="" (empty string), the
-# canonical app URL, or any other value triggers Meta error_subcode 36008.
-# This is the "actual non-empty canonical redirect URI" the production logs
-# must show during the exchange.
-EXCHANGE_REDIRECT_URI = "https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46"
-
-# Canonical production app URL. Used by the frontend configuration / backend
-# verification endpoints for display/validation purposes ONLY. It is NEVER
-# sent to Meta in the Embedded Signup token exchange: the exchange sends the
-# JS SDK channel URL EXCHANGE_REDIRECT_URI above (sending this canonical app
-# URL, the empty string, or any other value triggers error_subcode 36008).
+# (see Meta "Facebook Login for Business" and "Embedded Signup - Onboarding
+# business customers as a Tech Provider" docs: the request parameters are
+# <APP_ID>, <APP_SECRET> and <CODE> only).
+#
+# IMPORTANT - do NOT send redirect_uri in this exchange:
+# The FB JS SDK internally opens its OAuth dialog using the xd_arbiter channel
+# URL (https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46) with a
+# per-session fragment. That URL is META'S OWN INTERNAL channel, it is not our
+# application domain, and it must NEVER be added to App Domains. Sending it as
+# redirect_uri in the token exchange makes Meta validate that URL against the
+# app's domains and fails with error code 191:
+#
+#   "The domain of this URL isn't included in the app's domains. To be able
+#    to load this URL, add all domains and subdomains of your app to the
+#    App Domains field in your app settings."
+#
+# This is EXACTLY the error seen in production. The correct fix (per the
+# current official docs) is to OMIT redirect_uri entirely from the exchange.
 CANONICAL_REDIRECT_URI = "https://apps.orvym.com/dashboard/integrations/"
 
 # Explicit, machine-readable error codes. Errors returned by the service are
@@ -177,15 +183,20 @@ class MetaOAuthService:
     def _log_exchange_request(self, url: str, params: Dict) -> None:
         """Log the exact request being sent to Meta (never the app secret or full code).
 
-        EMBEDDED SIGNUP FB.LOGIN POPUP TOKEN EXCHANGE:
-        The exchange sends:
+        EMBEDDED SIGNUP FB.LOGIN POPUP TOKEN EXCHANGE (current official Meta
+        flow): the exchange sends ONLY:
         - client_id
         - client_secret
         - code
-        - redirect_uri: the EXACT value the JS SDK used in the OAuth dialog
-          (EXCHANGE_REDIRECT_URI - the xd_arbiter channel URL). The logs MUST
-          show this actual non-empty canonical redirect URI so the
-          authorization and token exchange provably use the same value.
+        - locale
+
+        redirect_uri is deliberately NOT sent: per Meta's current Facebook
+        Login for Business / Embedded Signup docs the exchangeable code is
+        returned directly to the JS popup callback (no server-side redirect),
+        so the exchange request must contain only client_id, client_secret and
+        code. Sending the JS SDK's internal xd_arbiter channel URL as
+        redirect_uri causes Meta error code 191 ("The domain of this URL isn't
+        included in the app's domains"). The logs must show NO redirect_uri.
         """
         logger.info("=" * 80)
         logger.info("META EMBEDDED SIGNUP TOKEN EXCHANGE")
@@ -195,7 +206,7 @@ class MetaOAuthService:
         logger.info(f"  App ID: {self.app_id}")
         logger.info(f"  Parameter names: {list(params.keys())}")
         logger.info(f"  Code length: {len(params.get('code', ''))}")
-        logger.info(f"  redirect_uri: {params.get('redirect_uri', 'NOT SENT')}")
+        logger.info(f"  redirect_uri: {params.get('redirect_uri', 'NOT SENT (correct - per Meta docs)')}")
 
     def _log_exchange_response(self, response: httpx.Response) -> None:
         """Log Meta's response (status, error code/subcode, fbtrace_id - never tokens)."""
@@ -219,12 +230,13 @@ class MetaOAuthService:
         """Extract (error_message, error_object) from a Meta error response.
 
         Meta error_subcode 36008 ("Error validating verification code") means
-        the redirect_uri did not match the value Meta recorded when it issued
-        the code, or the code is invalid/expired/already consumed. With the
-        correct exchange (redirect_uri = EXCHANGE_REDIRECT_URI, the exact
-        value the JS SDK used in the OAuth dialog), a 36008 indicates the code
-        itself is no longer valid. The code must NEVER be retried and a
-        completely new Embedded Signup flow is required.
+        the code is invalid/expired/already consumed. With the correct exchange
+        (no redirect_uri, per the current official Embedded Signup flow), a
+        36008 indicates the code itself is no longer valid. The code must
+        NEVER be retried and a completely new Embedded Signup flow is
+        required. Meta error code 191 (""The domain of this URL isn't included
+        in the app's domains") would indicate a redirect_uri was incorrectly
+        sent during the exchange.
         """
         try:
             error_obj = response.json().get("error", {})
@@ -291,16 +303,18 @@ class MetaOAuthService:
         Exchange the Embedded Signup authorization code for an access token.
 
         EMBEDDED SIGNUP FB.LOGIN POPUP TOKEN EXCHANGE (official Meta flow):
-        The JS SDK opens the OAuth dialog with redirect_uri set to its
-        xd_arbiter channel URL. Meta binds the authorization code to that
-        exact value, so the exchange MUST send the SAME redirect_uri:
+        The exchangeable code is returned directly to the JS popup callback -
+        there is NO server-side redirect. Per Meta's current Facebook Login
+        for Business / Embedded Signup documentation the exchange sends ONLY:
 
-            GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>&redirect_uri=https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46
+            GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>
 
-        Sending a different redirect_uri - the empty string or any real URL -
-        triggers Meta error code 100 / subcode 36008 ("make sure your
-        redirect_uri is identical to the one you used in the OAuth dialog
-        request").
+        redirect_uri must NOT be sent. The JS SDK internally uses Meta's own
+        xd_arbiter channel URL (https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46)
+        inside the dialog; that is a Meta-internal domain (never to be added
+        to App Domains) and sending it as redirect_uri in the exchange fails
+        with Meta error code 191 ("The domain of this URL isn't included in
+        the app's domains").
 
         Args:
             code: The exchangeable authorization code from Meta Embedded Signup.
@@ -312,16 +326,17 @@ class MetaOAuthService:
             url = f"{self.GRAPH_API_BASE}/oauth/access_token"
 
             # EMBEDDED SIGNUP TOKEN EXCHANGE (Facebook Login for Business
-            # config_id flow): send client_id + client_secret + code +
-            # redirect_uri. redirect_uri MUST equal the exact value the JS SDK
-            # used in the OAuth dialog - the xd_arbiter channel URL
-            # (EXCHANGE_REDIRECT_URI). Sending the empty string or any other
-            # value triggers Meta error_subcode 36008.
+            # config_id flow): send client_id + client_secret + code + locale
+            # ONLY. Per Meta's current official docs this exchange has exactly
+            # three documented parameters - <APP_ID>, <APP_SECRET>, <CODE>.
+            # Do NOT send redirect_uri: sending the JS SDK's internal
+            # xd_arbiter channel URL (or any other value) makes Meta validate
+            # it against the app's domains and fails with error code 191
+            # ("The domain of this URL isn't included in the app's domains").
             params = {
                 "client_id": self.app_id,
                 "client_secret": self.app_secret,
                 "code": code,
-                "redirect_uri": EXCHANGE_REDIRECT_URI,
                 "locale": META_REQUEST_LOCALE,
             }
 
@@ -833,17 +848,20 @@ class MetaOAuthService:
 
         The token exchange follows the official Embedded Signup FB.login popup
         flow:
-        - Sends client_id, client_secret, code and redirect_uri
-        - redirect_uri MUST be the EXACT value the JS SDK used in the OAuth
-          dialog (EXCHANGE_REDIRECT_URI - the xd_arbiter channel URL); sending
-          redirect_uri='' or any other value triggers error 36008
+        - Sends client_id, client_secret and code ONLY (no redirect_uri)
+        - Per Meta's current Facebook Login for Business / Embedded Signup
+          docs the exchangeable code is returned directly to the JS popup
+          callback (no server-side redirect), so redirect_uri must NOT be
+          sent; sending the JS SDK's internal xd_arbiter channel URL (or any
+          other value) fails with Meta error code 191 ("The domain of this
+          URL isn't included in the app's domains")
 
         Token exchange:
-            GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>&redirect_uri=https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46
+            GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>
 
         Flow:
-         1. Exchange code for access token (server-side; redirect_uri =
-            EXCHANGE_REDIRECT_URI, the exact dialog value)
+         1. Exchange code for access token (server-side; redirect_uri is NOT
+            sent - per the current official Embedded Signup flow)
          2. Validate the exchanged token via /debug_token (app_id + scopes +
             granular_scopes WABA target_ids)
          3. Resolve the WABA ID: session event, then /debug_token granular
@@ -886,10 +904,12 @@ class MetaOAuthService:
         try:
             # Step 1: Exchange code for token. The Embedded Signup (Facebook
             # Login for Business config_id) exchange sends client_id +
-            # client_secret + code + redirect_uri, where redirect_uri is the
-            # EXACT value the JS SDK used in the OAuth dialog
-            # (EXCHANGE_REDIRECT_URI - the xd_arbiter channel URL). Sending
-            # redirect_uri='' or any other value triggers error_subcode 36008.
+            # client_secret + code ONLY - no redirect_uri. Per Meta's current
+            # official docs the exchangeable code is returned directly to the
+            # JS popup callback (no server-side redirect); sending any
+            # redirect_uri (e.g. the SDK's internal xd_arbiter channel URL)
+            # triggers Meta error code 191 ("The domain of this URL isn't
+            # included in the app's domains").
             logger.info(f"[EmbeddedSignup] Step 1/6 - Meta token exchange started (code length: {len(code)})")
             success, token_data, error = await self.exchange_code_for_token(code)
             if not success:

@@ -578,9 +578,9 @@ async def verify_meta_config(
         "manual",
         "In the Meta App Dashboard confirm the app is set up with the Facebook "
         "Login for Business product (Tech Provider). The token exchange sends "
-        "client_id + client_secret + code + redirect_uri, where redirect_uri is "
-        "the exact value the JS SDK used in the OAuth dialog (the xd_arbiter "
-        "channel URL - https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46).",
+        "client_id + client_secret + code ONLY (no redirect_uri - per Meta's "
+        "current official docs the code is returned directly to the JS popup "
+        "callback, so no server-side redirect URI exists).",
     )
     checks["client_oauth_login"] = check(
         "manual",
@@ -680,21 +680,22 @@ async def meta_oauth_callback_post(
       - client_id
       - client_secret
       - code
-      - redirect_uri: the EXACT value the JS SDK used in the OAuth dialog -
-        the xd_arbiter channel URL
-        (https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46).
-        Meta binds the code to this value; sending the empty string, the
-        backend callback URL, or any other value triggers Meta error subcode
-        36008.
+    (NO redirect_uri - per Meta's current official docs the exchangeable code
+    is returned directly to the JS popup callback, so there is no server-side
+    redirect URI to echo. Sending the JS SDK's internal xd_arbiter channel URL
+    https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46 or any
+    other value as redirect_uri makes Meta validate it against the app's
+    domains and fails with Meta error code 191: "The domain of this URL isn't
+    included in the app's domains".)
 
     Token exchange:
-        GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>&redirect_uri=https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46
+        GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>
 
     The backend then:
       1. Rejects duplicate authorization codes (SHA-256 hash ledger) - a code
          is NEVER exchanged twice.
       2. Exchanges the code server-side for the customer business token
-         (client_id + client_secret + code + the exact dialog redirect_uri)
+         (client_id + client_secret + code only - no redirect_uri)
       3. Validates the exchanged token via /debug_token (app_id + scopes)
       4. Validates the WABA via GET /<WABA_ID> and the phone number via
          GET /<WABA_ID>/phone_numbers - using ONLY IDs Meta itself returned
@@ -788,10 +789,12 @@ async def meta_oauth_callback_post(
     # WABA ID / phone number ID / business ID come from the Embedded Signup
     # session event when available and are resolved server-side (the documented
     # /debug_token granular_scopes + WABA phone_numbers edge fallback) when
-    # absent. redirect_uri is intentionally NOT forwarded from the frontend:
-    # the backend exchange sends client_id + client_secret + code + the exact
-    # dialog redirect_uri (the JS SDK xd_arbiter channel URL) itself - any
-    # OTHER redirect_uri value triggers 36008.
+    # absent. redirect_uri is intentionally NOT forwarded from the frontend
+    # and NOT sent by the backend exchange: per Meta's current official docs
+    # the exchange sends client_id + client_secret + code only (no
+    # redirect_uri) - sending the JS SDK's internal xd_arbiter channel URL or
+    # any other value triggers Meta error code 191 ("The domain of this URL
+    # isn't included in the app's domains").
     oauth_service = MetaOAuthService(settings.META_APP_ID, settings.META_APP_SECRET)
     success, integration_data, error = await oauth_service.setup_whatsapp_integration(
         code,
