@@ -5,15 +5,14 @@ Proves:
   1. The WhatsApp Embedded Signup Step 1 exchange sends EXACTLY
      client_id + client_secret + code (no redirect_uri).
   2. The redirect_uri parameter is intentionally omitted for the Embedded
-     Signup flow (FB.login + config_id). The code is bound to Meta's
-     internal xd_arbiter redirect URI. Sending the canonical value or any
-     real URL - or omitting redirect_uri entirely after having sent it
-     previously - is what triggers Meta error_subcode 36008.
+     Signup flow (FB.login + config_id). This matches Meta's official
+     Embedded Signup exchange. Sending redirect_uri (the empty string or any
+     real URL) is what triggers Meta error_subcode 36008.
 """
 import asyncio
 import httpx
 
-from services.meta_oauth import MetaOAuthService, CANONICAL_REDIRECT_URI, EXCHANGE_REDIRECT_URI
+from services.meta_oauth import MetaOAuthService, CANONICAL_REDIRECT_URI
 
 CANONICAL = "https://apps.orvym.com/dashboard/integrations/"
 
@@ -65,7 +64,6 @@ async def main():
 
     assert CANONICAL_REDIRECT_URI == CANONICAL
     assert CANONICAL.endswith("/"), "canonical redirect_uri must include the trailing slash"
-    assert EXCHANGE_REDIRECT_URI == "", "the exchange must always use redirect_uri=''"
 
     # The Embedded Signup exchange must NOT include redirect_uri
     assert "redirect_uri" not in captured["params"]
@@ -74,7 +72,7 @@ async def main():
 
     print("PASS: Embedded Signup exchange sends exactly ['client_id', 'client_secret', 'code']")
     print("PASS: redirect_uri is NOT present in the Meta request (correct for Embedded Signup)")
-    print("PASS: canonical value or any real URL is never forwarded to Meta (it causes 36008)")
+    print("PASS: canonical value, empty string, or any URL is never forwarded to Meta (it causes 36008)")
 
 
 asyncio.run(main())

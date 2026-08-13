@@ -111,10 +111,10 @@ export default function IntegrationsPage() {
   //      (response.authResponse.code)
   //
   // The code + asset IDs are sent to the backend. The backend exchanges the
-  // code with Meta sending redirect_uri="" (empty string) - the code is bound
-  // to Meta's internal xd_arbiter redirect URI. Omitting redirect_uri or
-  // sending a real URL triggers Meta error subcode 36008 (proven in
-  // production). The frontend never sends redirect_uri.
+  // code with Meta sending client_id + client_secret + code (NO redirect_uri -
+  // the official Embedded Signup exchange). Sending redirect_uri (empty string
+  // or any real URL) triggers Meta error subcode 36008. The frontend never
+  // sends redirect_uri.
   //
   // The single-use code is exchanged EXACTLY ONCE - a one-time guard
   // (completingRef) locks the exchange the moment it starts.
@@ -584,12 +584,11 @@ export default function IntegrationsPage() {
   //   - the customer's asset IDs (waba_id / phone_number_id / business_id)
   //     via the WA_EMBEDDED_SIGNUP session message posted to THIS window.
   //
-  // NOTE on redirect_uri: the code is bound to Meta's INTERNAL xd_arbiter
-  // redirect URI, so the backend exchange sends client_id + client_secret +
-  // code + redirect_uri='' (empty string). The callback payload does NOT send
-  // redirect_uri - never the canonical value, never an empty string, never
-  // null (omitting it on the backend or sending a real URL triggers
-  // error_subcode 36008).
+  // NOTE on redirect_uri: the backend exchange sends client_id + client_secret
+  // + code with NO redirect_uri (the official Embedded Signup exchange). The
+  // callback payload does NOT send redirect_uri - never the canonical value,
+  // never an empty string, never null (sending any redirect_uri value on the
+  // backend triggers error_subcode 36008).
   const launchWhatsAppSignup = () => {
     if (!metaConfig) {
       showToast("Meta Embedded Signup is not configured", "error");
@@ -701,11 +700,10 @@ export default function IntegrationsPage() {
   // when the session event did not deliver them (documented Meta fallback);
   // the IDs are never fabricated.
   //
-  // redirect_uri is deliberately NOT sent in this payload. The FB.login popup
-  // code is bound to Meta's INTERNAL xd_arbiter redirect URI, so the backend
-  // exchange sends redirect_uri='' (empty string) - omitting it on the
-  // backend, or sending any real URL, is exactly what triggers Meta error
-  // subcode 36008.
+  // redirect_uri is deliberately NOT sent in this payload. The backend
+  // exchange sends client_id + client_secret + code with NO redirect_uri (the
+  // official Embedded Signup exchange) - sending any redirect_uri value,
+  // including the empty string, triggers Meta error subcode 36008.
   const handleMetaOAuthCallback = async (
     code: string,
     metaData?: { waba_id?: string; phone_number_id?: string; business_id?: string }

@@ -2,14 +2,13 @@
 Test script to verify OAuth token exchange parameters for the WhatsApp
 Embedded Signup FB.login popup flow.
 
-Rule: the exchange sends redirect_uri="" (empty string). The code from the
-FB.login popup (config_id Embedded Signup) is bound to Meta's INTERNAL
-xd_arbiter redirect URI, so the request carries client_id + client_secret +
-code + redirect_uri="". Sending any real URL - the canonical
-https://apps.orvym.com/dashboard/integrations/ or any other - or omitting
-redirect_uri entirely, is exactly what triggers Meta error_subcode 36008
-("make sure your redirect_uri is identical to the one you used in the OAuth
-dialog request").
+Rule: the official Embedded Signup (Facebook Login for Business config_id)
+exchange sends ONLY client_id + client_secret + code. redirect_uri is
+COMPLETELY OMITTED - the config_id provides the security binding. Sending
+redirect_uri - the empty string, the canonical
+https://apps.orvym.com/dashboard/integrations/, or any other value - is
+exactly what triggers Meta error_subcode 36008 ("make sure your redirect_uri
+is identical to the one you used in the OAuth dialog request").
 
 This script exercises the REAL service method (exchange_code_for_token) with a
 mocked httpx client and verifies the exact parameters Meta receives.
@@ -75,24 +74,23 @@ def test_token_exchange_params():
     for key, value in captured["params"].items():
         print(f"  {key}: '{value}'")
     print()
-    print(f"redirect_uri present: {'redirect_uri' in captured['params']}  (should be True)")
-    print(f"redirect_uri value: '{captured['params'].get('redirect_uri')}'  (should be empty)")
+    print(f"redirect_uri present: {'redirect_uri' in captured['params']}  (should be False)")
     print(f"Parameter names: {sorted(captured['params'].keys())}")
     print()
 
-    assert set(captured["params"].keys()) == {"client_id", "client_secret", "code", "redirect_uri"}, \
-        "exchange must send ONLY client_id + client_secret + code + redirect_uri"
-    assert captured["params"]["redirect_uri"] == "", \
-        "redirect_uri must be the EMPTY STRING for the Embedded Signup popup flow"
-    print("PASS: exchange sends exactly client_id + client_secret + code + redirect_uri=''")
+    assert set(captured["params"].keys()) == {"client_id", "client_secret", "code"}, \
+        "exchange must send ONLY client_id + client_secret + code (no redirect_uri)"
+    assert "redirect_uri" not in captured["params"], \
+        "redirect_uri must be OMITTED for the Embedded Signup (config_id) flow"
+    print("PASS: exchange sends exactly client_id + client_secret + code (no redirect_uri)")
     print()
 
     print("=" * 80)
     print("CONCLUSION:")
     print("=" * 80)
-    print("✓ The exchange sends client_id + client_secret + code + redirect_uri=''")
-    print("✓ redirect_uri is the empty string (never a real URL, never omitted)")
-    print("✓ This is what prevents Meta error_subcode 36008")
+    print("✓ The exchange sends client_id + client_secret + code only")
+    print("✓ redirect_uri is completely omitted (never '', never a real URL)")
+    print("✓ This matches the official Embedded Signup exchange and prevents Meta error_subcode 36008")
     print("=" * 80)
 
 

@@ -2,7 +2,8 @@
 Production Readiness Test - WhatsApp Embedded Signup OAuth Flow
 
 Verifies the complete implementation is ready for production deployment:
-1. Token exchange sends redirect_uri='' (prevents error_subcode 36008)
+1. Token exchange sends NO redirect_uri (official Embedded Signup exchange -
+   prevents error_subcode 36008)
 2. Frontend callback payload does NOT include redirect_uri
 3. Backend correctly ignores any redirect_uri if accidentally sent
 4. Complete integration flow works end-to-end
@@ -76,9 +77,9 @@ class FakeClient:
 
 
 async def test_token_exchange_no_redirect_uri():
-    """Test 1: Token exchange sends redirect_uri='' (empty string)"""
+    """Test 1: Token exchange sends NO redirect_uri (official Embedded Signup exchange)"""
     print("=" * 80)
-    print("TEST 1: Token Exchange - redirect_uri=''")
+    print("TEST 1: Token Exchange - no redirect_uri")
     print("=" * 80)
 
     captured_requests.clear()
@@ -231,7 +232,7 @@ async def main():
     print("=" * 80)
     print()
     print("PRODUCTION VERIFICATION:")
-    print("[PASS] Token exchange sends redirect_uri='' (prevents error 36008)")
+    print("[PASS] Token exchange sends NO redirect_uri (official Embedded Signup exchange - prevents error 36008)")
     print("[PASS] Frontend payload excludes redirect_uri")
     print("[PASS] Schema enforces correct structure")
     print("[PASS] Complete integration flow works correctly")
