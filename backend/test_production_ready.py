@@ -98,15 +98,16 @@ async def test_token_exchange_no_redirect_uri():
 
     # Critical assertions
     params = exchange_req["params"]
-    assert params["redirect_uri"] == "", "[FAIL] FAIL: redirect_uri should be the EMPTY STRING in the exchange request"
-    assert set(params.keys()) == {"client_id", "client_secret", "code", "redirect_uri"}, \
-        f"[FAIL] FAIL: Expected exactly [client_id, client_secret, code, redirect_uri], got {sorted(params.keys())}"
+    assert "redirect_uri" not in params, \
+        "[FAIL] FAIL: redirect_uri should NOT be in the exchange request"
+    assert set(params.keys()) == {"client_id", "client_secret", "code"}, \
+        f"[FAIL] FAIL: Expected exactly [client_id, client_secret, code], got {sorted(params.keys())}"
     assert params["client_id"] == "3862862217342382"
     assert params["code"] == code
     assert ok is True, f"[FAIL] FAIL: Exchange should succeed, got error: {err}"
 
-    print("PASS: Token exchange sends exactly [client_id, client_secret, code, redirect_uri]")
-    print("PASS: redirect_uri is present with the empty-string value in the Meta request")
+    print("PASS: Token exchange sends exactly [client_id, client_secret, code]")
+    print("PASS: redirect_uri is NOT present in the Meta request (correct for Embedded Signup)")
     print()
 
 
@@ -135,11 +136,11 @@ async def test_full_integration_flow():
     finally:
         httpx.AsyncClient = orig
 
-    # Verify the token exchange (first request) carries redirect_uri=''
+    # Verify the token exchange (first request) does NOT carry redirect_uri
     exchange_req = captured_requests[0]
     assert "/oauth/access_token" in exchange_req["url"]
-    assert exchange_req["params"]["redirect_uri"] == "", \
-        "[FAIL] FAIL: redirect_uri should be the EMPTY STRING in token exchange"
+    assert "redirect_uri" not in exchange_req["params"], \
+        "[FAIL] FAIL: redirect_uri should NOT be in token exchange"
 
     # Verify all other requests also don't have redirect_uri (except as access_token param)
     for req in captured_requests[1:]:
@@ -155,7 +156,7 @@ async def test_full_integration_flow():
     assert "access_token" in data
 
     print(f"[PASS] PASS: Complete integration flow successful")
-    print(f"[PASS] PASS: Token exchange sent redirect_uri=''")
+    print(f"[PASS] PASS: Token exchange sends no redirect_uri parameter")
     print(f"[PASS] PASS: All {len(captured_requests)} Graph API requests correct")
     print(f"[PASS] PASS: WABA ID, Phone ID, Business ID resolved correctly")
     print()

@@ -50,24 +50,25 @@ class TestOfficialMetaImplementation:
             # Get the params that were sent
             params = call_args[1]['params']
 
-            # CRITICAL VERIFICATION: redirect_uri must be present as '' - the
-            # code is bound to Meta's internal xd_arbiter redirect URI, so the
-            # empty string is the ONLY value Meta accepts. Omitting the
-            # parameter or sending a real URL triggers error_subcode 36008.
-            assert 'redirect_uri' in params, "redirect_uri must be present in the exchange"
-            assert params['redirect_uri'] == "", "redirect_uri must be the EMPTY STRING"
+            # CRITICAL VERIFICATION: redirect_uri must NOT be present in the exchange
+            # for the Embedded Signup FB.login + config_id flow. The code is bound
+            # to Meta's internal xd_arbiter redirect URI. Including redirect_uri
+            # (as empty string or real URL) or omitting it when it was previously
+            # sent triggers error_subcode 36008.
+            assert 'redirect_uri' not in params, "redirect_uri must NOT be present in the exchange for Embedded Signup flow"
+            # Verify the three parameters are present
 
-            # Verify the four parameters are present
+            # Verify the three parameters are present
             assert 'client_id' in params
             assert 'client_secret' in params
             assert 'code' in params
-            assert len(params) == 4, "Exactly 4 params: client_id, client_secret, code, redirect_uri"
+            assert len(params) == 3, f"Exactly 3 params: client_id, client_secret, code, got {sorted(params.keys())}"
 
             # Verify correct values
             assert params['client_id'] == "3862862217342382"
             assert params['code'] == test_code
 
-            print("[PASS] Token exchange sends redirect_uri='' (empty string)")
+            print("[PASS] Token exchange sends no redirect_uri parameter (correct for Embedded Signup)")
             print(f"[PASS] Parameters sent: {list(params.keys())}")
             print("[PASS] Embedded Signup popup exchange verified")
 

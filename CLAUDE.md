@@ -1,237 +1,125 @@
-STOP making assumptions about redirect_uri.
+STOP.
 
-The production logs now prove the exact failure point.
+The latest production logs prove that the previous redirect_uri change is incorrect.
 
-Frontend successfully receives a fresh 451-character Embedded Signup authorization code.
+The backend is now sending:
 
-Backend receives it successfully.
-
-Backend then performs:
-
-GET https://graph.facebook.com/v26.0/oauth/access_token
-
-with:
-
-client_id
-client_secret
-code
-
-and currently:
-
-redirect_uri = OMITTED
+redirect_uri included: True
+redirect_uri value: ''
 
 Meta returns:
 
-HTTP 400
 Error Code: 100
 Error Subcode: 36008
-Error Type: OAuthException
+OAuthException
 
 "Error validating verification code. Please make sure your redirect_uri is identical to the one you used in the OAuth dialog request"
 
-IMPORTANT:
+Do NOT use an empty redirect_uri.
 
-Do NOT keep repeating the assumption that redirect_uri should simply be omitted because the Tech Provider onboarding documentation's Step 1 example does not show redirect_uri.
+Do NOT omit it as a guess.
 
-The actual production Meta response is authoritative for this specific authorization code.
+Do NOT try multiple redirect_uri fallbacks.
 
-Do NOT randomly try multiple redirect_uri values.
+Do NOT randomly switch between:
+- https://apps.orvym.com
+- https://apps.orvym.com/dashboard/integrations
+- https://apps.orvym.com/dashboard/integrations/
+- https://www.facebook.com/connect/login_success.html
 
-Do NOT implement fallback attempts.
+The current implementation must be traced properly.
 
-Do NOT consume the same code multiple times.
-
-Do NOT change unrelated ORVYM functionality.
-
-DO NOT modify:
-- WABA resolution
-- database
-- webhook architecture
-- messaging
-- UI
-- tenant system
-- unrelated APIs
-- unrelated components
-
-Investigate the actual authorization-code issuance flow.
-
-CURRENT FRONTEND FLOW:
+Current frontend launch:
 
 FB.login({
-    config_id: "2432311603846818",
-    response_type: "code",
-    override_default_response_type: true,
-    extras: {
-        setup: {}
-    }
+  config_id: "2432311603846818",
+  response_type: "code",
+  override_default_response_type: true,
+  extras: {
+    setup: {},
+    sessionInfoVersion: 3
+  }
 })
 
-APP ID:
+App ID:
 3862862217342382
 
-CONFIG ID:
+Config ID:
 2432311603846818
 
-PRODUCTION:
+Production frontend:
 https://apps.orvym.com
 
-INTEGRATIONS PAGE:
+Integrations page:
 https://apps.orvym.com/dashboard/integrations
 
-BACKEND:
-https://orym-saas-application.onrender.com
+Current backend token exchange:
 
-The code is successfully received:
-
-[EmbeddedSignup] LOGIN_CODE_RECEIVED (length: 451)
-
-Then:
-
-POST /api/integrations/meta/oauth/callback
-
-Backend logs prove:
-
-Code received: length 451
-
-Then:
-
-Meta endpoint:
+GET
 https://graph.facebook.com/v26.0/oauth/access_token
 
-Parameter names:
+Parameters currently:
 client_id
 client_secret
 code
+redirect_uri=""
 
-redirect_uri included: False
+This is wrong.
 
-Meta response:
+FIRST determine exactly how Meta binds the authorization code to the OAuth redirect context for THIS Embedded Signup Config ID + FB.login implementation.
 
-Error Code: 100
-Error Subcode: 36008
-Error Type: OAuthException
+Inspect:
+1. Current FB.login implementation.
+2. Config ID configuration.
+3. Meta App OAuth / Facebook Login for Business configuration.
+4. Valid OAuth Redirect URIs.
+5. Any frontend environment variables.
+6. Any redirect URI passed or generated during authorization.
+7. Backend token exchange implementation.
+8. Any redirect URI normalization/defaulting logic.
 
-Error message:
-Error validating verification code. Please make sure your redirect_uri is identical to the one you used in the OAuth dialog request
+The authorization request and token exchange must use the exact same redirect URI/context expected by Meta.
 
-YOUR TASK:
+Do not make multiple attempts.
 
-1. Inspect the exact Meta Embedded Signup implementation currently deployed.
+Do not use an empty string.
 
-2. Inspect the exact FB.login() invocation.
+Do not hide the Meta error.
 
-3. Inspect every parameter actually passed to FB.login().
+Before changing code, identify:
+- exact authorization redirect URI/context
+- exact Meta configuration
+- exact value that must be used in token exchange
 
-4. Determine how Meta's current Embedded Signup configuration binds the authorization code to an OAuth redirect URI.
+Then make the smallest production fix.
 
-5. Inspect Config ID 2432311603846818 configuration assumptions.
+Preserve:
+- App ID 3862862217342382
+- Config ID 2432311603846818
+- working Embedded Signup
+- working 451-character code reception
+- existing ORVYM integration flow
 
-6. Inspect the Meta App's OAuth redirect URI configuration.
+Do not modify unrelated functionality.
 
-7. Inspect frontend environment variables.
+After the token exchange succeeds, continue through the existing flow:
+CODE
+→ BUSINESS TOKEN
+→ WABA
+→ PHONE NUMBER
+→ BUSINESS
+→ existing ORVYM connection
 
-8. Inspect backend environment variables.
+Also verify that the code is exchanged exactly once.
 
-9. Inspect backend Meta OAuth exchange implementation.
+Use a completely fresh Embedded Signup code for testing because the code is short-lived and single-use.
 
-10. Determine whether the authorization code generated by this specific FB.login + config_id flow requires redirect_uri during exchange.
-
-11. Determine the exact redirect URI Meta recorded for this authorization code.
-
-12. Do NOT guess the URI.
-
-13. Do NOT try:
-   - https://apps.orvym.com
-   - https://apps.orvym.com/dashboard/integrations
-   - https://apps.orvym.com/dashboard/integrations/
-   - https://www.facebook.com/connect/login_success.html
-
-   unless the actual Meta configuration/code proves that exact value.
-
-14. Make the authorization request and token exchange consistent with Meta's actual flow.
-
-15. If redirect_uri is required for this flow, pass ONE canonical exact value to the Meta token exchange.
-
-16. If redirect_uri is NOT supposed to be passed for the current official Embedded Signup flow, then determine why Meta is returning 36008 and fix the authorization-side configuration/implementation instead.
-
-17. Do not implement multiple attempts or fallback URI logic.
-
-18. Do not change the Meta App ID:
-3862862217342382
-
-19. Do not change the Config ID:
-2432311603846818
-
-unless you prove that the configuration itself is incorrect.
-
-20. Use a completely fresh Embedded Signup authorization code for every test because the code is single-use and short-lived.
-
-21. Make sure the frontend does not process the same code twice.
-
-22. Make sure React lifecycle / duplicate SDK initialization / duplicate event listeners are not causing a code to be consumed before the backend exchange.
-
-23. Verify that exactly one fresh code reaches exactly one backend exchange.
-
-24. Log the exchange request structure safely, but NEVER log:
-   - app secret
-   - access token
-   - client secret
-
-25. After fixing token exchange, continue the existing flow:
-   authorization code
-   -> business token
-   -> WABA resolution
-   -> phone number resolution
-   -> existing ORVYM connection
-   -> success
-
-IMPORTANT:
-
-The Meta Tech Provider onboarding documentation provided by the developer shows Step 1 as:
-
-GET /oauth/access_token
-
-client_id
-client_secret
-code
-
-However, the production Meta API response for our actual code explicitly reports redirect_uri mismatch.
-
-Therefore DO NOT blindly copy either behavior.
-
-Reconcile the documentation with the actual Embedded Signup authorization flow and Config ID configuration.
-
-The goal is to identify WHY Meta considers the code associated with a redirect URI while our exchange request does not provide the same URI.
-
-Before making the final code change, report:
-
-A. Exact authorization request currently being generated
-B. Exact redirect URI Meta associates with that request, if applicable
-C. Exact token-exchange request currently being generated
-D. Why Meta returns subcode 36008
-E. Exact code change required
-F. Exact Meta Dashboard configuration required
-G. Whether frontend, backend, or both must change
-
-Then IMPLEMENT the smallest correct fix.
-
-After implementation test with a brand-new Embedded Signup session.
-
-Expected:
-
-FB.login()
-→ Meta Embedded Signup
-→ fresh code
-→ exactly one backend request
-→ Meta token exchange succeeds
-→ no error 36008
-→ WABA/phone resolution continues
-→ existing ORVYM WhatsApp connection succeeds.
-
-Do not stop at receiving the code.
-
-Do not fake success.
-
-Do not hide Meta errors. 
-
-Do not modify anything until you identify the exact cause of Meta error 36008. Show me the authorization request, Meta configuration involved, and token-exchange request first.
+Report:
+1. Exact root cause
+2. Exact redirect URI/context Meta expects
+3. Why redirect_uri became ""
+4. Files changed
+5. Meta configuration involved
+6. Final authorization → exchange flow
+7. Fresh production test result
+8. Any remaining blocker

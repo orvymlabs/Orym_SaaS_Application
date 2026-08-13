@@ -166,10 +166,8 @@ class MetaOAuthService:
         logger.info(f"  Method: GET")
         logger.info(f"  App ID: {self.app_id}")
         logger.info(f"  Parameter names: {list(params.keys())}")
-        logger.info(f"  redirect_uri included: {'redirect_uri' in params}")
-        logger.info(f"  redirect_uri value: {params.get('redirect_uri', 'MISSING')!r}")
         logger.info(f"  Code length: {len(params.get('code', ''))}")
-        logger.info("=" * 80)
+        logger.info("  redirect_uri: NOT SENT (Embedded Signup flow - code bound to Meta's internal xd_arbiter redirect URI)")
 
     def _log_exchange_response(self, response: httpx.Response) -> None:
         """Log Meta's response (status, error code/subcode, fbtrace_id - never tokens)."""
@@ -252,13 +250,13 @@ class MetaOAuthService:
 
             # EMBEDDED SIGNUP FB.LOGIN POPUP TOKEN EXCHANGE
             # The code is bound to Meta's internal xd_arbiter redirect URI, so
-            # the exchange sends redirect_uri="" (empty string). Omitting the
-            # parameter or sending any real URL triggers Meta subcode 36008.
+            # the exchange sends NO redirect_uri parameter. The config_id itself
+            # provides the security binding. Sending redirect_uri (empty string or
+            # any real URL) triggers Meta error_subcode 36008.
             params = {
                 "client_id": self.app_id,
                 "client_secret": self.app_secret,
                 "code": code,
-                "redirect_uri": EXCHANGE_REDIRECT_URI,
             }
 
             self._log_exchange_request(url, params)

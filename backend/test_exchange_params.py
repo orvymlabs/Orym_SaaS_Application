@@ -2,12 +2,13 @@
 Verify the code exchange parameter construction after the redirect_uri fix.
 
 Proves:
- 1. The WhatsApp Embedded Signup Step 1 exchange sends EXACTLY
-    client_id + client_secret + code + redirect_uri="" (empty string).
- 2. The empty string is the ONLY value Meta accepts for the FB.login popup
-    code (bound to Meta's internal xd_arbiter redirect URI). Sending the
-    canonical value or any real URL - or omitting redirect_uri entirely - is
-    what triggers Meta error_subcode 36008.
+  1. The WhatsApp Embedded Signup Step 1 exchange sends EXACTLY
+     client_id + client_secret + code (no redirect_uri).
+  2. The redirect_uri parameter is intentionally omitted for the Embedded
+     Signup flow (FB.login + config_id). The code is bound to Meta's
+     internal xd_arbiter redirect URI. Sending the canonical value or any
+     real URL - or omitting redirect_uri entirely after having sent it
+     previously - is what triggers Meta error_subcode 36008.
 """
 import asyncio
 import httpx
@@ -40,7 +41,7 @@ async def main():
     code = "AQ" + ("x" * 449)
 
     print("=" * 70)
-    print("TEST 1: Embedded Signup exchange (redirect_uri='')")
+    print("TEST 1: Embedded Signup exchange (redirect_uri omitted)")
     print("=" * 70)
     orig = httpx.AsyncClient
     httpx.AsyncClient = FakeClient
@@ -51,10 +52,10 @@ async def main():
 
     assert ok is True, err
     assert captured["url"] == f"{svc.GRAPH_API_BASE}/oauth/access_token"
-    assert set(captured["params"].keys()) == {"client_id", "client_secret", "code", "redirect_uri"}, \
-        f"exchange must send exactly client_id+client_secret+code+redirect_uri, got {sorted(captured['params'].keys())}"
-    assert captured["params"]["redirect_uri"] == "", \
-        "redirect_uri must be the EMPTY STRING for the Embedded Signup exchange"
+    assert set(captured["params"].keys()) == {"client_id", "client_secret", "code"}, \
+        f"exchange must send exactly client_id+client_secret+code, got {sorted(captured['params'].keys())}"
+    assert "redirect_uri" not in captured["params"], \
+        "redirect_uri must NOT be sent in the Embedded Signup exchange"
     assert captured["params"]["client_id"] == "3862862217342382"
     assert captured["params"]["code"] == code
 
@@ -66,12 +67,13 @@ async def main():
     assert CANONICAL.endswith("/"), "canonical redirect_uri must include the trailing slash"
     assert EXCHANGE_REDIRECT_URI == "", "the exchange must always use redirect_uri=''"
 
-    # The Embedded Signup exchange ALWAYS includes redirect_uri=''
-    assert "redirect_uri" in captured["params"]
-    assert captured["params"]["redirect_uri"] == ""
+    # The Embedded Signup exchange must NOT include redirect_uri
+    assert "redirect_uri" not in captured["params"]
+    assert captured["params"]["client_id"] == "3862862217342382"
+    assert captured["params"]["code"] == code
 
-    print("PASS: Embedded Signup exchange sends exactly ['client_id', 'client_secret', 'code', 'redirect_uri']")
-    print("PASS: redirect_uri is present with the empty-string value in the Meta request")
+    print("PASS: Embedded Signup exchange sends exactly ['client_id', 'client_secret', 'code']")
+    print("PASS: redirect_uri is NOT present in the Meta request (correct for Embedded Signup)")
     print("PASS: canonical value or any real URL is never forwarded to Meta (it causes 36008)")
 
 
