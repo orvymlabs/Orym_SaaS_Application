@@ -9,9 +9,10 @@ import asyncio
 import json
 from unittest import mock
 
-from services.meta_oauth import MetaOAuthService
+from services.meta_oauth import MetaOAuthService, EXCHANGE_REDIRECT_URI
 
 GRAPH_BASE = "https://graph.facebook.com/v26.0"
+EXPECTED_EXCHANGE_REDIRECT_URI = "https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46"
 
 
 class FakeResponse:
@@ -124,10 +125,10 @@ def test_exchange_36008_error_includes_actionable_hint():
     """
     When Meta returns error_subcode 36008 the surfaced error is the
     CLAUDE.md-approved user-facing message (never suggesting changing
-    redirect_uri) and the exchange sends NO redirect_uri (the official
-    Embedded Signup exchange sends client_id + client_secret + code only - a
-    36008 means the code itself was consumed, expired or issued outside the
-    config_id popup flow).
+    redirect_uri) and the exchange sends redirect_uri = the EXACT value the JS
+    SDK used in the OAuth dialog (the xd_arbiter channel URL - the value Meta
+    binds to the code). A 36008 with the correct redirect_uri means the code
+    itself was consumed, expired or issued outside the config_id popup flow.
     """
     captured = {}
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
@@ -150,10 +151,11 @@ def test_exchange_36008_error_includes_actionable_hint():
     assert "OAUTH_REDIRECT_URI_MISMATCH" in err
     assert "Please restart WhatsApp Embedded Signup" in err
     assert "add redirect_uri" not in err.lower()
-    # The Embedded Signup exchange sends NO redirect_uri (even on error)
-    assert "redirect_uri" not in captured["params"]
-    assert set(captured["params"].keys()) == {"client_id", "client_secret", "code"}
-    print("PASS: 36008 surfaces the approved message; exchange sent no redirect_uri")
+    # The Embedded Signup exchange sends redirect_uri = the exact dialog value
+    assert captured["params"]["redirect_uri"] == EXPECTED_EXCHANGE_REDIRECT_URI
+    assert EXCHANGE_REDIRECT_URI == EXPECTED_EXCHANGE_REDIRECT_URI
+    assert set(captured["params"].keys()) == {"client_id", "client_secret", "code", "redirect_uri"}
+    print("PASS: 36008 surfaces the approved message; exchange sent the exact dialog redirect_uri")
 
 
 if __name__ == "__main__":

@@ -2,15 +2,18 @@
 Production Readiness Test - WhatsApp Embedded Signup OAuth Flow
 
 Verifies the complete implementation is ready for production deployment:
-1. Token exchange sends NO redirect_uri (official Embedded Signup exchange -
-   prevents error_subcode 36008)
+1. Token exchange sends redirect_uri = the EXACT value the JS SDK used in the
+   OAuth dialog (the xd_arbiter channel URL - the value Meta binds to the code;
+   sending a different redirect_uri causes error_subcode 36008)
 2. Frontend callback payload does NOT include redirect_uri
 3. Backend correctly ignores any redirect_uri if accidentally sent
 4. Complete integration flow works end-to-end
 """
 import asyncio
 import httpx
-from services.meta_oauth import MetaOAuthService
+from services.meta_oauth import MetaOAuthService, EXCHANGE_REDIRECT_URI
+
+EXPECTED_EXCHANGE_REDIRECT_URI = "https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46"
 
 # Capture all requests for verification
 captured_requests = []
@@ -76,10 +79,10 @@ class FakeClient:
         return httpx.Response(200, json={"success": True})
 
 
-async def test_token_exchange_no_redirect_uri():
-    """Test 1: Token exchange sends NO redirect_uri (official Embedded Signup exchange)"""
+async def test_token_exchange_exact_dialog_redirect_uri():
+    """Test 1: Token exchange sends redirect_uri = the exact JS SDK dialog value"""
     print("=" * 80)
-    print("TEST 1: Token Exchange - no redirect_uri")
+    print("TEST 1: Token Exchange - exact dialog redirect_uri")
     print("=" * 80)
 
     captured_requests.clear()
@@ -99,21 +102,22 @@ async def test_token_exchange_no_redirect_uri():
 
     # Critical assertions
     params = exchange_req["params"]
-    assert "redirect_uri" not in params, \
-        "[FAIL] FAIL: redirect_uri should NOT be in the exchange request"
-    assert set(params.keys()) == {"client_id", "client_secret", "code"}, \
-        f"[FAIL] FAIL: Expected exactly [client_id, client_secret, code], got {sorted(params.keys())}"
+    assert params.get("redirect_uri") == EXPECTED_EXCHANGE_REDIRECT_URI, \
+        "[FAIL] FAIL: redirect_uri must equal the exact JS SDK dialog value (xd_arbiter channel URL)"
+    assert EXCHANGE_REDIRECT_URI == EXPECTED_EXCHANGE_REDIRECT_URI
+    assert set(params.keys()) == {"client_id", "client_secret", "code", "redirect_uri"}, \
+        f"[FAIL] FAIL: Expected exactly [client_id, client_secret, code, redirect_uri], got {sorted(params.keys())}"
     assert params["client_id"] == "3862862217342382"
     assert params["code"] == code
     assert ok is True, f"[FAIL] FAIL: Exchange should succeed, got error: {err}"
 
-    print("PASS: Token exchange sends exactly [client_id, client_secret, code]")
-    print("PASS: redirect_uri is NOT present in the Meta request (correct for Embedded Signup)")
+    print("PASS: Token exchange sends exactly [client_id, client_secret, code, redirect_uri]")
+    print(f"PASS: redirect_uri = {EXPECTED_EXCHANGE_REDIRECT_URI} (the exact value the JS SDK used in the OAuth dialog)")
     print()
 
 
 async def test_full_integration_flow():
-    """Test 2: Complete integration flow without redirect_uri"""
+    """Test 2: Complete integration flow with the exact dialog redirect_uri"""
     print("=" * 80)
     print("TEST 2: Full Integration Flow - Embedded Signup")
     print("=" * 80)
@@ -137,16 +141,15 @@ async def test_full_integration_flow():
     finally:
         httpx.AsyncClient = orig
 
-    # Verify the token exchange (first request) does NOT carry redirect_uri
+    # Verify the token exchange (first request) carries the exact dialog redirect_uri
     exchange_req = captured_requests[0]
     assert "/oauth/access_token" in exchange_req["url"]
-    assert "redirect_uri" not in exchange_req["params"], \
-        "[FAIL] FAIL: redirect_uri should NOT be in token exchange"
+    assert exchange_req["params"].get("redirect_uri") == EXPECTED_EXCHANGE_REDIRECT_URI, \
+        "[FAIL] FAIL: redirect_uri should equal the exact JS SDK dialog value in token exchange"
 
-    # Verify all other requests also don't have redirect_uri (except as access_token param)
+    # Verify all other requests don't carry a redirect_uri param (only the exchange does)
     for req in captured_requests[1:]:
         params = req.get("params", {})
-        # access_token is expected, redirect_uri is not
         if "redirect_uri" in params:
             raise AssertionError(f"[FAIL] FAIL: redirect_uri found in {req['url']}")
 
@@ -157,7 +160,7 @@ async def test_full_integration_flow():
     assert "access_token" in data
 
     print(f"[PASS] PASS: Complete integration flow successful")
-    print(f"[PASS] PASS: Token exchange sends no redirect_uri parameter")
+    print(f"[PASS] PASS: Token exchange sends redirect_uri = the exact JS SDK dialog value")
     print(f"[PASS] PASS: All {len(captured_requests)} Graph API requests correct")
     print(f"[PASS] PASS: WABA ID, Phone ID, Business ID resolved correctly")
     print()
@@ -222,7 +225,7 @@ async def main():
     print()
 
     # Run all tests
-    await test_token_exchange_no_redirect_uri()
+    await test_token_exchange_exact_dialog_redirect_uri()
     await test_full_integration_flow()
     await test_frontend_payload_structure()
     test_schema_validation()
@@ -232,7 +235,7 @@ async def main():
     print("=" * 80)
     print()
     print("PRODUCTION VERIFICATION:")
-    print("[PASS] Token exchange sends NO redirect_uri (official Embedded Signup exchange - prevents error 36008)")
+    print("[PASS] Token exchange sends redirect_uri = the exact JS SDK dialog value (prevents error 36008)")
     print("[PASS] Frontend payload excludes redirect_uri")
     print("[PASS] Schema enforces correct structure")
     print("[PASS] Complete integration flow works correctly")

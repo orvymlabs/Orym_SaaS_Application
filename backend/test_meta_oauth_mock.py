@@ -3,9 +3,11 @@ Comprehensive mock-based tests for MetaOAuthService.exchange_code_for_token.
 
 These tests verify the EXACT HTTP request the backend sends to Meta:
   - endpoint URL
-  - query parameters (client_id + client_secret + code ONLY - the official
-    Embedded Signup FB.login + config_id exchange sends NO redirect_uri; any
-    redirect_uri value - '' or a real URL - triggers error_subcode 36008)
+  - query parameters (client_id + client_secret + code + redirect_uri, where
+    redirect_uri is the EXACT value the FB JS SDK used in the OAuth dialog -
+    the xd_arbiter channel URL - which Meta binds to the authorization code;
+    sending a different redirect_uri - '' or any other URL - triggers
+    error_subcode 36008)
   - success and error handling
 
 They mock httpx.AsyncClient so no real network call is made.
@@ -14,9 +16,10 @@ import asyncio
 import json
 from unittest import mock
 
-from services.meta_oauth import MetaOAuthService
+from services.meta_oauth import MetaOAuthService, EXCHANGE_REDIRECT_URI, CANONICAL_REDIRECT_URI
 
 GRAPH_BASE = "https://graph.facebook.com/v26.0"
+EXPECTED_EXCHANGE_REDIRECT_URI = "https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46"
 
 
 class FakeResponse:
@@ -50,12 +53,14 @@ def run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
-def test_exchange_sends_no_redirect_uri_by_default():
+def test_exchange_sends_exact_dialog_redirect_uri():
     """
-    The official Embedded Signup FB.login + config_id exchange sends ONLY
-    client_id + client_secret + code. redirect_uri is completely omitted - the
-    config_id provides the security binding. Sending redirect_uri (the empty
-    string or any real URL) triggers Meta error_subcode 36008.
+    The Embedded Signup FB.login + config_id exchange sends client_id +
+    client_secret + code + redirect_uri, where redirect_uri is the EXACT value
+    the JS SDK used in the OAuth dialog (the xd_arbiter channel URL) - the
+    value Meta binds to the authorization code. Sending a different
+    redirect_uri (the empty string or any real URL) triggers Meta error_subcode
+    36008.
     """
     captured = {}
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
@@ -73,15 +78,15 @@ def test_exchange_sends_no_redirect_uri_by_default():
     assert captured["params"]["client_id"] == "3862862217342382"
     assert captured["params"]["client_secret"] == "secret"
     assert captured["params"]["code"] == code
-    assert "redirect_uri" not in captured["params"], \
-        "Embedded Signup exchange must NOT send redirect_uri (matches the official config_id exchange)"
-    print("PASS: exchange sends client_id + client_secret + code (no redirect_uri)")
+    assert captured["params"]["redirect_uri"] == EXPECTED_EXCHANGE_REDIRECT_URI, \
+        "Embedded Signup exchange MUST send redirect_uri = the exact JS SDK dialog value"
+    print("PASS: exchange sends client_id + client_secret + code + exact dialog redirect_uri")
 
-    assert set(captured["params"].keys()) == {"client_id", "client_secret", "code"}
+    assert set(captured["params"].keys()) == {"client_id", "client_secret", "code", "redirect_uri"}
 
 
-def test_exchange_sends_no_redirect_uri():
-    """The exchange request must NOT carry a redirect_uri parameter."""
+def test_exchange_sends_exact_dialog_redirect_uri_value():
+    """The exchange request MUST carry redirect_uri = the exact dialog value."""
     captured = {}
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
     svc.GRAPH_API_BASE = GRAPH_BASE
@@ -92,16 +97,18 @@ def test_exchange_sends_no_redirect_uri():
         ok, data, err = run(svc.exchange_code_for_token("AQcode"))
 
     assert ok is True, err
-    assert "redirect_uri" not in captured["params"]
-    print("PASS: redirect_uri is completely omitted from the exchange")
+    assert captured["params"]["redirect_uri"] == EXPECTED_EXCHANGE_REDIRECT_URI
+    assert EXCHANGE_REDIRECT_URI == EXPECTED_EXCHANGE_REDIRECT_URI
+    print("PASS: redirect_uri equals the exact JS SDK dialog value (xd_arbiter channel URL)")
 
 
 def test_exchange_does_not_forward_canonical_redirect_uri():
     """
-    The canonical value (https://apps.orvym.com/dashboard/integrations/) is
-    NEVER forwarded to Meta. The exchange sends NO redirect_uri at all -
-    sending the canonical value, the empty string, or any URL triggers
-    error_subcode 36008.
+    The canonical app value (https://apps.orvym.com/dashboard/integrations/) is
+    NEVER forwarded to Meta as redirect_uri. The exchange sends redirect_uri =
+    the exact value the JS SDK used in the OAuth dialog (the xd_arbiter channel
+    URL). Sending the canonical value, the empty string, or any other URL
+    triggers error_subcode 36008.
     """
     captured = {}
     svc = MetaOAuthService(app_id="3862862217342382", app_secret="secret")
@@ -116,9 +123,10 @@ def test_exchange_does_not_forward_canonical_redirect_uri():
     assert ok is True, err
     assert captured["params"]["client_id"] == "3862862217342382"
     assert captured["params"]["code"] == code
-    assert "redirect_uri" not in captured["params"], \
-        "the canonical redirect_uri must NOT be forwarded to Meta (it causes 36008)"
-    print("PASS: exchange sends no redirect_uri (canonical value never forwarded)")
+    assert captured["params"]["redirect_uri"] != CANONICAL_REDIRECT_URI, \
+        "the canonical app URL must NOT be forwarded to Meta (it causes 36008)"
+    assert captured["params"]["redirect_uri"] == EXPECTED_EXCHANGE_REDIRECT_URI
+    print("PASS: exchange sends the exact dialog redirect_uri (canonical app URL never forwarded)")
 
 
 def test_exchange_meta_error_returned():
@@ -144,9 +152,9 @@ def test_exchange_meta_error_returned():
     assert data is None
     assert "OAUTH_REDIRECT_URI_MISMATCH" in err, err
     assert "redirect_uri" in err.lower() or "redirect URI" in err, err
-    assert "redirect_uri" not in captured["params"], \
-        "the Embedded Signup exchange sends NO redirect_uri even on error"
-    print("PASS: Meta 400 error propagated, exchange carried no redirect_uri")
+    assert captured["params"]["redirect_uri"] == EXPECTED_EXCHANGE_REDIRECT_URI, \
+        "the exchange carries the exact dialog redirect_uri even on error"
+    print("PASS: Meta 400 error propagated, exchange carried the exact dialog redirect_uri")
 
 
 def build_client(get_responses, post_responses):
@@ -229,17 +237,17 @@ def test_setup_whatsapp_integration_full_flow():
     assert data["display_phone_number"] == "+15551234567"
     assert data["verified_name"] == "Verified Business"
 
-    # 1) Exchange request carries client_id + client_secret + code ONLY -
-    #    redirect_uri is completely omitted (official Embedded Signup FB.login +
-    #    config_id exchange; any redirect_uri value - '' or a real URL - causes
-    #    36008)
+    # 1) Exchange request carries client_id + client_secret + code +
+    #    redirect_uri, where redirect_uri is the EXACT value the JS SDK used in
+    #    the OAuth dialog (xd_arbiter channel URL - the value Meta binds to the
+    #    code; any other redirect_uri value - '' or a real URL - causes 36008)
     exchange = requests_log[0]
     assert exchange["method"] == "GET"
     assert exchange["url"] == f"{GRAPH_BASE}/oauth/access_token"
-    assert "redirect_uri" not in exchange["params"], \
-        "Embedded Signup exchange must send NO redirect_uri"
+    assert exchange["params"]["redirect_uri"] == EXPECTED_EXCHANGE_REDIRECT_URI, \
+        "Embedded Signup exchange must send the exact JS SDK dialog redirect_uri"
     assert exchange["params"]["code"] == code
-    assert set(exchange["params"].keys()) == {"client_id", "client_secret", "code"}
+    assert set(exchange["params"].keys()) == {"client_id", "client_secret", "code", "redirect_uri"}
 
     # 2) Token validated via /debug_token (input_token + app access token)
     dbg = requests_log[1]
@@ -304,12 +312,13 @@ def test_setup_whatsapp_integration_code_only_returns_waba_not_returned():
     assert data is None
     assert "WABA_NOT_RETURNED" in err, err
 
-    # 1) Exchange carried NO redirect_uri (official Embedded Signup exchange)
+    # 1) Exchange carried the exact JS SDK dialog redirect_uri (Embedded Signup
+    #    exchange: client_id + client_secret + code + redirect_uri)
     exchange = requests_log[0]
     assert exchange["method"] == "GET"
     assert exchange["url"] == f"{GRAPH_BASE}/oauth/access_token"
-    assert "redirect_uri" not in exchange["params"], \
-        "Embedded Signup exchange must send NO redirect_uri"
+    assert exchange["params"]["redirect_uri"] == EXPECTED_EXCHANGE_REDIRECT_URI, \
+        "Embedded Signup exchange must send the exact JS SDK dialog redirect_uri"
 
     # 2) Token validated via /debug_token
     dbg = requests_log[1]
@@ -372,12 +381,13 @@ def test_setup_whatsapp_integration_code_only_resolves_ids_server_side():
     assert data["display_phone_number"] == "+19998887777"
     assert data["business_name"] == "Recovered WABA"
 
-    # 1) Exchange carried NO redirect_uri (official Embedded Signup exchange)
+    # 1) Exchange carried the exact JS SDK dialog redirect_uri (Embedded Signup
+    #    exchange: client_id + client_secret + code + redirect_uri)
     exchange = requests_log[0]
     assert exchange["method"] == "GET"
     assert exchange["url"] == f"{GRAPH_BASE}/oauth/access_token"
-    assert "redirect_uri" not in exchange["params"], \
-        "Embedded Signup exchange must send NO redirect_uri"
+    assert exchange["params"]["redirect_uri"] == EXPECTED_EXCHANGE_REDIRECT_URI, \
+        "Embedded Signup exchange must send the exact JS SDK dialog redirect_uri"
 
     # 2) Token validated via /debug_token - the WABA is recovered from ITS
     #    granular_scopes target_ids, never from /me/businesses or /me.
@@ -520,11 +530,12 @@ def test_phone_numbers_edge_regression():
     assert data["waba_id"] == waba_id
     assert data["business_id"] == business_id
 
-    # The exchange (first request) MUST send NO redirect_uri (official Embedded
-    # Signup config_id exchange); the other Graph API calls must never include
-    # redirect_uri, fields=phone_numbers, /me, or /me/businesses.
-    assert "redirect_uri" not in requests_log[0]["params"], \
-        "Embedded Signup exchange must send NO redirect_uri"
+    # The exchange (first request) MUST send the exact JS SDK dialog redirect_uri
+    # (the value Meta binds to the code - official Embedded Signup config_id
+    # exchange); the other Graph API calls must never include a redirect_uri
+    # param, fields=phone_numbers, /me, or /me/businesses.
+    assert requests_log[0]["params"]["redirect_uri"] == EXPECTED_EXCHANGE_REDIRECT_URI, \
+        "Embedded Signup exchange must send the exact JS SDK dialog redirect_uri"
     for req in requests_log[1:]:
         assert "redirect_uri" not in req["params"], f"redirect_uri must not be sent to {req['url']}"
         assert req["params"].get("fields") != "phone_numbers", f"fields=phone_numbers used in {req['url']}"

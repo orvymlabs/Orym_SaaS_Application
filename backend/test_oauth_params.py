@@ -2,9 +2,11 @@
 Test script to verify OAuth token exchange parameters for the WhatsApp
 Embedded Signup FB.login popup flow.
 
-Rule: the official Embedded Signup (Facebook Login for Business config_id)
-exchange sends ONLY client_id + client_secret + code. redirect_uri is
-COMPLETELY OMITTED - the config_id provides the security binding. Sending
+Rule: the Embedded Signup (Facebook Login for Business config_id) exchange
+sends client_id + client_secret + code + redirect_uri. redirect_uri MUST be
+the EXACT value the FB JS SDK used in the OAuth dialog - the xd_arbiter
+channel URL (https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46) -
+which is what Meta binds to the authorization code. Sending a different
 redirect_uri - the empty string, the canonical
 https://apps.orvym.com/dashboard/integrations/, or any other value - is
 exactly what triggers Meta error_subcode 36008 ("make sure your redirect_uri
@@ -17,9 +19,10 @@ import asyncio
 import json
 from unittest import mock
 
-from services.meta_oauth import MetaOAuthService
+from services.meta_oauth import MetaOAuthService, EXCHANGE_REDIRECT_URI
 
 GRAPH_BASE = "https://graph.facebook.com/v26.0"
+EXPECTED_EXCHANGE_REDIRECT_URI = "https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46"
 
 
 class FakeResponse:
@@ -74,23 +77,26 @@ def test_token_exchange_params():
     for key, value in captured["params"].items():
         print(f"  {key}: '{value}'")
     print()
-    print(f"redirect_uri present: {'redirect_uri' in captured['params']}  (should be False)")
+    print(f"redirect_uri present: {'redirect_uri' in captured['params']}  (should be True)")
+    print(f"redirect_uri value: {captured['params'].get('redirect_uri')}")
     print(f"Parameter names: {sorted(captured['params'].keys())}")
     print()
 
-    assert set(captured["params"].keys()) == {"client_id", "client_secret", "code"}, \
-        "exchange must send ONLY client_id + client_secret + code (no redirect_uri)"
-    assert "redirect_uri" not in captured["params"], \
-        "redirect_uri must be OMITTED for the Embedded Signup (config_id) flow"
-    print("PASS: exchange sends exactly client_id + client_secret + code (no redirect_uri)")
+    assert set(captured["params"].keys()) == {"client_id", "client_secret", "code", "redirect_uri"}, \
+        "exchange must send exactly client_id + client_secret + code + redirect_uri"
+    assert captured["params"]["redirect_uri"] == EXPECTED_EXCHANGE_REDIRECT_URI, \
+        "redirect_uri must be the exact JS SDK dialog value (xd_arbiter channel URL)"
+    assert EXCHANGE_REDIRECT_URI == EXPECTED_EXCHANGE_REDIRECT_URI
+    print("PASS: exchange sends exactly client_id + client_secret + code + the exact dialog redirect_uri")
     print()
 
     print("=" * 80)
     print("CONCLUSION:")
     print("=" * 80)
-    print("✓ The exchange sends client_id + client_secret + code only")
-    print("✓ redirect_uri is completely omitted (never '', never a real URL)")
-    print("✓ This matches the official Embedded Signup exchange and prevents Meta error_subcode 36008")
+    print("✓ The exchange sends client_id + client_secret + code + redirect_uri")
+    print(f"✓ redirect_uri = {EXPECTED_EXCHANGE_REDIRECT_URI}")
+    print("✓ This is the exact value the JS SDK used in the OAuth dialog, so Meta")
+    print("  binds the code to it and the exchange matches (prevents error_subcode 36008)")
     print("=" * 80)
 
 

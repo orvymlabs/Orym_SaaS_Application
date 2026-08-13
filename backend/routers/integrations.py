@@ -578,8 +578,9 @@ async def verify_meta_config(
         "manual",
         "In the Meta App Dashboard confirm the app is set up with the Facebook "
         "Login for Business product (Tech Provider). The token exchange sends "
-        "NO redirect_uri (client_id + client_secret + code only) because the "
-        "official Embedded Signup exchange does not use redirect_uri.",
+        "client_id + client_secret + code + redirect_uri, where redirect_uri is "
+        "the exact value the JS SDK used in the OAuth dialog (the xd_arbiter "
+        "channel URL - https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46).",
     )
     checks["client_oauth_login"] = check(
         "manual",
@@ -675,24 +676,25 @@ async def meta_oauth_callback_post(
                            (optional)
 
     The backend token exchange follows the official Embedded Signup FB.login
-    popup flow and sends ONLY:
+    popup flow and sends:
       - client_id
       - client_secret
       - code
-
-    redirect_uri is COMPLETELY OMITTED - never the empty string, never a real
-    URL. The official Facebook Login for Business (config_id) exchange does not
-    use redirect_uri; sending it (as '' or any URL) triggers Meta error
-    subcode 36008.
+      - redirect_uri: the EXACT value the JS SDK used in the OAuth dialog -
+        the xd_arbiter channel URL
+        (https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46).
+        Meta binds the code to this value; sending the empty string, the
+        backend callback URL, or any other value triggers Meta error subcode
+        36008.
 
     Token exchange:
-        GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>
+        GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>&redirect_uri=https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46
 
     The backend then:
       1. Rejects duplicate authorization codes (SHA-256 hash ledger) - a code
          is NEVER exchanged twice.
       2. Exchanges the code server-side for the customer business token
-         (client_id + client_secret + code; no redirect_uri)
+         (client_id + client_secret + code + the exact dialog redirect_uri)
       3. Validates the exchanged token via /debug_token (app_id + scopes)
       4. Validates the WABA via GET /<WABA_ID> and the phone number via
          GET /<WABA_ID>/phone_numbers - using ONLY IDs Meta itself returned
@@ -787,8 +789,9 @@ async def meta_oauth_callback_post(
     # session event when available and are resolved server-side (the documented
     # /debug_token granular_scopes + WABA phone_numbers edge fallback) when
     # absent. redirect_uri is intentionally NOT forwarded from the frontend:
-    # the official Embedded Signup exchange sends client_id + client_secret +
-    # code with NO redirect_uri (any redirect_uri value triggers 36008).
+    # the backend exchange sends client_id + client_secret + code + the exact
+    # dialog redirect_uri (the JS SDK xd_arbiter channel URL) itself - any
+    # OTHER redirect_uri value triggers 36008.
     oauth_service = MetaOAuthService(settings.META_APP_ID, settings.META_APP_SECRET)
     success, integration_data, error = await oauth_service.setup_whatsapp_integration(
         code,

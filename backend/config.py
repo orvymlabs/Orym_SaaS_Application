@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     META_APP_ID: str = ""  # Your Meta App ID for Embedded Signup
     META_APP_SECRET: str = "" # REQUIRED: Your Meta App Secret for webhook signature verification
     META_CONFIG_ID: str = ""  # Your Meta Configuration ID for Embedded Signup
-    META_OAUTH_REDIRECT_URI: str = "https://apps.orvym.com/dashboard/integrations/"  # Frontend spawn domain used for dashboard/verify display ONLY. IMPORTANT: For the Embedded Signup FB.login + config_id (Facebook Login for Business) popup flow, the token exchange sends client_id + client_secret + code with NO redirect_uri parameter (the official Meta Embedded Signup exchange). Sending redirect_uri - the empty string OR any real URL - triggers Meta error code 100 / subcode 36008.
+    META_OAUTH_REDIRECT_URI: str = "https://apps.orvym.com/dashboard/integrations/"  # Frontend spawn domain used for dashboard/verify display ONLY. IMPORTANT: For the Embedded Signup FB.login + config_id (Facebook Login for Business) popup flow, the token exchange sends redirect_uri = the JS SDK's xd_arbiter channel URL (https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46) - the EXACT value the SDK used in the OAuth dialog. This canonical app URL is for display/verification only and is NEVER sent to Meta during the exchange; sending the empty string or any other value triggers Meta error code 100 / subcode 36008.
     META_PHONE_REGISTRATION_PIN: str = ""  # 6-digit two-step verification PIN set server-side on the customer's business phone number (POST /<PHONE_NUMBER_ID>/register). NEVER exposed to the frontend and NEVER logged.
 
     # ===========================================
