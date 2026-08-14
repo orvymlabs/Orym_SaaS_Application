@@ -2,15 +2,16 @@
 Test script to verify OAuth token exchange parameters for the WhatsApp
 Embedded Signup FB.login popup flow.
 
-Rule: the Embedded Signup (Facebook Login for Business config_id) exchange
-sends client_id + client_secret + code + redirect_uri. redirect_uri MUST be
-the EXACT value the FB JS SDK used in the OAuth dialog - the xd_arbiter
-channel URL (https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46) -
-which is what Meta binds to the authorization code. Sending a different
-redirect_uri - the empty string, the canonical
-https://apps.orvym.com/dashboard/integrations/, or any other value - is
-exactly what triggers Meta error_subcode 36008 ("make sure your redirect_uri
-is identical to the one you used in the OAuth dialog request").
+Rule (Meta's current official Embedded Signup / Facebook Login for Business
+docs): the exchange sends client_id + client_secret + code ONLY - NO
+redirect_uri. The exchangeable code is returned directly to the JS popup
+callback (no server-side redirect), so there is no redirect URI to echo.
+Sending the JS SDK's internal xd_arbiter channel URL
+(https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46) or any other
+value as redirect_uri makes Meta validate it against the app's domains and
+fails with error code 191 ("The domain of this URL isn't included in the
+app's domains"). staticxx.facebook.com is a Meta-internal domain and must
+never be added to App Domains.
 
 This script exercises the REAL service method (exchange_code_for_token) with a
 mocked httpx client and verifies the exact parameters Meta receives.
@@ -19,10 +20,9 @@ import asyncio
 import json
 from unittest import mock
 
-from services.meta_oauth import MetaOAuthService, EXCHANGE_REDIRECT_URI
+from services.meta_oauth import MetaOAuthService
 
 GRAPH_BASE = "https://graph.facebook.com/v26.0"
-EXPECTED_EXCHANGE_REDIRECT_URI = "https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46"
 
 
 class FakeResponse:
@@ -77,26 +77,23 @@ def test_token_exchange_params():
     for key, value in captured["params"].items():
         print(f"  {key}: '{value}'")
     print()
-    print(f"redirect_uri present: {'redirect_uri' in captured['params']}  (should be True)")
-    print(f"redirect_uri value: {captured['params'].get('redirect_uri')}")
+    print(f"redirect_uri present: {'redirect_uri' in captured['params']}  (should be False)")
     print(f"Parameter names: {sorted(captured['params'].keys())}")
     print()
 
-    assert set(captured["params"].keys()) == {"client_id", "client_secret", "code", "redirect_uri"}, \
-        "exchange must send exactly client_id + client_secret + code + redirect_uri"
-    assert captured["params"]["redirect_uri"] == EXPECTED_EXCHANGE_REDIRECT_URI, \
-        "redirect_uri must be the exact JS SDK dialog value (xd_arbiter channel URL)"
-    assert EXCHANGE_REDIRECT_URI == EXPECTED_EXCHANGE_REDIRECT_URI
-    print("PASS: exchange sends exactly client_id + client_secret + code + the exact dialog redirect_uri")
+    assert set(captured["params"].keys()) == {"client_id", "client_secret", "code", "locale"}, \
+        "exchange must send exactly client_id + client_secret + code + locale (no redirect_uri)"
+    assert "redirect_uri" not in captured["params"], \
+        "redirect_uri must NOT be sent (Meta current docs: code is returned directly to the JS callback)"
+    print("PASS: exchange sends exactly client_id + client_secret + code + locale (no redirect_uri)")
     print()
 
     print("=" * 80)
     print("CONCLUSION:")
     print("=" * 80)
-    print("✓ The exchange sends client_id + client_secret + code + redirect_uri")
-    print(f"✓ redirect_uri = {EXPECTED_EXCHANGE_REDIRECT_URI}")
-    print("✓ This is the exact value the JS SDK used in the OAuth dialog, so Meta")
-    print("  binds the code to it and the exchange matches (prevents error_subcode 36008)")
+    print("✓ The exchange sends client_id + client_secret + code + locale ONLY")
+    print("✓ No redirect_uri is sent - per Meta's current official Embedded Signup docs")
+    print("✓ This prevents error code 191 ('The domain of this URL isn't included in the app's domains')")
     print("=" * 80)
 
 

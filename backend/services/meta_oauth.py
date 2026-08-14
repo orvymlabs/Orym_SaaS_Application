@@ -8,31 +8,21 @@ This implementation follows Meta's official Embedded Signup documentation.
 
 TOKEN EXCHANGE (Embedded Signup FB.login popup flow):
 
-RESOLVED - the actual root cause of persistent error code 100 / subcode 36008
-("Error validating verification code...") was NEVER redirect_uri. Several
-redirect_uri values were tried against the real Meta API (empty string,
-omitted entirely, the exact spawning page URL, even the exact dynamic
-xd_arbiter channel URL captured from Meta's own generated dialog request) and
-ALL failed identically - because the actual codes being issued were invalid
-regardless of exchange parameters.
-
-The real cause: the frontend's FB.login() call (see
-frontend/app/dashboard/integrations/page.tsx) was missing
-`featureType: 'whatsapp_business_app_onboarding'` in its `extras` option, and
-had `sessionInfoVersion` as a number instead of the string `'3'`. Without
-`featureType`, Meta's server never recognized the session as a WhatsApp-
-specific Embedded Signup flow, so it issued codes that looked valid
-client-side (correct length, popup completed, WABA session data arrived) but
-were fundamentally invalid for exchange. Found by comparing against
-Chatwoot's real, production-proven implementation
-(app/javascript/dashboard/routes/dashboard/settings/inbox/channels/whatsapp/utils.js).
-
-The exchange itself sends ONLY client_id, client_secret and code - matching
-Chatwoot's proven-working implementation. redirect_uri is optionally accepted
-for forward compatibility but is not required and not currently sent by the
-frontend:
+For FB.login() with config_id (Facebook Login for Business) Embedded Signup
+flow, the exchangeable authorization code is returned DIRECTLY to the JS SDK
+popup callback - there is NO server-side redirect. Meta's current official
+documentation therefore specifies a code exchange with ONLY three parameters:
 
     GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>
+
+redirect_uri must NOT be sent. The JS SDK internally opens its OAuth dialog
+using Meta's own xd_arbiter channel URL
+(https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46); that is a
+Meta-internal domain, NOT our application domain, and it must never be added
+to App Domains. Sending it (or any other value) as redirect_uri in the token
+exchange makes Meta validate it against the app's domains and fails with
+error code 191: "The domain of this URL isn't included in the app's domains."
+The correct behavior is to omit redirect_uri entirely.
 
 IMPORTANT - Where the WABA ID and phone number ID come from:
 
@@ -69,20 +59,37 @@ from config import get_settings
 logger = logging.getLogger(__name__)
 
 # ============================================================================
-# TOKEN EXCHANGE REDIRECT URI (Embedded Signup FB.login popup flow)
+# EMBEDDED SIGNUP TOKEN EXCHANGE - NO redirect_uri (current official Meta flow)
 # ============================================================================
-# RESOLVED: redirect_uri was never the cause of the persistent error_subcode
-# 36008 failures. Multiple values were tried against the real Meta API
-# (empty string, omitted, exact spawning page URL, exact dynamic xd_arbiter
-# channel URL) and all failed identically. The real cause was a missing
-# `featureType: 'whatsapp_business_app_onboarding'` field in the frontend's
-# FB.login() extras - see the module docstring above and
-# frontend/app/dashboard/integrations/page.tsx. The exchange now sends only
-# client_id + client_secret + code, matching Chatwoot's proven-working
-# implementation. redirect_uri is still accepted as an optional parameter for
-# forward compatibility but is not required.
-
-# Canonical production app URL. Kept for display/verification endpoints only.
+# The WhatsApp Embedded Signup flow uses FB.login() with a config_id (Facebook
+# Login for Business). The exchangeable code is delivered DIRECTLY to the
+# FB.login() JavaScript callback in the popup - there is NO server-side
+# redirect. Consequently Meta does NOT bind the code to any redirect_uri, and
+# Meta's current official documentation for this exchange specifies ONLY:
+#
+#     GET https://graph.facebook.com/v26.0/oauth/access_token
+#         ?client_id=<APP_ID>
+#         &client_secret=<APP_SECRET>
+#         &code=<CODE>
+#
+# (see Meta "Facebook Login for Business" and "Embedded Signup - Onboarding
+# business customers as a Tech Provider" docs: the request parameters are
+# <APP_ID>, <APP_SECRET> and <CODE> only).
+#
+# IMPORTANT - do NOT send redirect_uri in this exchange:
+# The FB JS SDK internally opens its OAuth dialog using the xd_arbiter channel
+# URL (https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46) with a
+# per-session fragment. That URL is META'S OWN INTERNAL channel, it is not our
+# application domain, and it must NEVER be added to App Domains. Sending it as
+# redirect_uri in the token exchange makes Meta validate that URL against the
+# app's domains and fails with error code 191:
+#
+#   "The domain of this URL isn't included in the app's domains. To be able
+#    to load this URL, add all domains and subdomains of your app to the
+#    App Domains field in your app settings."
+#
+# This is EXACTLY the error seen in production. The correct fix (per the
+# current official docs) is to OMIT redirect_uri entirely from the exchange.
 CANONICAL_REDIRECT_URI = "https://apps.orvym.com/dashboard/integrations/"
 
 # Explicit, machine-readable error codes. Errors returned by the service are
@@ -102,6 +109,21 @@ WEBHOOK_SUBSCRIPTION_FAILED = "WEBHOOK_SUBSCRIPTION_FAILED"
 # Meta error_subcode for "Error validating verification code ... make sure your
 # redirect_uri is identical to the one you used in the OAuth dialog request".
 _META_ERROR_SUBCODE_REDIRECT_MISMATCH = 36008
+
+# Force English error messages from Meta. Without this, Meta localizes its
+# Graph API / OAuth error responses to the app's default locale (e.g. Russian)
+# and those localized strings were previously surfaced to the user verbatim.
+META_REQUEST_LOCALE = "en_US"
+
+# Meta localizes a handful of recurring error messages. Map the localized
+# phrases back to the fixed English equivalents so the user NEVER sees a
+# non-English (e.g. Russian) error even if Meta still returns one.
+_LOCALIZED_ERROR_TRANSLATIONS = {
+    "Невозможно загрузить URL": "Unable to load URL",
+    "Домен этого URL не включен в список доменов приложения": "The domain of this URL isn't included in the app's domains",
+    "Чтобы загрузить этот URL, добавьте все домены и поддомены своего приложения": "To be able to load this URL, add all domains and subdomains of your app",
+    "в поле «Домены приложения» в настройках вашего приложения": "to the App Domains field in your app settings",
+}
 
 # Prevent httpx/httpcore from logging the full request URL (which would expose
 # the app secret and the full authorization code in the query string).
@@ -161,10 +183,20 @@ class MetaOAuthService:
     def _log_exchange_request(self, url: str, params: Dict) -> None:
         """Log the exact request being sent to Meta (never the app secret or full code).
 
-        EMBEDDED SIGNUP FB.LOGIN POPUP TOKEN EXCHANGE:
-        The exchange sends client_id + client_secret + code, plus redirect_uri
-        when the caller supplied one (the exact URL of the page that spawned
-        the FB.login() popup). See exchange_code_for_token's docstring for why.
+        EMBEDDED SIGNUP FB.LOGIN POPUP TOKEN EXCHANGE (current official Meta
+        flow): the exchange sends ONLY:
+        - client_id
+        - client_secret
+        - code
+        - locale
+
+        redirect_uri is deliberately NOT sent: per Meta's current Facebook
+        Login for Business / Embedded Signup docs the exchangeable code is
+        returned directly to the JS popup callback (no server-side redirect),
+        so the exchange request must contain only client_id, client_secret and
+        code. Sending the JS SDK's internal xd_arbiter channel URL as
+        redirect_uri causes Meta error code 191 ("The domain of this URL isn't
+        included in the app's domains"). The logs must show NO redirect_uri.
         """
         logger.info("=" * 80)
         logger.info("META EMBEDDED SIGNUP TOKEN EXCHANGE")
@@ -174,7 +206,7 @@ class MetaOAuthService:
         logger.info(f"  App ID: {self.app_id}")
         logger.info(f"  Parameter names: {list(params.keys())}")
         logger.info(f"  Code length: {len(params.get('code', ''))}")
-        logger.info(f"  redirect_uri: {params.get('redirect_uri', 'NOT SENT')}")
+        logger.info(f"  redirect_uri: {params.get('redirect_uri', 'NOT SENT (correct - per Meta docs)')}")
 
     def _log_exchange_response(self, response: httpx.Response) -> None:
         """Log Meta's response (status, error code/subcode, fbtrace_id - never tokens)."""
@@ -198,16 +230,26 @@ class MetaOAuthService:
         """Extract (error_message, error_object) from a Meta error response.
 
         Meta error_subcode 36008 ("Error validating verification code") means
-        the redirect_uri did not match the value Meta recorded when it issued
-        the code, or the code is invalid/expired/already consumed. The code
-        must NEVER be retried and a completely new Embedded Signup flow is
-        required regardless of which of these is the actual cause.
+        the code is invalid/expired/already consumed. With the correct exchange
+        (no redirect_uri, per the current official Embedded Signup flow), a
+        36008 indicates the code itself is no longer valid. The code must
+        NEVER be retried and a completely new Embedded Signup flow is
+        required. Meta error code 191 (""The domain of this URL isn't included
+        in the app's domains") would indicate a redirect_uri was incorrectly
+        sent during the exchange.
         """
         try:
             error_obj = response.json().get("error", {})
         except Exception:
             error_obj = {}
         message = error_obj.get("message", "Failed to exchange code")
+
+        # Always surface an English message. Meta can return localized (e.g.
+        # Russian) error text, so known localized phrases are translated back
+        # to the fixed English equivalents. Any message that is still not pure
+        # ASCII is treated as localized and replaced with an English message
+        # built from the machine-readable error code/subcode.
+        message = self._to_english_error(message, error_obj)
 
         if error_obj.get("error_subcode") == _META_ERROR_SUBCODE_REDIRECT_MISMATCH:
             return (
@@ -221,6 +263,35 @@ class MetaOAuthService:
 
         return message, error_obj
 
+    def _to_english_error(self, message: str, error_obj: Dict) -> str:
+        """Translate localized Meta error messages into English.
+
+        Meta localizes its error messages to the app's default locale (e.g.
+        Russian). This replaces known localized phrases with the English
+        equivalents, and for any message that still contains non-ASCII
+        characters falls back to a fixed English message built from the
+        machine-readable error code / subcode, so a user never sees a
+        non-English error.
+        """
+        translated = message or ""
+        for localized, english in _LOCALIZED_ERROR_TRANSLATIONS.items():
+            if localized in translated:
+                translated = translated.replace(localized, english)
+        if translated != message:
+            return translated
+
+        try:
+            is_ascii = message.isascii()
+        except Exception:
+            is_ascii = True
+        if is_ascii:
+            return message
+
+        code = error_obj.get("code")
+        subcode = error_obj.get("error_subcode")
+        code_part = f" (code: {code}" + (f", subcode: {subcode}" if subcode else "") + ")"
+        return f"Meta request failed{code_part}. Please try again or restart WhatsApp Embedded Signup."
+
     # ============================================================
     # Step 1 - Exchange code for access token
     # ============================================================
@@ -231,19 +302,19 @@ class MetaOAuthService:
         """
         Exchange the Embedded Signup authorization code for an access token.
 
-        EMBEDDED SIGNUP FB.LOGIN POPUP TOKEN EXCHANGE:
-        Sends client_id + client_secret + code, matching Chatwoot's real
-        production implementation. redirect_uri is accepted as an optional
-        parameter for forward compatibility but is not required and not
-        currently sent by the frontend.
+        EMBEDDED SIGNUP FB.LOGIN POPUP TOKEN EXCHANGE (official Meta flow):
+        The exchangeable code is returned directly to the JS popup callback -
+        there is NO server-side redirect. Per Meta's current Facebook Login
+        for Business / Embedded Signup documentation the exchange sends ONLY:
 
-        Historical note: persistent error code 100 / subcode 36008 failures
-        were originally (wrongly) attributed to redirect_uri. Every value
-        tried (empty string, omitted, exact spawning page URL, exact dynamic
-        xd_arbiter channel URL from Meta's own generated dialog request)
-        failed identically. The real cause was a missing
-        `featureType: 'whatsapp_business_app_onboarding'` field in the
-        frontend's FB.login() extras - see the module docstring.
+            GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>
+
+        redirect_uri must NOT be sent. The JS SDK internally uses Meta's own
+        xd_arbiter channel URL (https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46)
+        inside the dialog; that is a Meta-internal domain (never to be added
+        to App Domains) and sending it as redirect_uri in the exchange fails
+        with Meta error code 191 ("The domain of this URL isn't included in
+        the app's domains").
 
         Args:
             code: The exchangeable authorization code from Meta Embedded Signup.
@@ -255,10 +326,19 @@ class MetaOAuthService:
         try:
             url = f"{self.GRAPH_API_BASE}/oauth/access_token"
 
+            # EMBEDDED SIGNUP TOKEN EXCHANGE (Facebook Login for Business
+            # config_id flow): send client_id + client_secret + code + locale
+            # ONLY. Per Meta's current official docs this exchange has exactly
+            # three documented parameters - <APP_ID>, <APP_SECRET>, <CODE>.
+            # Do NOT send redirect_uri: sending the JS SDK's internal
+            # xd_arbiter channel URL (or any other value) makes Meta validate
+            # it against the app's domains and fails with error code 191
+            # ("The domain of this URL isn't included in the app's domains").
             params = {
                 "client_id": self.app_id,
                 "client_secret": self.app_secret,
                 "code": code,
+                "locale": META_REQUEST_LOCALE,
             }
             if redirect_uri:
                 params["redirect_uri"] = redirect_uri
@@ -329,6 +409,7 @@ class MetaOAuthService:
             params = {
                 "fields": "id,name",
                 "access_token": app_access_token,
+                "locale": META_REQUEST_LOCALE,
             }
 
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -395,6 +476,7 @@ class MetaOAuthService:
             params = {
                 "input_token": access_token,
                 "access_token": f"{self.app_id}|{self.app_secret}",
+                "locale": META_REQUEST_LOCALE,
             }
 
             self._log_graph_request("GET", url, params)
@@ -508,6 +590,7 @@ class MetaOAuthService:
             params = {
                 "access_token": access_token,
                 "fields": "id,name",
+                "locale": META_REQUEST_LOCALE,
             }
 
             self._log_graph_request("GET", url, params)
@@ -553,7 +636,8 @@ class MetaOAuthService:
         try:
             url = f"{self.GRAPH_API_BASE}/{waba_id}/phone_numbers"
             params = {
-                "access_token": access_token
+                "access_token": access_token,
+                "locale": META_REQUEST_LOCALE,
             }
 
             self._log_graph_request("GET", url, params)
@@ -602,6 +686,7 @@ class MetaOAuthService:
             url = f"{self.GRAPH_API_BASE}/{waba_id}/subscribed_apps"
             params = {
                 "access_token": access_token,
+                "locale": META_REQUEST_LOCALE,
             }
 
             self._log_graph_request("POST", url, params)
@@ -692,7 +777,11 @@ class MetaOAuthService:
             logger.info("=" * 80)
 
             async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(url, json=body, params={"access_token": access_token})
+                response = await client.post(
+                    url,
+                    json=body,
+                    params={"access_token": access_token, "locale": META_REQUEST_LOCALE},
+                )
 
             if response.status_code == 200:
                 logger.info(f"Phone number {phone_number_id} registered successfully")
@@ -761,18 +850,22 @@ class MetaOAuthService:
         WABA_NOT_RETURNED error - the backend NEVER uses /me/businesses or any
         other business-portfolio edge to guess it.
 
-        The token exchange follows Chatwoot's proven-working implementation:
-        - Sends client_id, client_secret and code (redirect_uri optional,
-          not required - see exchange_code_for_token's docstring)
-        - The frontend's FB.login() extras must include
-          `featureType: 'whatsapp_business_app_onboarding'` for Meta to issue
-          a code that's actually valid for this exchange
+        The token exchange follows the official Embedded Signup FB.login popup
+        flow:
+        - Sends client_id, client_secret and code ONLY (no redirect_uri)
+        - Per Meta's current Facebook Login for Business / Embedded Signup
+          docs the exchangeable code is returned directly to the JS popup
+          callback (no server-side redirect), so redirect_uri must NOT be
+          sent; sending the JS SDK's internal xd_arbiter channel URL (or any
+          other value) fails with Meta error code 191 ("The domain of this
+          URL isn't included in the app's domains")
 
         Token exchange:
             GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>
 
         Flow:
-         1. Exchange code for access token (server-side)
+         1. Exchange code for access token (server-side; redirect_uri is NOT
+            sent - per the current official Embedded Signup flow)
          2. Validate the exchanged token via /debug_token (app_id + scopes +
             granular_scopes WABA target_ids)
          3. Resolve the WABA ID: session event, then /debug_token granular
@@ -813,11 +906,16 @@ class MetaOAuthService:
         - verified_name: Verified display name
         """
         try:
-            # Step 1: Exchange code for token. redirect_uri is optional and not
-            # required - see exchange_code_for_token's docstring for the real
-            # root cause of past failures (missing featureType in FB.login()).
-            logger.info(f"[EmbeddedSignup] Step 1/6 - Meta token exchange started (code length: {len(code)}, redirect_uri: {redirect_uri or 'NOT PROVIDED'})")
-            success, token_data, error = await self.exchange_code_for_token(code, redirect_uri=redirect_uri)
+            # Step 1: Exchange code for token. The Embedded Signup (Facebook
+            # Login for Business config_id) exchange sends client_id +
+            # client_secret + code ONLY - no redirect_uri. Per Meta's current
+            # official docs the exchangeable code is returned directly to the
+            # JS popup callback (no server-side redirect); sending any
+            # redirect_uri (e.g. the SDK's internal xd_arbiter channel URL)
+            # triggers Meta error code 191 ("The domain of this URL isn't
+            # included in the app's domains").
+            logger.info(f"[EmbeddedSignup] Step 1/6 - Meta token exchange started (code length: {len(code)})")
+            success, token_data, error = await self.exchange_code_for_token(code)
             if not success:
                 logger.error(f"[EmbeddedSignup] Step 1/6 failed - Token exchange: {error}")
                 return False, None, error or "Failed to exchange authorization code"

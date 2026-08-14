@@ -1,5 +1,14 @@
 # Meta OAuth Fix - Implementation Summary (CORRECTED)
 
+> ⚠️⚠️ SUPERSEDED (2026-08-13) ⚠️⚠️
+> This document's "fix" (building the OAuth dialog URL manually and forwarding
+> `redirect_uri` in the token exchange) is OBSOLETE and was reverted. The current
+> official Meta Embedded Signup flow uses `FB.login({ config_id, ... })` and the
+> backend token exchange sends `client_id + client_secret + code` ONLY — **no
+> `redirect_uri`**. Sending any `redirect_uri` triggers Meta error code 191. See
+> `PRODUCTION_META_CONFIG.md` and `IMPLEMENTATION_SUMMARY.md` for the current
+> implementation. The content below is kept for history only.
+
 > ⚠️ This supersedes all earlier versions of this document.
 > The previous "solutions" (sending a page-URL `redirect_uri`, then
 > `redirect_uri=""` empty string) both failed in production with:

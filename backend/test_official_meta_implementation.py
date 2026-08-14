@@ -3,25 +3,26 @@ Test Embedded Signup Token Exchange Parameters
 
 This test verifies the token exchange for the FB.login() + config_id Embedded
 Signup popup flow:
-- client_id, client_secret, code and redirect_uri are sent, where redirect_uri
-  is the EXACT value the JS SDK used in the OAuth dialog (the xd_arbiter
-  channel URL - https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46).
-  Sending a different redirect_uri as '' or any other URL triggers Meta error
-  subcode 36008.
+- client_id, client_secret and code are sent - NO redirect_uri. Per Meta's
+  current official Embedded Signup / Facebook Login for Business docs the
+  exchangeable code is returned directly to the JS popup callback (no
+  server-side redirect), so there is no redirect URI to echo. Sending the JS
+  SDK's internal xd_arbiter channel URL
+  (https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46) or any
+  other value as redirect_uri triggers Meta error code 191 ("The domain of
+  this URL isn't included in the app's domains").
 """
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
-from services.meta_oauth import MetaOAuthService, EXCHANGE_REDIRECT_URI
-
-EXPECTED_EXCHANGE_REDIRECT_URI = "https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46"
+from services.meta_oauth import MetaOAuthService
 
 
 class TestOfficialMetaImplementation:
     """Test suite for official Meta Embedded Signup implementation."""
 
     @pytest.mark.asyncio
-    async def test_token_exchange_sends_exact_dialog_redirect_uri(self):
-        """Verify that token exchange sends redirect_uri = the exact JS SDK dialog value."""
+    async def test_token_exchange_sends_no_redirect_uri(self):
+        """Verify that token exchange sends NO redirect_uri (per current official Meta docs)."""
         service = MetaOAuthService(
             app_id="3862862217342382",
             app_secret="test_secret"
@@ -52,27 +53,26 @@ class TestOfficialMetaImplementation:
             # Get the params that were sent
             params = call_args[1]['params']
 
-            # CRITICAL VERIFICATION: redirect_uri MUST be present and equal the
-            # EXACT value the JS SDK used in the OAuth dialog (the xd_arbiter
-            # channel URL - the value Meta binds to the code). Sending a
-            # different redirect_uri (as empty string or real URL) triggers
-            # error_subcode 36008.
-            assert 'redirect_uri' in params, "redirect_uri must be present in the exchange for Embedded Signup flow"
-            assert params['redirect_uri'] == EXPECTED_EXCHANGE_REDIRECT_URI
-            assert EXCHANGE_REDIRECT_URI == EXPECTED_EXCHANGE_REDIRECT_URI
+            # CRITICAL VERIFICATION: redirect_uri MUST NOT be present. Per
+            # Meta's current official docs the exchangeable code is returned
+            # directly to the JS popup callback (no server-side redirect), so
+            # there is no redirect URI to echo. Sending any redirect_uri
+            # (e.g. the SDK's internal xd_arbiter channel URL) triggers Meta
+            # error code 191 ("The domain of this URL isn't included in the
+            # app's domains").
+            assert 'redirect_uri' not in params, "redirect_uri must NOT be sent in the Embedded Signup exchange"
 
-            # Verify the four parameters are present
+            # Verify the parameters present (client_id, client_secret, code, locale)
             assert 'client_id' in params
             assert 'client_secret' in params
             assert 'code' in params
-            assert len(params) == 4, f"Exactly 4 params: client_id, client_secret, code, redirect_uri, got {sorted(params.keys())}"
+            assert len(params) == 4, f"Exactly 4 params: client_id, client_secret, code, locale, got {sorted(params.keys())}"
 
             # Verify correct values
             assert params['client_id'] == "3862862217342382"
             assert params['code'] == test_code
 
-            print("[PASS] Token exchange sends redirect_uri = the exact JS SDK dialog value")
-            print(f"[PASS] redirect_uri: {params['redirect_uri']}")
+            print("[PASS] Token exchange sends NO redirect_uri (per Meta's current official docs)")
             print(f"[PASS] Parameters sent: {list(params.keys())}")
             print("[PASS] Embedded Signup popup exchange verified")
 
@@ -155,9 +155,9 @@ if __name__ == "__main__":
 
     test = TestOfficialMetaImplementation()
 
-    print("Test 1: Verify the exact JS SDK dialog redirect_uri is sent")
+    print("Test 1: Verify NO redirect_uri is sent (current official flow)")
     print("-" * 80)
-    asyncio.run(test.test_token_exchange_sends_exact_dialog_redirect_uri())
+    asyncio.run(test.test_token_exchange_sends_no_redirect_uri())
     print()
 
     print("Test 2: Verify successful token exchange")

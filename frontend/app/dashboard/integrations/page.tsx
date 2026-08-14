@@ -22,6 +22,28 @@ interface IntegrationData {
   webhook_url: string | null;
 }
 
+// Meta can return localized (e.g. Russian) error text. Translate known
+// localized phrases back to the fixed English equivalents so the user NEVER
+// sees a non-English error, and fall back to a generic English message for any
+// remaining non-ASCII text.
+const META_ERROR_TRANSLATIONS: [string, string][] = [
+  ["Невозможно загрузить URL", "Unable to load URL"],
+  ["Домен этого URL не включен в список доменов приложения", "The domain of this URL isn't included in the app's domains"],
+  ["Чтобы загрузить этот URL, добавьте все домены и поддомены своего приложения", "To be able to load this URL, add all domains and subdomains of your app"],
+  ["в поле «Домены приложения» в настройках вашего приложения", "to the App Domains field in your app settings"],
+];
+
+const toEnglishErrorMessage = (message?: string | null): string => {
+  if (!message) return "";
+  let translated = message;
+  for (const [localized, english] of META_ERROR_TRANSLATIONS) {
+    if (translated.includes(localized)) translated = translated.replace(localized, english);
+  }
+  if (translated !== message) return translated;
+  if (/^[\x00-\x7F]*$/.test(message)) return message;
+  return "Meta request failed. Please try again or restart WhatsApp Embedded Signup.";
+};
+
 export default function IntegrationsPage() {
   const [integ, setInteg] = useState<IntegrationData | null>(null);
   const [userPlan, setUserPlan] = useState<string>("free");
@@ -110,13 +132,11 @@ export default function IntegrationsPage() {
   //   2. Exchangeable authorization code via FB.login callback
   //      (response.authResponse.code)
   //
-  // The code + asset IDs are sent to the backend, which exchanges the code
-  // with Meta sending only client_id + client_secret + code (matching
-  // Chatwoot's proven-working implementation - redirect_uri is not required).
-  // The real fix for the persistent error subcode 36008 failures was adding
-  // `featureType: 'whatsapp_business_app_onboarding'` to the FB.login()
-  // extras below - without it Meta issues codes that look valid client-side
-  // but fail exchange. Every redirect_uri variation was a red herring.
+  // The code + asset IDs are sent to the backend. The backend exchanges the
+  // code with Meta sending client_id + client_secret + code ONLY (no
+  // redirect_uri - per Meta's current official Embedded Signup docs the code
+  // is returned directly to the JS popup callback, so no server-side redirect
+  // URI exists). The frontend never sends redirect_uri.
   //
   // The single-use code is exchanged EXACTLY ONCE - a one-time guard
   // (completingRef) locks the exchange the moment it starts.
@@ -479,7 +499,7 @@ export default function IntegrationsPage() {
           setIsExchangeInProgress(false);
           setConnectingWhatsApp(false);
           showToast(
-            "WhatsApp setup failed: " + (errorMessage || "An error occurred during WhatsApp setup"),
+            "WhatsApp setup failed: " + (toEnglishErrorMessage(errorMessage) || "An error occurred during WhatsApp setup"),
             "error"
           );
         } else {
@@ -505,7 +525,7 @@ export default function IntegrationsPage() {
         setIsExchangeInProgress(false);
         setConnectingWhatsApp(false);
         showToast(
-          "WhatsApp setup failed: " + (errorMessage || "An error occurred during WhatsApp setup"),
+          "WhatsApp setup failed: " + (toEnglishErrorMessage(errorMessage) || "An error occurred during WhatsApp setup"),
           "error"
         );
         return;
@@ -586,11 +606,11 @@ export default function IntegrationsPage() {
   //   - the customer's asset IDs (waba_id / phone_number_id / business_id)
   //     via the WA_EMBEDDED_SIGNUP session message posted to THIS window.
   //
-  // NOTE: `extras.featureType: 'whatsapp_business_app_onboarding'` below is
-  // required - without it Meta issues codes that look valid client-side but
-  // fail the backend exchange with error subcode 36008. Found by comparing
-  // against Chatwoot's proven-working implementation. redirect_uri is not
-  // required for the exchange - see handleMetaOAuthCallback below.
+  // NOTE on redirect_uri: the backend exchange sends client_id + client_secret
+  // + code ONLY - no redirect_uri (per Meta's current official Embedded
+  // Signup docs the code is returned directly to the JS popup callback, so no
+  // server-side redirect URI exists). The callback payload does NOT send
+  // redirect_uri.
   const launchWhatsAppSignup = () => {
     if (!metaConfig) {
       showToast("Meta Embedded Signup is not configured", "error");
@@ -703,10 +723,11 @@ export default function IntegrationsPage() {
   // when the session event did not deliver them (documented Meta fallback);
   // the IDs are never fabricated.
   //
-  // redirect_uri is not sent - not required for the exchange, matching
-  // Chatwoot's proven-working implementation. See
-  // MetaOAuthService.exchange_code_for_token's docstring on the backend for
-  // the real root cause of the past 36008 failures (missing featureType).
+  // redirect_uri is deliberately NOT sent in this payload. The backend
+  // exchange sends client_id + client_secret + code ONLY - no redirect_uri
+  // (per Meta's current official Embedded Signup docs the code is returned
+  // directly to the JS popup callback, so no server-side redirect URI
+  // exists).
   const handleMetaOAuthCallback = async (
     code: string,
     metaData?: { waba_id?: string; phone_number_id?: string; business_id?: string }
@@ -754,7 +775,7 @@ export default function IntegrationsPage() {
       }
     } catch (err: any) {
       console.error('[EmbeddedSignup] OAuth callback error:', err);
-      showToast("Error: " + err.message, "error");
+      showToast("Error: " + (toEnglishErrorMessage(err?.message) || err?.message || "An unexpected error occurred"), "error");
     } finally {
       // NOTE: the one-time exchange lock (completingRef) is deliberately NOT
       // reset here - it stays held until launchWhatsAppSignup starts a
