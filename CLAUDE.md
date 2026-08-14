@@ -36,3 +36,12 @@ Also, opening the backend callback URL directly in a browser produces 405 Method
 Do not change the working code reception. The 451-character code is being received correctly. Fix only the authorization-code → Meta token exchange mismatch.
 
 After the fix, the logs MUST show the actual non-empty canonical redirect URI being used, and the authorization and token exchange must use the exact same value.
+
+## Repository hygiene
+
+Do NOT create new markdown documentation files in the project root — it gets
+cluttered fast. All docs (setup guides, fix summaries, status reports,
+checklists, etc.) go under `docs/**`, organized by topic (see
+`docs/README.md` for the existing categories: `meta-whatsapp/`,
+`production/`, `development/`, `design/`, `features/`). Only `README.md` and
+`CLAUDE.md` belong at the root.

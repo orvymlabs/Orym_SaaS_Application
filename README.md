@@ -2,6 +2,8 @@
 
 Multi-tenant WhatsApp bot platform with AI assistant, WooCommerce integration, and dashboard.
 
+See [`docs/`](docs/README.md) for setup guides, production/deployment docs, and Meta/WhatsApp Embedded Signup implementation notes.
+
 ## 📁 Project Structure
 
 ```
