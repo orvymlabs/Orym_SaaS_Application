@@ -110,12 +110,13 @@ export default function IntegrationsPage() {
   //   2. Exchangeable authorization code via FB.login callback
   //      (response.authResponse.code)
   //
-  // The code + asset IDs are sent to the backend. The backend exchanges the
-  // code with Meta sending client_id + client_secret + code + redirect_uri,
-  // where redirect_uri is the EXACT value the JS SDK used in the OAuth dialog
-  // (the xd_arbiter channel URL - https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46).
-  // Sending a different redirect_uri (empty string or any other URL) triggers
-  // Meta error subcode 36008. The frontend never sends redirect_uri.
+  // The code + asset IDs are sent to the backend, which exchanges the code
+  // with Meta sending only client_id + client_secret + code (matching
+  // Chatwoot's proven-working implementation - redirect_uri is not required).
+  // The real fix for the persistent error subcode 36008 failures was adding
+  // `featureType: 'whatsapp_business_app_onboarding'` to the FB.login()
+  // extras below - without it Meta issues codes that look valid client-side
+  // but fail exchange. Every redirect_uri variation was a red herring.
   //
   // The single-use code is exchanged EXACTLY ONCE - a one-time guard
   // (completingRef) locks the exchange the moment it starts.
@@ -585,13 +586,11 @@ export default function IntegrationsPage() {
   //   - the customer's asset IDs (waba_id / phone_number_id / business_id)
   //     via the WA_EMBEDDED_SIGNUP session message posted to THIS window.
   //
-  // NOTE on redirect_uri: the backend exchange sends client_id + client_secret
-  // + code + redirect_uri, where redirect_uri is the EXACT value the JS SDK
-  // used in the OAuth dialog (the xd_arbiter channel URL -
-  // https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46). The
-  // callback payload does NOT send redirect_uri - never the canonical value,
-  // never an empty string, never null (sending any OTHER redirect_uri value on
-  // the backend triggers error_subcode 36008).
+  // NOTE: `extras.featureType: 'whatsapp_business_app_onboarding'` below is
+  // required - without it Meta issues codes that look valid client-side but
+  // fail the backend exchange with error subcode 36008. Found by comparing
+  // against Chatwoot's proven-working implementation. redirect_uri is not
+  // required for the exchange - see handleMetaOAuthCallback below.
   const launchWhatsAppSignup = () => {
     if (!metaConfig) {
       showToast("Meta Embedded Signup is not configured", "error");
@@ -692,7 +691,8 @@ export default function IntegrationsPage() {
       override_default_response_type: true,
       extras: {
         setup: {},
-        sessionInfoVersion: 3,
+        featureType: 'whatsapp_business_app_onboarding',
+        sessionInfoVersion: '3',
       },
     });
   };
@@ -703,12 +703,10 @@ export default function IntegrationsPage() {
   // when the session event did not deliver them (documented Meta fallback);
   // the IDs are never fabricated.
   //
-  // redirect_uri is deliberately NOT sent in this payload. The backend
-  // exchange sends client_id + client_secret + code + redirect_uri, where
-  // redirect_uri is the EXACT value the JS SDK used in the OAuth dialog (the
-  // xd_arbiter channel URL - https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46).
-  // Sending any OTHER redirect_uri value, including the empty string, triggers
-  // Meta error subcode 36008.
+  // redirect_uri is not sent - not required for the exchange, matching
+  // Chatwoot's proven-working implementation. See
+  // MetaOAuthService.exchange_code_for_token's docstring on the backend for
+  // the real root cause of the past 36008 failures (missing featureType).
   const handleMetaOAuthCallback = async (
     code: string,
     metaData?: { waba_id?: string; phone_number_id?: string; business_id?: string }

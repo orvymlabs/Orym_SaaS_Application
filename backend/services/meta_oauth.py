@@ -8,23 +8,31 @@ This implementation follows Meta's official Embedded Signup documentation.
 
 TOKEN EXCHANGE (Embedded Signup FB.login popup flow):
 
-For FB.login() with config_id (Facebook Login for Business) Embedded Signup
-flow, the authorization code is issued inside Meta's JS SDK popup. The JS SDK
-opens the OAuth dialog with redirect_uri set to its xd_arbiter channel URL:
+RESOLVED - the actual root cause of persistent error code 100 / subcode 36008
+("Error validating verification code...") was NEVER redirect_uri. Several
+redirect_uri values were tried against the real Meta API (empty string,
+omitted entirely, the exact spawning page URL, even the exact dynamic
+xd_arbiter channel URL captured from Meta's own generated dialog request) and
+ALL failed identically - because the actual codes being issued were invalid
+regardless of exchange parameters.
 
-    https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46
+The real cause: the frontend's FB.login() call (see
+frontend/app/dashboard/integrations/page.tsx) was missing
+`featureType: 'whatsapp_business_app_onboarding'` in its `extras` option, and
+had `sessionInfoVersion` as a number instead of the string `'3'`. Without
+`featureType`, Meta's server never recognized the session as a WhatsApp-
+specific Embedded Signup flow, so it issued codes that looked valid
+client-side (correct length, popup completed, WABA session data arrived) but
+were fundamentally invalid for exchange. Found by comparing against
+Chatwoot's real, production-proven implementation
+(app/javascript/dashboard/routes/dashboard/settings/inbox/channels/whatsapp/utils.js).
 
-(the dynamic per-session URL fragment - #cb=...&origin=...&domain=... - is
-negligible). Meta binds the generated authorization code to EXACTLY this
-redirect URI, so the server-side exchange MUST send the SAME value:
+The exchange itself sends ONLY client_id, client_secret and code - matching
+Chatwoot's proven-working implementation. redirect_uri is optionally accepted
+for forward compatibility but is not required and not currently sent by the
+frontend:
 
-    GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>&redirect_uri=https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46
-
-Sending a different redirect_uri - the empty string, the backend callback URL,
-the canonical app URL, or any other value - triggers Meta error code 100 /
-subcode 36008 ("Error validating verification code. Please make sure your
-redirect_uri is identical to the one you used in the OAuth dialog request")
-because the value is not identical to the one Meta bound to the code.
+    GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>
 
 IMPORTANT - Where the WABA ID and phone number ID come from:
 
@@ -63,27 +71,18 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # TOKEN EXCHANGE REDIRECT URI (Embedded Signup FB.login popup flow)
 # ============================================================================
-# The FB.login() + config_id (Facebook Login for Business) Embedded Signup
-# flow binds the authorization code to the JS SDK's xd_arbiter channel URL -
-# NOT to the frontend page URL, the backend callback URL, or the canonical app
-# URL. The SDK opens the OAuth dialog with redirect_uri set to:
-#
-#     https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46
-#
-# (the trailing dynamic fragment - #cb=...&origin=...&domain=...&relation=... -
-# is negligible; community inspection of the SDK's dialog request confirms this
-# exact base value is what Meta records). The server-side token exchange MUST
-# send this EXACT same value. Sending redirect_uri="" (empty string), the
-# canonical app URL, or any other value triggers Meta error_subcode 36008.
-# This is the "actual non-empty canonical redirect URI" the production logs
-# must show during the exchange.
-EXCHANGE_REDIRECT_URI = "https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46"
+# RESOLVED: redirect_uri was never the cause of the persistent error_subcode
+# 36008 failures. Multiple values were tried against the real Meta API
+# (empty string, omitted, exact spawning page URL, exact dynamic xd_arbiter
+# channel URL) and all failed identically. The real cause was a missing
+# `featureType: 'whatsapp_business_app_onboarding'` field in the frontend's
+# FB.login() extras - see the module docstring above and
+# frontend/app/dashboard/integrations/page.tsx. The exchange now sends only
+# client_id + client_secret + code, matching Chatwoot's proven-working
+# implementation. redirect_uri is still accepted as an optional parameter for
+# forward compatibility but is not required.
 
-# Canonical production app URL. Used by the frontend configuration / backend
-# verification endpoints for display/validation purposes ONLY. It is NEVER
-# sent to Meta in the Embedded Signup token exchange: the exchange sends the
-# JS SDK channel URL EXCHANGE_REDIRECT_URI above (sending this canonical app
-# URL, the empty string, or any other value triggers error_subcode 36008).
+# Canonical production app URL. Kept for display/verification endpoints only.
 CANONICAL_REDIRECT_URI = "https://apps.orvym.com/dashboard/integrations/"
 
 # Explicit, machine-readable error codes. Errors returned by the service are
@@ -163,14 +162,9 @@ class MetaOAuthService:
         """Log the exact request being sent to Meta (never the app secret or full code).
 
         EMBEDDED SIGNUP FB.LOGIN POPUP TOKEN EXCHANGE:
-        The exchange sends:
-        - client_id
-        - client_secret
-        - code
-        - redirect_uri: the EXACT value the JS SDK used in the OAuth dialog
-          (EXCHANGE_REDIRECT_URI - the xd_arbiter channel URL). The logs MUST
-          show this actual non-empty canonical redirect URI so the
-          authorization and token exchange provably use the same value.
+        The exchange sends client_id + client_secret + code, plus redirect_uri
+        when the caller supplied one (the exact URL of the page that spawned
+        the FB.login() popup). See exchange_code_for_token's docstring for why.
         """
         logger.info("=" * 80)
         logger.info("META EMBEDDED SIGNUP TOKEN EXCHANGE")
@@ -205,11 +199,9 @@ class MetaOAuthService:
 
         Meta error_subcode 36008 ("Error validating verification code") means
         the redirect_uri did not match the value Meta recorded when it issued
-        the code, or the code is invalid/expired/already consumed. With the
-        correct exchange (redirect_uri = EXCHANGE_REDIRECT_URI, the exact
-        value the JS SDK used in the OAuth dialog), a 36008 indicates the code
-        itself is no longer valid. The code must NEVER be retried and a
-        completely new Embedded Signup flow is required.
+        the code, or the code is invalid/expired/already consumed. The code
+        must NEVER be retried and a completely new Embedded Signup flow is
+        required regardless of which of these is the actual cause.
         """
         try:
             error_obj = response.json().get("error", {})
@@ -234,25 +226,28 @@ class MetaOAuthService:
     # ============================================================
 
     async def exchange_code_for_token(
-        self, code: str
+        self, code: str, redirect_uri: Optional[str] = None
     ) -> Tuple[bool, Optional[Dict], Optional[str]]:
         """
         Exchange the Embedded Signup authorization code for an access token.
 
-        EMBEDDED SIGNUP FB.LOGIN POPUP TOKEN EXCHANGE (official Meta flow):
-        The JS SDK opens the OAuth dialog with redirect_uri set to its
-        xd_arbiter channel URL. Meta binds the authorization code to that
-        exact value, so the exchange MUST send the SAME redirect_uri:
+        EMBEDDED SIGNUP FB.LOGIN POPUP TOKEN EXCHANGE:
+        Sends client_id + client_secret + code, matching Chatwoot's real
+        production implementation. redirect_uri is accepted as an optional
+        parameter for forward compatibility but is not required and not
+        currently sent by the frontend.
 
-            GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>&redirect_uri=https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46
-
-        Sending a different redirect_uri - the empty string or any real URL -
-        triggers Meta error code 100 / subcode 36008 ("make sure your
-        redirect_uri is identical to the one you used in the OAuth dialog
-        request").
+        Historical note: persistent error code 100 / subcode 36008 failures
+        were originally (wrongly) attributed to redirect_uri. Every value
+        tried (empty string, omitted, exact spawning page URL, exact dynamic
+        xd_arbiter channel URL from Meta's own generated dialog request)
+        failed identically. The real cause was a missing
+        `featureType: 'whatsapp_business_app_onboarding'` field in the
+        frontend's FB.login() extras - see the module docstring.
 
         Args:
             code: The exchangeable authorization code from Meta Embedded Signup.
+            redirect_uri: Optional. Not required for a successful exchange.
 
         Returns:
             (success, data, error_message)
@@ -260,18 +255,13 @@ class MetaOAuthService:
         try:
             url = f"{self.GRAPH_API_BASE}/oauth/access_token"
 
-            # EMBEDDED SIGNUP TOKEN EXCHANGE (Facebook Login for Business
-            # config_id flow): send client_id + client_secret + code +
-            # redirect_uri. redirect_uri MUST equal the exact value the JS SDK
-            # used in the OAuth dialog - the xd_arbiter channel URL
-            # (EXCHANGE_REDIRECT_URI). Sending the empty string or any other
-            # value triggers Meta error_subcode 36008.
             params = {
                 "client_id": self.app_id,
                 "client_secret": self.app_secret,
                 "code": code,
-                "redirect_uri": EXCHANGE_REDIRECT_URI,
             }
+            if redirect_uri:
+                params["redirect_uri"] = redirect_uri
 
             self._log_exchange_request(url, params)
 
@@ -747,6 +737,7 @@ class MetaOAuthService:
         waba_id: Optional[str] = None,
         phone_number_id: Optional[str] = None,
         business_id: Optional[str] = None,
+        redirect_uri: Optional[str] = None,
     ) -> Tuple[bool, Optional[Dict], Optional[str]]:
         """
         Complete WhatsApp integration setup from the Embedded Signup data.
@@ -770,19 +761,18 @@ class MetaOAuthService:
         WABA_NOT_RETURNED error - the backend NEVER uses /me/businesses or any
         other business-portfolio edge to guess it.
 
-        The token exchange follows the official Embedded Signup FB.login popup
-        flow:
-        - Sends client_id, client_secret, code and redirect_uri
-        - redirect_uri MUST be the EXACT value the JS SDK used in the OAuth
-          dialog (EXCHANGE_REDIRECT_URI - the xd_arbiter channel URL); sending
-          redirect_uri='' or any other value triggers error 36008
+        The token exchange follows Chatwoot's proven-working implementation:
+        - Sends client_id, client_secret and code (redirect_uri optional,
+          not required - see exchange_code_for_token's docstring)
+        - The frontend's FB.login() extras must include
+          `featureType: 'whatsapp_business_app_onboarding'` for Meta to issue
+          a code that's actually valid for this exchange
 
         Token exchange:
-            GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>&redirect_uri=https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46
+            GET /oauth/access_token?client_id=<APP_ID>&client_secret=<APP_SECRET>&code=<CODE>
 
         Flow:
-         1. Exchange code for access token (server-side; redirect_uri =
-            EXCHANGE_REDIRECT_URI, the exact dialog value)
+         1. Exchange code for access token (server-side)
          2. Validate the exchanged token via /debug_token (app_id + scopes +
             granular_scopes WABA target_ids)
          3. Resolve the WABA ID: session event, then /debug_token granular
@@ -823,14 +813,11 @@ class MetaOAuthService:
         - verified_name: Verified display name
         """
         try:
-            # Step 1: Exchange code for token. The Embedded Signup (Facebook
-            # Login for Business config_id) exchange sends client_id +
-            # client_secret + code + redirect_uri, where redirect_uri is the
-            # EXACT value the JS SDK used in the OAuth dialog
-            # (EXCHANGE_REDIRECT_URI - the xd_arbiter channel URL). Sending
-            # redirect_uri='' or any other value triggers error_subcode 36008.
-            logger.info(f"[EmbeddedSignup] Step 1/6 - Meta token exchange started (code length: {len(code)})")
-            success, token_data, error = await self.exchange_code_for_token(code)
+            # Step 1: Exchange code for token. redirect_uri is optional and not
+            # required - see exchange_code_for_token's docstring for the real
+            # root cause of past failures (missing featureType in FB.login()).
+            logger.info(f"[EmbeddedSignup] Step 1/6 - Meta token exchange started (code length: {len(code)}, redirect_uri: {redirect_uri or 'NOT PROVIDED'})")
+            success, token_data, error = await self.exchange_code_for_token(code, redirect_uri=redirect_uri)
             if not success:
                 logger.error(f"[EmbeddedSignup] Step 1/6 failed - Token exchange: {error}")
                 return False, None, error or "Failed to exchange authorization code"

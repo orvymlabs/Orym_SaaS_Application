@@ -34,6 +34,10 @@ export async function api<T = any>(
   // Set default headers, including Authorization if token exists
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    // Skip ngrok's free-tier splash page (ERR_NGROK_6024) when API_BASE is
+    // tunneled through ngrok for local testing. Backend allows this header
+    // in CORS; harmless no-op against the production API.
+    ...(API_BASE.includes("ngrok") ? { "ngrok-skip-browser-warning": "true" } : {}),
     ...options.headers as Record<string, string>,
   };
   
@@ -68,7 +72,10 @@ export async function api<T = any>(
             // Attempt to refresh token using the refresh endpoint
             const refreshResp = await fetch(`${API_BASE}/api/auth/refresh`, { // Use API_BASE for refresh endpoint
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: {
+                "Content-Type": "application/json",
+                ...(API_BASE.includes("ngrok") ? { "ngrok-skip-browser-warning": "true" } : {}),
+              },
               body: JSON.stringify({ refresh_token: refreshToken }),
               signal: refreshController.signal,
             });

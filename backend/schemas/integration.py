@@ -15,19 +15,20 @@ class MetaOAuthCallbackRequest(BaseModel):
     (WA_EMBEDDED_SIGNUP session event first, then the /debug_token
     granular_scopes target_ids + the WABA phone_numbers edge).
 
-    redirect_uri is intentionally NOT part of this payload. The Embedded
-    Signup FB.login + config_id (Facebook Login for Business) exchange is
-    handled server-side: the backend sends redirect_uri = the exact value the
-    JS SDK used in the OAuth dialog (the xd_arbiter channel URL
-    https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46). Sending
-    a DIFFERENT redirect_uri (the canonical value, the backend callback URL,
-    any URL, or the empty string) triggers Meta error_subcode 36008. Any
-    redirect_uri value in the request body is ignored by the endpoint.
+    redirect_uri: the exact URL (origin + path) of the page that spawned the
+    FB.login() Embedded Signup popup, e.g. https://apps.orvym.com/dashboard/integrations/
+    in production or the ngrok URL when testing locally through a tunnel.
+    Meta's Valid OAuth Redirect URIs app-dashboard setting is a pre-registered
+    list of exactly such page URLs, and the token exchange must send the same
+    value that was current when the code was issued - a fixed hardcoded
+    value breaks whenever the flow is spawned from a different registered
+    domain (e.g. local ngrok testing vs production).
     """
     code: Optional[str] = None
     waba_id: Optional[str] = None
     phone_number_id: Optional[str] = None
     business_id: Optional[str] = None
+    redirect_uri: Optional[str] = None
 
 
 class IntegrationUpdate(BaseModel):

@@ -92,7 +92,7 @@ def get_cors_headers(request: Request):
         "Access-Control-Allow-Origin": allowed_origin,
         "Access-Control-Allow-Credentials": "true",
         "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With, Accept, Origin"
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With, Accept, Origin, ngrok-skip-browser-warning"
     }
 
 @app.exception_handler(HTTPException)
@@ -122,12 +122,15 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 # Configure CORS middleware
+# ngrok-skip-browser-warning is allowed so the frontend can bypass ngrok's
+# free-tier splash page (ERR_NGROK_6024) when the app is tunneled through
+# ngrok for local testing - harmless when the request doesn't come via ngrok.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin", "ngrok-skip-browser-warning"],
     expose_headers=["*"],
 )
 
