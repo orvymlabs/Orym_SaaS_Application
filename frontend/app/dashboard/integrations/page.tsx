@@ -1039,85 +1039,115 @@ export default function IntegrationsPage() {
 
       <div className={`rounded-[3rem] border overflow-hidden shadow-2xl ${isDark ? "bg-[#090909] border-zinc-800 shadow-black" : "bg-white border-slate-200 shadow-xl shadow-slate-200/50"}`}>
         {activeTab === "whatsapp" && (
-          <div className="p-12 space-y-8">
-            <div>
-              <h2 className={`text-2xl font-black tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>WhatsApp Business</h2>
-              <p className={`${isDark ? "text-zinc-500" : "text-slate-500"} mt-1 font-medium`}>
-                {integ.has_whatsapp_token ? "Manage your WhatsApp Business connection" : "Connect your WhatsApp Business Account with Meta"}
-              </p>
+          <div className="p-6 md:p-10 lg:p-12 space-y-8">
+            {/* Header */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+              <div className="flex items-center gap-5">
+                <div className={`flex-shrink-0 w-14 h-14 rounded-2xl flex items-center justify-center border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-slate-100/80 border-slate-200"}`}>
+                  <svg className="w-7 h-7 text-[#25D366]" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                  </svg>
+                </div>
+                <div>
+                  <h2 className={`text-2xl font-black tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>WhatsApp Business</h2>
+                  <p className={`${isDark ? "text-zinc-500" : "text-slate-500"} mt-1 font-medium`}>
+                    {integ.has_whatsapp_token ? "Manage your WhatsApp Business connection" : "Connect your WhatsApp Business Account with Meta"}
+                  </p>
+                </div>
+              </div>
+              {integ.has_whatsapp_token && integ.phone_number_id && integ.whatsapp_number ? (
+                <div className={`inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full border ${isDark ? "bg-emerald-500/10 border-emerald-500/20" : "bg-emerald-50 border-emerald-200"}`}>
+                  <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.6)]"></div>
+                  <span className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-emerald-400" : "text-emerald-600"}`}>Connected</span>
+                </div>
+              ) : null}
             </div>
 
             {integ.has_whatsapp_token && integ.phone_number_id && integ.whatsapp_number ? (
               // Connected State
-              <div className={`p-8 rounded-[2rem] border ${isDark ? "bg-black border-zinc-800" : "bg-slate-50/50 border-slate-100"}`}>
-                <div className="space-y-6">
-                  {/* Status */}
-                  <div className="flex items-center justify-between pb-4 border-b border-zinc-800">
-                    <div className="flex items-center gap-3">
+              <div className={`rounded-[2rem] border overflow-hidden ${isDark ? "bg-black border-zinc-800" : "bg-slate-50/50 border-slate-100"}`}>
+                <div className="grid grid-cols-1 lg:grid-cols-5 gap-10 p-8 lg:p-12 items-center">
+                  {/* Left: connection details */}
+                  <div className="lg:col-span-3 space-y-6">
+                    {/* Status */}
+                    <div className={`flex items-center gap-4 pb-5 border-b ${isDark ? "border-zinc-800" : "border-slate-200"}`}>
                       <div className="w-12 h-12 rounded-2xl bg-green-500/10 flex items-center justify-center">
-                        <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                        <svg className="w-6 h-6 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
                       </div>
                       <div>
                         <p className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Status</p>
                         <p className={`text-sm font-bold ${isDark ? "text-green-400" : "text-green-600"}`}>Connected</p>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Phone Number */}
-                  <div>
-                    <p className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} mb-2`}>Phone</p>
-                    <p className={`text-lg font-mono ${isDark ? "text-white" : "text-slate-900"}`}>{integ.whatsapp_number}</p>
-                  </div>
-
-                  {/* Phone Number ID */}
-                  <div>
-                    <p className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} mb-2`}>Phone Number ID</p>
-                    <p className={`text-sm font-mono ${isDark ? "text-zinc-400" : "text-slate-600"}`}>{integ.phone_number_id}</p>
-                  </div>
-
-                  {/* Webhook URL */}
-                  <div className={`p-6 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-slate-200"}`}>
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                      <div>
-                        <p className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Webhook URL</p>
-                        <p className={`text-xs font-mono mt-2 ${isDark ? "text-white" : "text-slate-600"} break-all`}>{apiUrl}/webhook</p>
+                    {/* Phone Number + Phone Number ID */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                      <div className={`p-6 rounded-2xl border ${isDark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-slate-200"}`}>
+                        <p className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} mb-2`}>Phone</p>
+                        <p className={`text-lg font-mono ${isDark ? "text-white" : "text-slate-900"}`}>{integ.whatsapp_number}</p>
                       </div>
-                      <button
-                        onClick={() => {navigator.clipboard.writeText(`${apiUrl}/webhook`); showToast("Copied","success")}}
-                        className="btn-secondary !py-2 whitespace-nowrap"
-                      >
-                        Copy URL
-                      </button>
+                      <div className={`p-6 rounded-2xl border ${isDark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-slate-200"}`}>
+                        <p className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} mb-2`}>Phone Number ID</p>
+                        <p className={`text-sm font-mono break-all ${isDark ? "text-zinc-400" : "text-slate-600"}`}>{integ.phone_number_id}</p>
+                      </div>
+                    </div>
+
+                    {/* Webhook URL */}
+                    <div className={`p-6 rounded-2xl border ${isDark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-slate-200"}`}>
+                      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div className="min-w-0">
+                          <p className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Webhook URL</p>
+                          <p className={`text-xs font-mono mt-2 ${isDark ? "text-white" : "text-slate-600"} break-all`}>{apiUrl}/webhook</p>
+                        </div>
+                        <button
+                          onClick={() => {navigator.clipboard.writeText(`${apiUrl}/webhook`); showToast("Copied","success")}}
+                          className="btn-secondary !py-2 whitespace-nowrap"
+                        >
+                          Copy URL
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Verify Token */}
+                    <div className={`p-6 rounded-2xl border ${isDark ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-slate-200"}`}>
+                      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div className="min-w-0">
+                          <p className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Verify Token</p>
+                          <p className={`text-xs font-mono mt-2 ${isDark ? "text-white" : "text-slate-600"} break-all`}>{integ.verify_token}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {navigator.clipboard.writeText(integ.verify_token); showToast("Copied","success")}}
+                            className="btn-secondary !py-2 whitespace-nowrap"
+                          >
+                            Copy
+                          </button>
+                          <button onClick={handleGenerateAndSave} className="btn-secondary !py-2 whitespace-nowrap">
+                            Regenerate
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Verify Token */}
-                  <div className={`p-6 rounded-xl border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-white border-slate-200"}`}>
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                      <div>
-                        <p className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Verify Token</p>
-                        <p className={`text-xs font-mono mt-2 ${isDark ? "text-white" : "text-slate-600"}`}>{integ.verify_token}</p>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => {navigator.clipboard.writeText(integ.verify_token); showToast("Copied","success")}}
-                          className="btn-secondary !py-2 whitespace-nowrap"
-                        >
-                          Copy
-                        </button>
-                        <button onClick={handleGenerateAndSave} className="btn-secondary !py-2 whitespace-nowrap">
-                          Regenerate
-                        </button>
+                  {/* Right: illustration */}
+                  <div className="flex items-center justify-center lg:col-start-4 lg:col-span-2 lg:row-start-1 lg:row-span-2">
+                    <div className={`relative w-full max-w-[260px] lg:max-w-xs rounded-[2rem] overflow-hidden border shadow-xl ${isDark ? "border-zinc-800 shadow-black" : "border-slate-200 shadow-slate-200/50"}`}>
+                      <img src="/whatsappintpgdemo.webp" alt="WhatsApp integration illustration" className="w-full h-auto object-contain" />
+                      <div className={`absolute top-4 right-4 inline-flex items-center gap-2 px-3.5 py-2 rounded-full backdrop-blur shadow-lg ${isDark ? "bg-zinc-900/90" : "bg-white/95"}`}>
+                        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                        <span className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-emerald-400" : "text-emerald-600"}`}>Active</span>
                       </div>
                     </div>
                   </div>
 
                   {/* Actions */}
-                  <div className="flex gap-4 pt-4">
+                  <div className="lg:col-span-3 flex flex-col sm:flex-row gap-4">
                     {metaConfig && (
                       <button
-                            onClick={launchWhatsAppSignup}
+                        onClick={launchWhatsAppSignup}
                         disabled={connectingWhatsApp || isExchangeInProgress}
                         className="btn-secondary flex-1"
                       >
@@ -1134,135 +1164,117 @@ export default function IntegrationsPage() {
                   </div>
                 </div>
               </div>
-            ) : (
+            ) : metaConfig ? (
               // Not Connected State - Professional Meta Embedded Signup
-              <div className="space-y-6">
-                {metaConfig ? (
-                  // Professional Embedded Signup Card
-                  <div className={`rounded-3xl border overflow-hidden ${isDark ? "bg-gradient-to-br from-zinc-900 to-black border-zinc-800" : "bg-gradient-to-br from-white to-slate-50 border-slate-200"}`}>
-                    <div className="p-12">
-                      <div className="max-w-xl mx-auto">
-                        {/* Header Section */}
-                        <div className="text-center space-y-4 mb-8">
-                          {/* Professional Icon */}
-                          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 shadow-lg shadow-green-500/20">
-                            <svg className="w-9 h-9 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              <div className={`rounded-[2rem] border overflow-hidden ${isDark ? "bg-gradient-to-br from-zinc-900/60 to-black border-zinc-800" : "bg-gradient-to-br from-white to-slate-50 border-slate-200"}`}>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 p-8 lg:p-12 items-center">
+                  {/* Left: info + features */}
+                  <div className="space-y-8 lg:col-start-1 lg:row-start-1">
+                    {/* Professional Icon */}
+                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 shadow-lg shadow-green-500/20">
+                      <svg className="w-9 h-9 text-white" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                      </svg>
+                    </div>
+
+                    {/* Title and Description */}
+                    <div>
+                      <h3 className={`text-2xl font-black tracking-tight mb-2 ${isDark ? "text-white" : "text-slate-900"}`}>
+                        Connect your WhatsApp Business account
+                      </h3>
+                      <p className={`text-base ${isDark ? "text-zinc-400" : "text-slate-600"} max-w-md leading-relaxed`}>
+                        Connect WhatsApp to ORVYM and manage customer conversations and automation from one place.
+                      </p>
+                    </div>
+
+                    {/* Features List */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                      {[
+                        "Manage WhatsApp conversations",
+                        "Automate customer responses",
+                        "Connect WhatsApp Business",
+                        "Manage customer interactions through ORVYM",
+                      ].map((feature) => (
+                        <div key={feature} className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl border ${isDark ? "bg-zinc-900/50 border-zinc-800" : "bg-white border-slate-200"}`}>
+                          <div className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center ${isDark ? "bg-green-500/20" : "bg-green-100"}`}>
+                            <svg className={`w-3 h-3 ${isDark ? "text-green-400" : "text-green-600"}`} fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                             </svg>
                           </div>
-
-                          {/* Title and Description */}
-                          <div>
-                            <h3 className={`text-2xl font-bold tracking-tight mb-2 ${isDark ? "text-white" : "text-slate-900"}`}>
-                              WhatsApp Business Integration
-                            </h3>
-                            <p className={`text-base ${isDark ? "text-zinc-400" : "text-slate-600"} max-w-md mx-auto leading-relaxed`}>
-                              Connect your WhatsApp Business Account securely through Meta's official integration platform
-                            </p>
-                          </div>
+                          <p className={`text-sm font-medium ${isDark ? "text-zinc-300" : "text-slate-700"}`}>{feature}</p>
                         </div>
-
-                        {/* Features List */}
-                        <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 mb-8 p-6 rounded-2xl ${isDark ? "bg-zinc-900/50 border border-zinc-800" : "bg-slate-100/50 border border-slate-200"}`}>
-                          <div className="flex items-start gap-3">
-                            <div className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center mt-0.5 ${isDark ? "bg-green-500/20" : "bg-green-100"}`}>
-                              <svg className={`w-3 h-3 ${isDark ? "text-green-400" : "text-green-600"}`} fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                              </svg>
-                            </div>
-                            <div>
-                              <p className={`text-sm font-semibold ${isDark ? "text-zinc-200" : "text-slate-900"}`}>Secure OAuth</p>
-                              <p className={`text-xs ${isDark ? "text-zinc-500" : "text-slate-500"}`}>End-to-end encrypted</p>
-                            </div>
-                          </div>
-                          <div className="flex items-start gap-3">
-                            <div className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center mt-0.5 ${isDark ? "bg-green-500/20" : "bg-green-100"}`}>
-                              <svg className={`w-3 h-3 ${isDark ? "text-green-400" : "text-green-600"}`} fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                              </svg>
-                            </div>
-                            <div>
-                              <p className={`text-sm font-semibold ${isDark ? "text-zinc-200" : "text-slate-900"}`}>One-Click Setup</p>
-                              <p className={`text-xs ${isDark ? "text-zinc-500" : "text-slate-500"}`}>No manual configuration</p>
-                            </div>
-                          </div>
-                          <div className="flex items-start gap-3">
-                            <div className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center mt-0.5 ${isDark ? "bg-green-500/20" : "bg-green-100"}`}>
-                              <svg className={`w-3 h-3 ${isDark ? "text-green-400" : "text-green-600"}`} fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                              </svg>
-                            </div>
-                            <div>
-                              <p className={`text-sm font-semibold ${isDark ? "text-zinc-200" : "text-slate-900"}`}>Instant Sync</p>
-                              <p className={`text-xs ${isDark ? "text-zinc-500" : "text-slate-500"}`}>Real-time connection</p>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Connect Button */}
-                        <div className="space-y-4">
-                          <button
-                        onClick={launchWhatsAppSignup}
-                            disabled={connectingWhatsApp || isExchangeInProgress}
-                            className={`w-full py-4 px-6 rounded-xl font-semibold text-base transition-all duration-200 transform ${
-                              connectingWhatsApp || isExchangeInProgress
-                                ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white cursor-not-allowed opacity-70'
-                                : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-lg shadow-green-500/25 hover:shadow-xl hover:shadow-green-500/30 hover:scale-[1.02] active:scale-[0.98]'
-                            }`}
-                          >
-                            {connectingWhatsApp || isExchangeInProgress ? (
-                              <div className="flex items-center justify-center gap-3">
-                                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                <span>Connecting...</span>
-                              </div>
-                            ) : (
-                              <div className="flex items-center justify-center gap-3">
-                                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-                                </svg>
-                                <span>Connect WhatsApp Business</span>
-                              </div>
-                            )}
-                          </button>
-
-                          {/* Footer Note */}
-                          <div className={`text-center text-xs ${isDark ? "text-zinc-500" : "text-slate-500"}`}>
-                            <p>Powered by Meta • You'll be redirected to complete the secure authorization process</p>
-                          </div>
-                        </div>
-                      </div>
+                      ))}
                     </div>
                   </div>
-                ) : (
-                  // Configuration Required State
-                  <div className={`rounded-3xl border p-12 ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-slate-50 border-slate-200"}`}>
-                    <div className="max-w-md mx-auto text-center space-y-6">
-                      {/* Warning Icon */}
-                      <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-amber-500/10 border-2 border-amber-500/20">
-                        <svg className="w-8 h-8 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                      </div>
 
-                      {/* Message */}
-                      <div>
-                        <h3 className={`text-lg font-bold mb-2 ${isDark ? "text-amber-400" : "text-amber-700"}`}>
-                          Configuration Required
-                        </h3>
-                        <p className={`text-sm ${isDark ? "text-zinc-400" : "text-slate-600"} leading-relaxed`}>
-                          Meta Embedded Signup is not configured on the server. Please contact your system administrator or configure the required Meta credentials in the backend environment.
-                        </p>
-                      </div>
-
-                      {/* Action Button */}
-                      <div className={`p-4 rounded-xl ${isDark ? "bg-zinc-800/50" : "bg-slate-100"}`}>
-                        <p className={`text-xs font-medium ${isDark ? "text-zinc-500" : "text-slate-500"}`}>
-                          Required: META_APP_ID, META_CONFIG_ID, META_APP_SECRET
-                        </p>
-                      </div>
+                  {/* Right: illustration */}
+                  <div className="flex items-center justify-center lg:col-start-2 lg:row-start-1 lg:row-span-2">
+                    <div className={`relative w-full max-w-[240px] lg:max-w-sm rounded-[2rem] overflow-hidden border shadow-2xl ${isDark ? "border-zinc-800 shadow-black" : "border-slate-200 shadow-slate-200/50"}`}>
+                      <img src="/whatsappintpgdemo.webp" alt="WhatsApp integration illustration" className="w-full h-auto object-contain" />
                     </div>
                   </div>
-                )}
+
+                  {/* Connect Button */}
+                  <div className="space-y-4 lg:col-start-1 lg:row-start-2">
+                    <button
+                      onClick={launchWhatsAppSignup}
+                      disabled={connectingWhatsApp || isExchangeInProgress}
+                      className={`w-full py-4 px-6 rounded-xl font-semibold text-base transition-all duration-200 transform ${
+                        connectingWhatsApp || isExchangeInProgress
+                          ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white cursor-not-allowed opacity-70'
+                          : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-lg shadow-green-500/25 hover:shadow-xl hover:shadow-green-500/30 hover:scale-[1.02] active:scale-[0.98]'
+                      }`}
+                    >
+                      {connectingWhatsApp || isExchangeInProgress ? (
+                        <div className="flex items-center justify-center gap-3">
+                          <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          <span>Connecting...</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center gap-3">
+                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                          </svg>
+                          <span>Connect WhatsApp Business</span>
+                        </div>
+                      )}
+                    </button>
+
+                    {/* Footer Note */}
+                    <div className={`text-center text-xs ${isDark ? "text-zinc-500" : "text-slate-500"}`}>
+                      <p>Powered by Meta • You'll be redirected to complete the secure authorization process</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              // Configuration Required State
+              <div className={`rounded-[2rem] border p-12 ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-slate-50 border-slate-200"}`}>
+                <div className="max-w-md mx-auto text-center space-y-6">
+                  {/* Warning Icon */}
+                  <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-amber-500/10 border-2 border-amber-500/20">
+                    <svg className="w-8 h-8 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  </div>
+
+                  {/* Message */}
+                  <div>
+                    <h3 className={`text-lg font-bold mb-2 ${isDark ? "text-amber-400" : "text-amber-700"}`}>
+                      Configuration Required
+                    </h3>
+                    <p className={`text-sm ${isDark ? "text-zinc-400" : "text-slate-600"} leading-relaxed`}>
+                      Meta Embedded Signup is not configured on the server. Please contact your system administrator or configure the required Meta credentials in the backend environment.
+                    </p>
+                  </div>
+
+                  {/* Action Button */}
+                  <div className={`p-4 rounded-xl ${isDark ? "bg-zinc-800/50" : "bg-slate-100"}`}>
+                    <p className={`text-xs font-medium ${isDark ? "text-zinc-500" : "text-slate-500"}`}>
+                      Required: META_APP_ID, META_CONFIG_ID, META_APP_SECRET
+                    </p>
+                  </div>
+                </div>
               </div>
             )}
           </div>

@@ -1,183 +1,404 @@
-STOP making assumptions about redirect_uri.
+I need you to improve ONLY the FRONTEND UI/UX of the existing ORVYM WhatsApp Integration page.
 
-The screenshot/logs prove that the backend previously hardcoded:
+This is a STRICT UI-ONLY task.
 
-EXCHANGE_REDIRECT_URI =
-https://staticxx.facebook.com/x/connect/xd_arbiter/?version=46
+I want the WhatsApp Integration page to look more modern, polished, professional, and SaaS-quality, similar in overall quality to professional WhatsApp SaaS platforms such as WATI, while still maintaining ORVYM's own branding and design.
 
-This is a Meta internal SDK URL and MUST NOT be used as our OAuth redirect_uri.
+## 🚨 ABSOLUTE RULE — DO NOT BREAK EXISTING FUNCTIONALITY
 
-I need you to fix the implementation according to the CURRENT OFFICIAL Meta WhatsApp Embedded Signup documentation and the project's requirements docs.
+**DO NOT modify, refactor, rewrite, remove, replace, or interfere with ANY existing functionality.**
 
-IMPORTANT:
-- Do NOT add staticxx.facebook.com to Meta App Domains.
-- Do NOT use an empty redirect_uri as a guessed fix.
-- Do NOT try multiple random redirect_uri values.
-- Do NOT use facebook.com/connect/login_success.html as another guess.
-- Do NOT invent undocumented behavior.
-- Do NOT change the working WhatsApp bot/integrations unrelated to Embedded Signup.
+The current application is already functional and must continue working exactly as before.
 
-First inspect:
-1. CLAUDE.md
-2. all Meta/WhatsApp Embedded Signup documentation in the repository
-3. current frontend Embedded Signup implementation
-4. backend Meta OAuth implementation
-5. current Config ID and its Embedded Signup version
-6. Meta App configuration assumptions in the code
+This task is ONLY about the visual/frontend presentation.
 
-Then trace the COMPLETE official flow:
+### DO NOT TOUCH:
 
-FB.login()
-→ authorization code
-→ WA_EMBEDDED_SIGNUP session event
-→ WABA ID
-→ Phone Number ID
-→ business/system-user access token as required by the official flow
-→ subscribed_apps
-→ phone registration if required
-→ webhook verification/subscription
-→ save connected WhatsApp integration
+* WhatsApp Embedded Signup logic
+* `FB.login()`
+* Facebook SDK initialization
+* Meta App ID
+* Meta Config ID
+* OAuth flow
+* OAuth callback logic
+* authorization code handling
+* authorization code exchange
+* Meta API calls
+* WABA resolution
+* Phone Number ID resolution
+* Business ID resolution
+* access-token handling
+* backend API calls
+* API endpoints
+* API request payloads
+* database
+* database models
+* integrations service
+* webhooks
+* WhatsApp messaging
+* WhatsApp connection logic
+* authentication
+* authorization
+* tenant logic
+* connection state logic
+* loading/error/retry logic
+* existing hooks
+* existing business logic
+* unrelated components
+* unrelated pages
+* unrelated dependencies
 
-The current frontend already receives an authorization code of length ~451, so DO NOT treat OAuth authorization as the missing part.
+### DO NOT MODIFY BACKEND
 
-The current missing/problematic parts are:
-1. correct official token/code exchange
-2. correct handling of redirect_uri according to the exact Meta flow being used
-3. WA_EMBEDDED_SIGNUP sessionInfoVersion/session event handling
-4. extracting waba_id and phone_number_id from the session event
-5. completing the remaining WhatsApp onboarding steps
-6. correct permissions/token handling
+**Do not change ANY backend file.**
 
-CRITICAL:
-Before changing code, determine from the CURRENT official Meta docs whether this specific FB.login(config_id, response_type=code, override_default_response_type=true) flow requires redirect_uri in the token exchange.
+This task must not require a backend deployment.
 
-If Meta's current documentation says redirect_uri must be included, use ONLY the exact redirect URI that was actually used by the authorization request and ensure it is registered in the Meta App Dashboard.
+Do not modify Python/backend code.
 
-If Meta's current documentation says redirect_uri must be omitted for this exact Embedded Signup flow, omit it completely.
+Do not modify API routes.
 
-Do not use "" as a workaround unless the official documentation explicitly requires it.
+Do not modify Meta configuration.
 
-Also verify that the frontend launch mechanism and backend exchange mechanism are compatible. If the frontend is launching Embedded Signup through FB.login(), do not mix it with an unrelated OAuth dialog/token-exchange pattern.
+Do not modify environment variables.
 
-SESSION EVENT REQUIREMENT:
+Do not modify database schema.
 
-Implement the official WA_EMBEDDED_SIGNUP postMessage/session event handling correctly.
+---
 
-We currently see:
+# IMAGE ASSET
 
-LOGIN_CODE_RECEIVED
-code received, waiting for WA_EMBEDDED_SIGNUP session asset IDs
-WA_EMBEDDED_SIGNUP FINISH event never arrived
+There is already an image in the **project root directory** named:
 
-Investigate why the session event is not arriving.
+`whatsappintpgdemo`
 
-Verify:
-- correct event listener registration BEFORE FB.login()
-- correct message origin validation
-- correct message format parsing
-- correct sessionInfoVersion
-- correct Config ID
-- correct Embedded Signup configuration
-- correct event name
-- correct handling of the popup/opener relationship
-- correct timing
-- no race condition
-- no premature timeout
-- no duplicate FB.login callbacks
-- no second exchange of the same single-use code
+First inspect the project root and determine its exact file extension.
 
-Do not "fix" the timeout by simply increasing the timeout.
+Do NOT assume the extension.
 
-If the official Meta flow requires sessionInfoVersion 3 or another current version, implement the documented version exactly.
+Use the existing image exactly as provided.
 
-WABA/PHONE FLOW:
+Do NOT:
 
-Once the session event is received, extract and log safely:
+* rename it
+* move it
+* delete it
+* replace it
+* recreate it
+* modify it
 
-- waba_id
-- phone_number_id
-- business_id if provided
+Use the existing asset in the WhatsApp Integration page.
 
-Then continue automatically through the official API sequence.
+Make sure it works correctly in both development and production.
 
-Do NOT ask the frontend user to manually enter WABA ID or Phone Number ID.
+---
 
-TOKEN:
+# UI OBJECTIVE
 
-Use the correct token type produced/required by the current Embedded Signup flow.
+Improve the existing WhatsApp Integration page so it feels:
 
-Do not assume that the OAuth authorization code itself is the final WhatsApp business token.
+* modern
+* premium
+* clean
+* professional
+* trustworthy
+* visually balanced
+* SaaS-quality
+* responsive
 
-SUBSCRIBED_APPS:
+Keep the existing ORVYM branding and design language.
 
-After obtaining the correct business token and WABA/phone identifiers, execute the official subscribed_apps step and verify the response before continuing.
+Do NOT copy WATI's design exactly.
 
-PHONE REGISTRATION:
+Use WATI only as general inspiration for professionalism and visual quality.
 
-Only call /register if the current official flow and onboarding state require it. Do not blindly register an already registered number.
+---
 
-WEBHOOK:
+# RECOMMENDED LAYOUT
 
-Verify that the WABA/app subscription and webhook configuration are correct, then verify that the webhook can receive WhatsApp events.
+Inspect the CURRENT Integration page first.
 
-DATABASE:
+Do not rebuild the page unnecessarily.
 
-Only save the integration after the required steps succeed.
+Improve the existing WhatsApp section/card.
 
-The final successful state must be something equivalent to:
+A professional structure can be:
 
-Embedded Signup opened
-→ user completed Meta onboarding
-→ authorization code received
-→ session event received
-→ WABA ID received
-→ Phone Number ID received
-→ correct token obtained
-→ WABA subscribed_apps succeeded
-→ phone registration completed if required
-→ webhook connected/verified
-→ integration saved
-→ dashboard shows WhatsApp Connected
+### WhatsApp Business
 
-ERROR HANDLING:
+**Connect your WhatsApp Business account**
 
-For every Meta API call log:
-- endpoint
-- HTTP method
-- status
-- error code
-- error subcode
-- error message
-- fbtrace_id
+Connect WhatsApp to ORVYM and manage customer conversations and automation from one place.
 
-Never log:
-- app secret
-- access tokens
-- authorization codes
-- full personal/business data
+Then show a clean two-column layout:
 
-Also prevent the same authorization code from being exchanged more than once.
+### LEFT
 
-TESTING:
+* WhatsApp title
+* short description
+* useful feature highlights
+* existing connection status
+* existing Connect WhatsApp button
 
-After implementation:
-1. run backend syntax/import checks
-2. run frontend TypeScript/build checks
-3. verify Config ID configuration
-4. verify production frontend domain
-5. perform a REAL browser Embedded Signup test
-6. capture frontend console logs
-7. capture backend logs
-8. confirm the COMPLETE chain reaches "Connected"
+### RIGHT
 
-Do not tell me "ready for testing" if only syntax checks pass.
+Display the existing:
 
-The task is NOT complete until the real Embedded Signup flow reaches the connected state or the remaining blocker is proven to be a Meta Dashboard/configuration issue with exact evidence.
+`whatsappintpgdemo`
 
-Finally, give me:
-- files changed
-- exact root cause
-- exact Meta configuration required
-- exact flow implemented
-- tests performed
-- final remaining blocker, if any
+image.
+
+Keep the image proportional and responsive.
+
+---
+
+# FEATURES / VISUAL CONTENT
+
+You may visually present the existing WhatsApp capabilities using small cards or checkmarks, for example:
+
+✓ Manage WhatsApp conversations
+✓ Automate customer responses
+✓ Connect WhatsApp Business
+✓ Manage customer interactions through ORVYM
+
+These are UI elements only.
+
+Do NOT create new backend functionality for them.
+
+---
+
+# CONNECTION BUTTON — EXTREMELY IMPORTANT
+
+There must be **ONLY ONE existing Connect WhatsApp action**.
+
+Do NOT create another handler.
+
+Do NOT duplicate the button logic.
+
+Do NOT call `FB.login()` directly from the new UI.
+
+The existing Connect WhatsApp button/action must remain connected to the existing implementation.
+
+The UI should simply render/use the existing handler.
+
+### REQUIRED:
+
+ONE CLICK
+→ existing handler
+→ existing Embedded Signup
+→ existing backend flow
+
+Do not create another flow.
+
+---
+
+# CONNECTION STATUS
+
+Use the EXISTING connection state.
+
+Do not create a new state-management system.
+
+If WhatsApp is connected:
+
+Show the existing connected state in a polished way.
+
+If WhatsApp is disconnected:
+
+Show the existing Connect WhatsApp button.
+
+If the integration is loading:
+
+Use the existing loading state.
+
+If there is an error:
+
+Use the existing error/retry behavior.
+
+**Never fake or hardcode "Connected".**
+
+The UI must always reflect the real existing state.
+
+---
+
+# IMPORTANT — DO NOT CHANGE DATA FLOW
+
+The frontend UI must continue using the existing:
+
+* API calls
+* hooks
+* props
+* state
+* connection data
+* authentication
+* integration response
+
+Do not change:
+
+* API URLs
+* request methods
+* request body
+* response parsing
+* authentication headers
+* backend contracts
+
+Only change how the existing data is visually displayed.
+
+---
+
+# RESPONSIVE DESIGN
+
+Desktop:
+
+Use a polished two-column layout:
+
+**WhatsApp information | WhatsApp illustration**
+
+Tablet:
+
+Adapt the layout naturally.
+
+Mobile:
+
+Stack:
+
+1. Header
+2. Description
+3. Feature highlights
+4. Image
+5. Existing Connect WhatsApp button/status
+
+The image must remain responsive and must not become distorted.
+
+---
+
+# VISUAL STYLE
+
+Use the existing ORVYM design system where possible.
+
+Improve:
+
+* spacing
+* typography
+* card hierarchy
+* borders
+* shadows
+* button presentation
+* alignment
+* responsive behavior
+* visual hierarchy
+
+Use subtle:
+
+* rounded corners
+* borders
+* shadows
+* spacing
+* icons
+
+Avoid:
+
+* excessive animations
+* unnecessary gradients
+* huge redesigns
+* unrelated visual changes
+* changing the entire dashboard theme
+
+---
+
+# FILE-SCOPE RULE
+
+Before editing:
+
+1. Find the existing WhatsApp Integration page/component.
+2. Identify the UI/presentation portion.
+3. Identify the existing integration/business logic.
+4. Modify ONLY the presentation/UI portion.
+
+If UI and business logic exist in the same file, **do not rewrite the logic**.
+
+Make the smallest possible changes around the existing JSX/UI structure.
+
+Do not refactor the component unless absolutely necessary for the visual change.
+
+---
+
+# 🚨 DO NOT "CLEAN UP" THE CODE
+
+Do NOT use this task as an opportunity to:
+
+* refactor
+* optimize unrelated code
+* rename variables
+* reorganize files
+* change architecture
+* update dependencies
+* rewrite hooks
+* change API handling
+* improve backend code
+* change Meta integration
+
+If you see unrelated code that could be improved, **LEAVE IT ALONE.**
+
+---
+
+# VERIFICATION BEFORE FINISHING
+
+After making the UI changes, verify that:
+
+### UI
+
+* WhatsApp Integration page looks significantly more professional.
+* `whatsappintpgdemo` image appears correctly.
+* Image maintains aspect ratio.
+* Image works responsively.
+* Existing ORVYM branding remains intact.
+
+### FUNCTIONALITY
+
+Verify that:
+
+* Connect WhatsApp button still works.
+* Existing Embedded Signup still launches.
+* Existing Meta flow remains untouched.
+* Existing OAuth flow remains untouched.
+* Existing backend request remains untouched.
+* Existing connection state still works.
+* Existing Connected state still works.
+* Existing loading state still works.
+* Existing error state still works.
+* Existing retry functionality still works.
+
+### SAFETY
+
+Confirm:
+
+* No backend files changed.
+* No API endpoints changed.
+* No API payloads changed.
+* No Meta configuration changed.
+* No database changes.
+* No webhook changes.
+* No authentication changes.
+* No WhatsApp business logic changes.
+* No unrelated pages/components changed.
+* No unrelated dependencies changed.
+* No duplicate FB.login() was introduced.
+* No duplicate API request was introduced.
+
+---
+
+# FINAL IMPLEMENTATION RULE
+
+**If a change is not required for improving the WhatsApp Integration page's visual UI, DO NOT MAKE THAT CHANGE.**
+
+The goal is:
+
+**EXISTING FUNCTIONALITY + BETTER FRONTEND UI**
+
+NOT:
+
+**NEW IMPLEMENTATION + REFACTORED FUNCTIONALITY**
+
+Keep the existing ORVYM WhatsApp integration completely intact.
+
+Only make the frontend page look better and integrate the existing `whatsappintpgdemo` image professionally.

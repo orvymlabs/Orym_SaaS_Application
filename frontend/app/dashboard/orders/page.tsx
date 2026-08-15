@@ -138,10 +138,10 @@ export default function OrdersPage() {
             {/* Title */}
             <div>
               <h2 className={`text-2xl font-bold ${isDark ? "text-white" : "text-slate-900"}`}>
-                Order Form Feature Locked
+                Submission Form Feature Locked
               </h2>
               <p className={`mt-3 text-sm ${isDark ? "text-zinc-500" : "text-slate-500"}`}>
-                The order form and submissions feature is available on STARTER and PREMIUM plans.
+                The submission form and submissions feature is available on STARTER and PREMIUM plans.
               </p>
             </div>
 
@@ -153,7 +153,7 @@ export default function OrdersPage() {
               <ul className="space-y-2">
                 <li className={`flex items-start gap-2 text-sm ${isDark ? "text-zinc-400" : "text-slate-600"}`}>
                   <span className="text-green-500 mt-0.5">✓</span>
-                  <span>Collect customer orders via WhatsApp</span>
+                  <span>Collect customer submissions via WhatsApp</span>
                 </li>
                 <li className={`flex items-start gap-2 text-sm ${isDark ? "text-zinc-400" : "text-slate-600"}`}>
                   <span className="text-green-500 mt-0.5">✓</span>
@@ -161,11 +161,11 @@ export default function OrdersPage() {
                 </li>
                 <li className={`flex items-start gap-2 text-sm ${isDark ? "text-zinc-400" : "text-slate-600"}`}>
                   <span className="text-green-500 mt-0.5">✓</span>
-                  <span>Track order status and history</span>
+                  <span>Track submission status and history</span>
                 </li>
                 <li className={`flex items-start gap-2 text-sm ${isDark ? "text-zinc-400" : "text-slate-600"}`}>
                   <span className="text-green-500 mt-0.5">✓</span>
-                  <span>Automated order confirmations</span>
+                  <span>Automated submission confirmations</span>
                 </li>
               </ul>
             </div>
@@ -179,7 +179,7 @@ export default function OrdersPage() {
                   : "bg-slate-900 text-white hover:bg-slate-800"
               }`}
             >
-              Upgrade to Unlock Order Form
+              Upgrade to Unlock Submission Form
             </a>
           </div>
         </div>
