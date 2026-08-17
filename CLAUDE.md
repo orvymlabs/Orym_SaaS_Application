@@ -1,404 +1,220 @@
-I need you to improve ONLY the FRONTEND UI/UX of the existing ORVYM WhatsApp Integration page.
+## ORVYM NEXUS — Integrations Page UI/UX Upgrade
 
-This is a STRICT UI-ONLY task.
+Upgrade the **frontend UI/UX only** of the current ORVYM NEXUS Integrations page shown in the provided screenshot.
 
-I want the WhatsApp Integration page to look more modern, polished, professional, and SaaS-quality, similar in overall quality to professional WhatsApp SaaS platforms such as WATI, while still maintaining ORVYM's own branding and design.
+### CRITICAL RULE — DO NOT BREAK FUNCTIONALITY
 
-## 🚨 ABSOLUTE RULE — DO NOT BREAK EXISTING FUNCTIONALITY
+This is a **frontend-only UI upgrade**.
 
-**DO NOT modify, refactor, rewrite, remove, replace, or interfere with ANY existing functionality.**
+* Do NOT modify backend code.
+* Do NOT modify APIs or API endpoints.
+* Do NOT modify database logic.
+* Do NOT modify authentication.
+* Do NOT modify WhatsApp/Meta integration logic.
+* Do NOT modify WooCommerce integration logic.
+* Do NOT modify form submission logic.
+* Do NOT modify validation logic.
+* Do NOT modify existing state management unless absolutely required for UI presentation.
+* Do NOT rename existing fields, variables, API routes, or response structures.
+* All existing functionality must continue working exactly as it does now.
 
-The current application is already functional and must continue working exactly as before.
+Before making changes, inspect the existing implementation and identify the current component(s), styling system, state handling, and API interactions.
 
-This task is ONLY about the visual/frontend presentation.
+### UI GOAL
 
-### DO NOT TOUCH:
+Make this page look like a **premium modern SaaS dashboard**, similar to a polished production-level AI SaaS product.
 
-* WhatsApp Embedded Signup logic
-* `FB.login()`
-* Facebook SDK initialization
-* Meta App ID
-* Meta Config ID
-* OAuth flow
-* OAuth callback logic
-* authorization code handling
-* authorization code exchange
-* Meta API calls
-* WABA resolution
-* Phone Number ID resolution
-* Business ID resolution
-* access-token handling
-* backend API calls
-* API endpoints
-* API request payloads
-* database
-* database models
-* integrations service
-* webhooks
-* WhatsApp messaging
-* WhatsApp connection logic
-* authentication
-* authorization
-* tenant logic
-* connection state logic
-* loading/error/retry logic
-* existing hooks
-* existing business logic
-* unrelated components
-* unrelated pages
-* unrelated dependencies
+Keep the existing ORVYM NEXUS branding and dark theme, but significantly improve:
 
-### DO NOT MODIFY BACKEND
+* Visual hierarchy
+* Spacing
+* Typography
+* Form layout
+* Cards
+* Buttons
+* Input fields
+* Integration mode selection
+* Information/help section
+* Responsive behavior
+* Micro-interactions
+* Overall visual polish
 
-**Do not change ANY backend file.**
+### CURRENT PAGE STRUCTURE
 
-This task must not require a backend deployment.
+The page currently contains:
 
-Do not modify Python/backend code.
+* ORVYM NEXUS sidebar
+* Current Plan card
+* Navigation menu
+* Platform Integration heading
+* Base URL field
+* Integration Type:
 
-Do not modify API routes.
+  * Inventory Mode — WooCommerce Products
+  * Service Mode — Static Website Content
+* Consumer Key
+* Consumer Secret
+* Fetch Website Info button
+* Save Platform Settings button
+* Informational note at the bottom
 
-Do not modify Meta configuration.
+Keep all these features and functionality.
 
-Do not modify environment variables.
+### DESIGN DIRECTION
 
-Do not modify database schema.
+Use a **premium dark SaaS aesthetic**.
 
----
+The page should feel:
 
-# IMAGE ASSET
+* Clean
+* Professional
+* Modern
+* Spacious
+* Minimal
+* Trustworthy
+* Enterprise-ready
 
-There is already an image in the **project root directory** named:
+Avoid excessive gradients, excessive glow effects, unnecessary animations, or a flashy gaming-style appearance.
 
-`whatsappintpgdemo`
+### INTEGRATION TYPE
 
-First inspect the project root and determine its exact file extension.
+Redesign the Inventory Mode and Service Mode selectors into polished selectable cards.
 
-Do NOT assume the extension.
+Each card should clearly communicate:
 
-Use the existing image exactly as provided.
+**Inventory Mode**
+WooCommerce Products
 
-Do NOT:
+**Service Mode**
+Static Website Content
 
-* rename it
-* move it
-* delete it
-* replace it
-* recreate it
-* modify it
+Requirements:
 
-Use the existing asset in the WhatsApp Integration page.
+* Clear selected/unselected state
+* Better icon presentation
+* Better typography hierarchy
+* Subtle border/background change when selected
+* Smooth hover state
+* Accessible focus state
+* Entire card should remain clickable if currently supported
+* Preserve the existing selection logic exactly
 
-Make sure it works correctly in both development and production.
+### FORM DESIGN
 
----
+Improve the Base URL, Consumer Key, and Consumer Secret fields.
 
-# UI OBJECTIVE
+Use:
 
-Improve the existing WhatsApp Integration page so it feels:
+* Clear labels
+* Helpful placeholder text
+* Consistent height
+* Better padding
+* Subtle borders
+* Proper focus state
+* Consistent border radius
+* Good contrast
+* Responsive two-column layout where appropriate
 
-* modern
-* premium
-* clean
-* professional
-* trustworthy
-* visually balanced
-* SaaS-quality
-* responsive
+Do not change the underlying values, validation, or submission behavior.
 
-Keep the existing ORVYM branding and design language.
-
-Do NOT copy WATI's design exactly.
-
-Use WATI only as general inspiration for professionalism and visual quality.
-
----
-
-# RECOMMENDED LAYOUT
-
-Inspect the CURRENT Integration page first.
-
-Do not rebuild the page unnecessarily.
-
-Improve the existing WhatsApp section/card.
-
-A professional structure can be:
-
-### WhatsApp Business
-
-**Connect your WhatsApp Business account**
-
-Connect WhatsApp to ORVYM and manage customer conversations and automation from one place.
-
-Then show a clean two-column layout:
-
-### LEFT
-
-* WhatsApp title
-* short description
-* useful feature highlights
-* existing connection status
-* existing Connect WhatsApp button
-
-### RIGHT
-
-Display the existing:
-
-`whatsappintpgdemo`
-
-image.
-
-Keep the image proportional and responsive.
-
----
-
-# FEATURES / VISUAL CONTENT
-
-You may visually present the existing WhatsApp capabilities using small cards or checkmarks, for example:
-
-✓ Manage WhatsApp conversations
-✓ Automate customer responses
-✓ Connect WhatsApp Business
-✓ Manage customer interactions through ORVYM
-
-These are UI elements only.
-
-Do NOT create new backend functionality for them.
-
----
-
-# CONNECTION BUTTON — EXTREMELY IMPORTANT
-
-There must be **ONLY ONE existing Connect WhatsApp action**.
-
-Do NOT create another handler.
-
-Do NOT duplicate the button logic.
-
-Do NOT call `FB.login()` directly from the new UI.
-
-The existing Connect WhatsApp button/action must remain connected to the existing implementation.
-
-The UI should simply render/use the existing handler.
-
-### REQUIRED:
-
-ONE CLICK
-→ existing handler
-→ existing Embedded Signup
-→ existing backend flow
-
-Do not create another flow.
-
----
-
-# CONNECTION STATUS
-
-Use the EXISTING connection state.
-
-Do not create a new state-management system.
-
-If WhatsApp is connected:
-
-Show the existing connected state in a polished way.
-
-If WhatsApp is disconnected:
-
-Show the existing Connect WhatsApp button.
-
-If the integration is loading:
-
-Use the existing loading state.
-
-If there is an error:
-
-Use the existing error/retry behavior.
-
-**Never fake or hardcode "Connected".**
-
-The UI must always reflect the real existing state.
-
----
-
-# IMPORTANT — DO NOT CHANGE DATA FLOW
-
-The frontend UI must continue using the existing:
-
-* API calls
-* hooks
-* props
-* state
-* connection data
-* authentication
-* integration response
-
-Do not change:
-
-* API URLs
-* request methods
-* request body
-* response parsing
-* authentication headers
-* backend contracts
-
-Only change how the existing data is visually displayed.
-
----
-
-# RESPONSIVE DESIGN
-
-Desktop:
-
-Use a polished two-column layout:
-
-**WhatsApp information | WhatsApp illustration**
-
-Tablet:
-
-Adapt the layout naturally.
-
-Mobile:
-
-Stack:
-
-1. Header
-2. Description
-3. Feature highlights
-4. Image
-5. Existing Connect WhatsApp button/status
-
-The image must remain responsive and must not become distorted.
-
----
-
-# VISUAL STYLE
-
-Use the existing ORVYM design system where possible.
+### BUTTONS
 
 Improve:
 
-* spacing
-* typography
-* card hierarchy
-* borders
-* shadows
-* button presentation
-* alignment
-* responsive behavior
-* visual hierarchy
+**Fetch Website Info**
 
-Use subtle:
+* Secondary/outline style
+* Clear disabled/loading state if existing functionality supports it
+* Proper hover/focus state
 
-* rounded corners
-* borders
-* shadows
-* spacing
-* icons
+**Save Platform Settings**
 
-Avoid:
+* Primary ORVYM CTA
+* Strong visual hierarchy
+* Modern hover/active state
+* Existing save functionality must remain unchanged
 
-* excessive animations
-* unnecessary gradients
-* huge redesigns
-* unrelated visual changes
-* changing the entire dashboard theme
+Do not add fake functionality or fake loading states.
 
----
+### INFORMATION BOX
 
-# FILE-SCOPE RULE
+Redesign the bottom informational message into a cleaner SaaS-style information panel.
+
+Keep the existing message/content and functionality.
+
+Use a subtle icon and visually balanced spacing.
+
+### SIDEBAR
+
+Do not redesign the entire application unnecessarily.
+
+Preserve the existing sidebar structure and navigation functionality.
+
+Only make minor visual improvements if required for consistency with the upgraded Integrations page.
+
+Do NOT change routes or navigation behavior.
+
+### RESPONSIVENESS
+
+Make the page properly responsive for:
+
+* Desktop
+* Laptop
+* Tablet
+* Mobile
+
+On smaller screens:
+
+* Form fields should stack appropriately.
+* Integration cards should stack.
+* Buttons should remain accessible.
+* No horizontal overflow.
+* Sidebar behavior must remain compatible with the existing application.
+
+### ANIMATIONS
+
+Use subtle professional micro-interactions only:
+
+* Card hover
+* Button hover
+* Input focus
+* Selection transition
+
+Keep animations fast and understated.
+
+Do not introduce heavy animation libraries unless the project already uses one.
+
+### CODE QUALITY
 
 Before editing:
 
-1. Find the existing WhatsApp Integration page/component.
-2. Identify the UI/presentation portion.
-3. Identify the existing integration/business logic.
-4. Modify ONLY the presentation/UI portion.
+1. Inspect the existing Integrations page.
+2. Identify the exact frontend component(s).
+3. Identify existing CSS/Tailwind/styling conventions.
+4. Preserve the existing architecture.
+5. Modify only the frontend presentation layer.
 
-If UI and business logic exist in the same file, **do not rewrite the logic**.
+After editing:
 
-Make the smallest possible changes around the existing JSX/UI structure.
+1. Run the project.
+2. Verify the Integrations page loads.
+3. Verify Inventory Mode selection still works.
+4. Verify Service Mode selection still works.
+5. Verify Base URL input still works.
+6. Verify Consumer Key input still works.
+7. Verify Consumer Secret input still works.
+8. Verify Fetch Website Info still calls the existing functionality.
+9. Verify Save Platform Settings still works.
+10. Verify no backend/API/database code was changed.
+11. Verify there are no console errors.
+12. Verify responsive layout.
 
-Do not refactor the component unless absolutely necessary for the visual change.
+### IMPORTANT
 
----
+Do not rebuild the page from scratch if an existing component already handles the functionality.
 
-# 🚨 DO NOT "CLEAN UP" THE CODE
+**Reuse the existing functionality and state. Only upgrade the presentation/UI layer.**
 
-Do NOT use this task as an opportunity to:
+The final result should look like a **production-ready premium SaaS Integrations page**, while behaving exactly the same as the current version.
 
-* refactor
-* optimize unrelated code
-* rename variables
-* reorganize files
-* change architecture
-* update dependencies
-* rewrite hooks
-* change API handling
-* improve backend code
-* change Meta integration
-
-If you see unrelated code that could be improved, **LEAVE IT ALONE.**
-
----
-
-# VERIFICATION BEFORE FINISHING
-
-After making the UI changes, verify that:
-
-### UI
-
-* WhatsApp Integration page looks significantly more professional.
-* `whatsappintpgdemo` image appears correctly.
-* Image maintains aspect ratio.
-* Image works responsively.
-* Existing ORVYM branding remains intact.
-
-### FUNCTIONALITY
-
-Verify that:
-
-* Connect WhatsApp button still works.
-* Existing Embedded Signup still launches.
-* Existing Meta flow remains untouched.
-* Existing OAuth flow remains untouched.
-* Existing backend request remains untouched.
-* Existing connection state still works.
-* Existing Connected state still works.
-* Existing loading state still works.
-* Existing error state still works.
-* Existing retry functionality still works.
-
-### SAFETY
-
-Confirm:
-
-* No backend files changed.
-* No API endpoints changed.
-* No API payloads changed.
-* No Meta configuration changed.
-* No database changes.
-* No webhook changes.
-* No authentication changes.
-* No WhatsApp business logic changes.
-* No unrelated pages/components changed.
-* No unrelated dependencies changed.
-* No duplicate FB.login() was introduced.
-* No duplicate API request was introduced.
-
----
-
-# FINAL IMPLEMENTATION RULE
-
-**If a change is not required for improving the WhatsApp Integration page's visual UI, DO NOT MAKE THAT CHANGE.**
-
-The goal is:
-
-**EXISTING FUNCTIONALITY + BETTER FRONTEND UI**
-
-NOT:
-
-**NEW IMPLEMENTATION + REFACTORED FUNCTIONALITY**
-
-Keep the existing ORVYM WhatsApp integration completely intact.
-
-Only make the frontend page look better and integrate the existing `whatsappintpgdemo` image professionally.
+Do not make any unrelated changes elsewhere in the application.

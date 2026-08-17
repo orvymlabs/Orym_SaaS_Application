@@ -142,20 +142,23 @@ body {
 /* PROFESSIONAL INPUT SYSTEM */
 
 .input-field {
-  @apply w-full px-4 py-3 rounded-[10px] border border-slate-200 bg-white text-sm outline-none transition-all duration-200 placeholder:italic placeholder:text-slate-400;
+  @apply w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm outline-none transition-all duration-200 placeholder:text-slate-400;
 }
 .input-field:hover {
   @apply border-slate-300;
 }
 .input-field:focus {
-  @apply border-[#6c4ef2] ring-4 ring-[#6c4ef2]/10;
+  @apply border-[#6c4ef2] ring-[3px] ring-[#6c4ef2]/[0.08];
 }
 
 .dark .input-field {
-  @apply bg-[#0d0e14] border-zinc-800 text-white placeholder:text-zinc-700;
+  @apply bg-[#0d0e14] border-zinc-800/80 text-white placeholder:text-zinc-600;
 }
 .dark .input-field:hover {
   @apply border-zinc-700;
+}
+.dark .input-field:focus {
+  @apply border-[#8b6ff5] ring-[3px] ring-[#8b6ff5]/[0.1];
 }
 
 .textarea-field {
@@ -199,4 +202,25 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(148, 163, 184, 0.4);
+}
+
+/* Premium SaaS Utility Classes */
+.focus-ring {
+  @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6c4ef2]/50 focus-visible:ring-offset-2;
+}
+
+/* Smooth page transitions */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }

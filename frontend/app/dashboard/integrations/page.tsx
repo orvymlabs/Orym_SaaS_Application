@@ -1281,82 +1281,202 @@ export default function IntegrationsPage() {
         )}
 
         {activeTab === "website" && (
-          <div className="p-12 space-y-10">
-            <div>
-              <h2 className={`text-2xl font-black tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>Platform Integration</h2>
-              <p className={`${isDark ? "text-zinc-500" : "text-slate-500"} mt-1 font-medium`}>Synchronize your Nexus with your store's inventory and data.</p>
+          <div className="p-8 md:p-10 lg:p-12 space-y-10">
+            {/* Header */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className={`flex-shrink-0 w-12 h-12 rounded-2xl flex items-center justify-center border ${isDark ? "bg-zinc-900 border-zinc-800" : "bg-slate-100/80 border-slate-200"}`}>
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className={`text-2xl font-black tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>Platform Integration</h2>
+                  <p className={`${isDark ? "text-zinc-500" : "text-slate-500"} mt-0.5 font-medium text-sm`}>Synchronize your Nexus with your store&apos;s inventory and data.</p>
+                </div>
+              </div>
+              {(integrationType === "product" ? integ?.woocommerce_url : integ?.wp_base_url) && (
+                <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border ${isDark ? "bg-emerald-500/5 border-emerald-500/15" : "bg-emerald-50 border-emerald-200"}`}>
+                  <div className="w-2 h-2 bg-emerald-500 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider ${isDark ? "text-emerald-400" : "text-emerald-600"}`}>Configuration Saved</span>
+                </div>
+              )}
             </div>
 
             <div className="space-y-8">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <label className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} ml-1`}>Base URL</label>
-                  {(integrationType === "product" ? integ?.woocommerce_url : integ?.wp_base_url) && (
-                    <span className={`text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 ${isDark ? "text-emerald-400" : "text-emerald-600"}`}>
-                      <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
-                      Saved
-                    </span>
-                  )}
+              {/* Base URL Field */}
+              <div className={`p-5 rounded-2xl border ${isDark ? "bg-zinc-900/40 border-zinc-800/60" : "bg-slate-50/50 border-slate-200"}`}>
+                <div className="space-y-2.5">
+                  <label className={`block text-[11px] font-bold uppercase tracking-wider ${isDark ? "text-zinc-400" : "text-slate-500"}`}>Base URL</label>
+                  <input type="text" value={ecommerceForm.website_url} onChange={e => setEcommerceForm({...ecommerceForm, website_url: e.target.value})}
+                    className="input-field !bg-transparent !border-[1.5px]" placeholder="https://your-store-address.com" />
+                  <p className={`text-[11px] font-medium ${isDark ? "text-zinc-600" : "text-slate-400"}`}>
+                    {integrationType === "product" ? "Enter your WooCommerce store URL" : "Enter your website URL to fetch content for AI responses"}
+                  </p>
                 </div>
-                <input type="text" value={ecommerceForm.website_url} onChange={e => setEcommerceForm({...ecommerceForm, website_url: e.target.value})}
-                  className="input-field" placeholder="https://your-store-address.com" />
               </div>
 
-              <div className="space-y-4">
-                <label className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} ml-1`}>Integration Type</label>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Integration Type Cards */}
+              <div className="space-y-3">
+                <label className={`block text-[11px] font-bold uppercase tracking-wider ml-1 ${isDark ? "text-zinc-400" : "text-slate-500"}`}>Integration Type</label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   {[
-                    { id: "product", icon: "🛍️", label: "Inventory Mode", sub: "WooCommerce Products" },
-                    { id: "service", icon: "🏗️", label: "Service Mode", sub: "Static Website Content" }
+                    {
+                      id: "product",
+                      label: "Inventory Mode",
+                      sub: "WooCommerce Products",
+                      desc: "Sync your product catalog, pricing, and inventory in real-time",
+                      icon: (
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007zM8.625 10.5a.375.375 0 11-.75 0 .375.375 0 01.75 0zm7.5 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                        </svg>
+                      )
+                    },
+                    {
+                      id: "service",
+                      label: "Service Mode",
+                      sub: "Static Website Content",
+                      desc: "Extract content from your website for AI-powered conversations",
+                      icon: (
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
+                        </svg>
+                      )
+                    }
                   ].map(type => (
                     <button key={type.id} onClick={() => setIntegrationType(type.id as any)}
-                      className={`p-6 rounded-[2rem] border-2 transition-all duration-300 flex items-center gap-5 ${
+                      className={`group p-6 rounded-2xl border-[1.5px] transition-all duration-300 text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${
                         integrationType === type.id
-                          ? isDark ? "border-white bg-zinc-900 shadow-2xl" : "border-slate-500 bg-slate-50/50 shadow-xl"
-                          : isDark ? "border-zinc-800 hover:border-zinc-700 bg-black" : "border-slate-100 hover:border-slate-200 bg-white"
-                      }`}
+                          ? isDark
+                            ? "border-violet-500/60 bg-violet-500/[0.04] shadow-[0_0_0_1px_rgba(139,92,246,0.15),0_8px_24px_-4px_rgba(0,0,0,0.5)]"
+                            : "border-violet-500 bg-violet-50/50 shadow-[0_0_0_1px_rgba(139,92,246,0.1),0_8px_24px_-4px_rgba(108,78,242,0.12)]"
+                          : isDark
+                            ? "border-zinc-800/60 bg-zinc-900/30 hover:border-zinc-700/80 hover:bg-zinc-900/50"
+                            : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50"
+                      } focus-visible:ring-violet-500/50`}
                     >
-                      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shadow-inner ${isDark ? "bg-zinc-800" : "bg-white border border-slate-100"}`}>{type.icon}</div>
-                      <div className="text-left">
-                        <p className={`font-black text-sm uppercase tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>{type.label}</p>
-                        <p className={`text-[10px] font-bold uppercase tracking-widest mt-1 ${isDark ? "text-zinc-600" : "text-slate-400"}`}>{type.sub}</p>
+                      <div className="flex items-start gap-4">
+                        <div className={`flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-300 ${
+                          integrationType === type.id
+                            ? isDark
+                              ? "bg-violet-500/15 text-violet-400"
+                              : "bg-violet-100 text-violet-600"
+                            : isDark
+                              ? "bg-zinc-800/80 text-zinc-400 group-hover:text-zinc-300"
+                              : "bg-slate-100 text-slate-400 group-hover:text-slate-600"
+                        }`}>
+                          {type.icon}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2.5">
+                            <p className={`font-bold text-[13px] tracking-tight ${
+                              integrationType === type.id
+                                ? isDark ? "text-white" : "text-slate-900"
+                                : isDark ? "text-zinc-300 group-hover:text-white" : "text-slate-700 group-hover:text-slate-900"
+                            } transition-colors`}>{type.label}</p>
+                            {integrationType === type.id && (
+                              <div className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center ${
+                                isDark ? "bg-violet-500" : "bg-violet-600"
+                              }`}>
+                                <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                </svg>
+                              </div>
+                            )}
+                          </div>
+                          <p className={`text-[10px] font-semibold uppercase tracking-wider mt-1 ${
+                            integrationType === type.id
+                              ? isDark ? "text-violet-400" : "text-violet-600"
+                              : isDark ? "text-zinc-600" : "text-slate-400"
+                          } transition-colors`}>{type.sub}</p>
+                          <p className={`text-xs mt-2 leading-relaxed ${
+                            isDark ? "text-zinc-500" : "text-slate-400"
+                          }`}>{type.desc}</p>
+                        </div>
                       </div>
                     </button>
                   ))}
                 </div>
               </div>
 
+              {/* Consumer Credentials */}
               {integrationType === "product" && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-2">
-                  <div className="space-y-3">
-                    <label className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} ml-1`}>Consumer Key</label>
-                    <input type="text" value={ecommerceForm.consumer_key} onChange={e => setEcommerceForm({...ecommerceForm, consumer_key: e.target.value})}
-                      className="input-field" placeholder="ck_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className={`p-5 rounded-2xl border ${isDark ? "bg-zinc-900/40 border-zinc-800/60" : "bg-slate-50/50 border-slate-200"}`}>
+                    <div className="space-y-2.5">
+                      <label className={`block text-[11px] font-bold uppercase tracking-wider ${isDark ? "text-zinc-400" : "text-slate-500"}`}>Consumer Key</label>
+                      <input type="text" value={ecommerceForm.consumer_key} onChange={e => setEcommerceForm({...ecommerceForm, consumer_key: e.target.value})}
+                        className="input-field !bg-transparent !border-[1.5px] font-mono text-[13px]" placeholder="ck_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+                    </div>
                   </div>
-                  <div className="space-y-3">
-                    <label className={`text-[10px] font-black uppercase tracking-widest ${isDark ? "text-zinc-600" : "text-slate-400"} ml-1`}>Consumer Secret</label>
-                    <input type="password" value={ecommerceForm.consumer_secret} onChange={e => setEcommerceForm({...ecommerceForm, consumer_secret: e.target.value})}
-                      className="input-field" placeholder="cs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+                  <div className={`p-5 rounded-2xl border ${isDark ? "bg-zinc-900/40 border-zinc-800/60" : "bg-slate-50/50 border-slate-200"}`}>
+                    <div className="space-y-2.5">
+                      <label className={`block text-[11px] font-bold uppercase tracking-wider ${isDark ? "text-zinc-400" : "text-slate-500"}`}>Consumer Secret</label>
+                      <input type="password" value={ecommerceForm.consumer_secret} onChange={e => setEcommerceForm({...ecommerceForm, consumer_secret: e.target.value})}
+                        className="input-field !bg-transparent !border-[1.5px] font-mono text-[13px]" placeholder="cs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+                    </div>
                   </div>
                 </div>
               )}
             </div>
 
-            <div className="flex justify-end gap-4 pt-6">
+            {/* Action Buttons */}
+            <div className={`flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t ${isDark ? "border-zinc-800/50" : "border-slate-200/60"}`}>
               <button
                 onClick={handleFetchWebsiteInfo}
                 disabled={fetchingProducts || !ecommerceForm.website_url.trim()}
-                className="btn-secondary min-w-[240px] disabled:opacity-50 disabled:cursor-not-allowed"
+                className={`btn-pro !py-3 !px-6 rounded-xl border-[1.5px] font-bold text-[13px] tracking-tight transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${
+                  isDark
+                    ? "bg-transparent border-zinc-700/60 text-zinc-400 hover:border-zinc-600 hover:text-white hover:bg-zinc-800/50 focus-visible:ring-zinc-500/50"
+                    : "bg-white border-slate-200 text-slate-600 hover:border-slate-300 hover:text-slate-900 hover:bg-slate-50 focus-visible:ring-slate-400/50"
+                } disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:border-zinc-700/60 disabled:hover:text-zinc-400`}
               >
-                {fetchingProducts ? <div className="w-4 h-4 border-2 border-slate-600/30 border-t-slate-600 rounded-full animate-spin" /> : "Fetch Website Info"}
+                {fetchingProducts ? (
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-4 h-4 border-2 rounded-full animate-spin ${isDark ? "border-zinc-600/30 border-t-zinc-400" : "border-slate-300/30 border-t-slate-600"}`} />
+                    <span>Fetching...</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2.5">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    <span>Fetch Website Info</span>
+                  </div>
+                )}
               </button>
-              <button onClick={handleConfigureBase} disabled={savingEcommerce} className="btn-primary min-w-[240px]">
-                {savingEcommerce ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : "Save Platform Settings"}
+              <button onClick={handleConfigureBase} disabled={savingEcommerce}
+                className="btn-primary !py-3 !px-6 rounded-xl text-[13px] font-bold tracking-tight focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:ring-offset-2"
+              >
+                {savingEcommerce ? (
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Saving...</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2.5">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                    </svg>
+                    <span>Save Platform Settings</span>
+                  </div>
+                )}
               </button>
             </div>
 
-            <div className={`p-4 rounded-2xl border ${isDark ? "bg-blue-950/20 border-blue-900/30 text-blue-400" : "bg-blue-50 border-blue-200 text-blue-700"}`}>
-              <p className="text-xs font-medium">💡 Enter your website URL and click "Fetch Website Info" to automatically cache your site content for AI responses. The URL will be saved automatically.</p>
+            {/* Information Panel */}
+            <div className={`flex items-start gap-3.5 p-4 rounded-xl border ${isDark ? "bg-sky-500/[0.04] border-sky-500/15" : "bg-sky-50 border-sky-200/60"}`}>
+              <div className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center mt-0.5 ${isDark ? "bg-sky-500/10" : "bg-sky-100"}`}>
+                <svg className={`w-4 h-4 ${isDark ? "text-sky-400" : "text-sky-600"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+                </svg>
+              </div>
+              <div>
+                <p className={`text-[11px] font-bold uppercase tracking-wider mb-1 ${isDark ? "text-sky-400" : "text-sky-700"}`}>How it works</p>
+                <p className={`text-[12px] leading-relaxed ${isDark ? "text-zinc-400" : "text-slate-600"}`}>
+                  Enter your website URL and click &quot;Fetch Website Info&quot; to automatically cache your site content for AI responses. The URL will be saved automatically.
+                </p>
+              </div>
             </div>
           </div>
         )}
