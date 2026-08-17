@@ -1,220 +1,473 @@
-## ORVYM NEXUS — Integrations Page UI/UX Upgrade
+# ORVYM NEXUS — Dashboard UI-Only Upgrade
 
-Upgrade the **frontend UI/UX only** of the current ORVYM NEXUS Integrations page shown in the provided screenshot.
+## 🚨 CRITICAL: FRONTEND UI ONLY
 
-### CRITICAL RULE — DO NOT BREAK FUNCTIONALITY
+Upgrade the existing ORVYM NEXUS Dashboard **ONLY at the frontend UI/UX level**.
 
-This is a **frontend-only UI upgrade**.
+The dashboard is already functional and all data, modes, messages, analytics, integrations, and statuses work according to the **logged-in user's actual account/data**.
 
-* Do NOT modify backend code.
-* Do NOT modify APIs or API endpoints.
-* Do NOT modify database logic.
-* Do NOT modify authentication.
-* Do NOT modify WhatsApp/Meta integration logic.
-* Do NOT modify WooCommerce integration logic.
-* Do NOT modify form submission logic.
-* Do NOT modify validation logic.
-* Do NOT modify existing state management unless absolutely required for UI presentation.
-* Do NOT rename existing fields, variables, API routes, or response structures.
-* All existing functionality must continue working exactly as it does now.
+Your job is ONLY to improve how this existing information looks.
 
-Before making changes, inspect the existing implementation and identify the current component(s), styling system, state handling, and API interactions.
+## DO NOT CHANGE ANY FUNCTIONALITY
 
-### UI GOAL
+Do NOT modify:
 
-Make this page look like a **premium modern SaaS dashboard**, similar to a polished production-level AI SaaS product.
+- Backend
+- APIs
+- API endpoints
+- Database
+- Authentication
+- User-specific data logic
+- User/session handling
+- State/data fetching logic
+- Bot mode logic
+- Bot mode switching
+- Message logic
+- Lead logic
+- Analytics logic
+- WhatsApp/Meta integration
+- WooCommerce integration
+- Automation logic
+- Dashboard calculations
+- Routes
+- Permissions
+- Subscription/plan logic
+- Existing variables
+- Existing functions
+- Existing API response structures
+- Existing business logic
 
-Keep the existing ORVYM NEXUS branding and dark theme, but significantly improve:
+### VERY IMPORTANT
 
-* Visual hierarchy
-* Spacing
-* Typography
-* Form layout
-* Cards
-* Buttons
-* Input fields
-* Integration mode selection
-* Information/help section
-* Responsive behavior
-* Micro-interactions
-* Overall visual polish
+All dashboard information is **dynamic and user-specific**.
 
-### CURRENT PAGE STRUCTURE
+For example:
 
-The page currently contains:
+- Active Bot Mode depends on the logged-in user.
+- Messages Sent depend on the user's actual messages.
+- Active Leads depend on the user's actual leads.
+- AI Responses depend on the user's actual activity.
+- Analytics depend on the user's actual data.
+- WhatsApp status depends on the user's WhatsApp integration.
+- WooCommerce status depends on the user's WooCommerce connection.
+- Automation status depends on the user's actual configuration.
+- Plan information depends on the user's subscription.
+- Message quota depends on the user's account.
+- All other dashboard values are user-specific.
 
-* ORVYM NEXUS sidebar
-* Current Plan card
-* Navigation menu
-* Platform Integration heading
-* Base URL field
-* Integration Type:
+**DO NOT replace any of these with static, hardcoded, mock, demo, or placeholder data.**
 
-  * Inventory Mode — WooCommerce Products
-  * Service Mode — Static Website Content
-* Consumer Key
-* Consumer Secret
-* Fetch Website Info button
-* Save Platform Settings button
-* Informational note at the bottom
+The existing dynamic data must continue to be used exactly as it currently is.
 
-Keep all these features and functionality.
+---
 
-### DESIGN DIRECTION
+# UI/UX OBJECTIVE
 
-Use a **premium dark SaaS aesthetic**.
+Make the dashboard look like a:
 
-The page should feel:
+**Premium, modern, professional AI SaaS dashboard.**
 
-* Clean
-* Professional
-* Modern
-* Spacious
-* Minimal
-* Trustworthy
-* Enterprise-ready
+Keep the existing ORVYM NEXUS branding and overall identity.
 
-Avoid excessive gradients, excessive glow effects, unnecessary animations, or a flashy gaming-style appearance.
+Improve only:
 
-### INTEGRATION TYPE
+- Layout
+- Typography
+- Spacing
+- Cards
+- Icons
+- Colors
+- Borders
+- Shadows
+- Gradients
+- Visual hierarchy
+- Charts appearance
+- Status badges
+- Buttons
+- Navigation appearance
+- Responsive design
+- Micro-interactions
 
-Redesign the Inventory Mode and Service Mode selectors into polished selectable cards.
+---
 
-Each card should clearly communicate:
+# 1. HEADER
 
-**Inventory Mode**
-WooCommerce Products
+Improve the visual design of the existing header.
 
-**Service Mode**
-Static Website Content
+Keep all existing functionality:
 
-Requirements:
+- Connection indicator
+- Notifications
+- User profile
+- Light/Dark mode toggle
 
-* Clear selected/unselected state
-* Better icon presentation
-* Better typography hierarchy
-* Subtle border/background change when selected
-* Smooth hover state
-* Accessible focus state
-* Entire card should remain clickable if currently supported
-* Preserve the existing selection logic exactly
+## IMPORTANT
 
-### FORM DESIGN
+The existing **Light/Dark mode toggle must continue working exactly as it currently works.**
 
-Improve the Base URL, Consumer Key, and Consumer Secret fields.
+Do not replace its functionality.
 
-Use:
+Make the redesigned UI compatible with both:
 
-* Clear labels
-* Helpful placeholder text
-* Consistent height
-* Better padding
-* Subtle borders
-* Proper focus state
-* Consistent border radius
-* Good contrast
-* Responsive two-column layout where appropriate
+- Dark mode
+- Light mode
 
-Do not change the underlying values, validation, or submission behavior.
+---
 
-### BUTTONS
+# 2. SIDEBAR
+
+Keep the exact existing navigation and routes.
+
+Only improve its appearance.
 
 Improve:
 
-**Fetch Website Info**
+- Navigation spacing
+- Typography
+- Icons
+- Active navigation state
+- Current plan card
+- Section labels
+- Sign Out button
+- Overall alignment
 
-* Secondary/outline style
-* Clear disabled/loading state if existing functionality supports it
-* Proper hover/focus state
+Do NOT change:
 
-**Save Platform Settings**
+- Routes
+- Navigation behavior
+- User permissions
+- Any sidebar functionality
 
-* Primary ORVYM CTA
-* Strong visual hierarchy
-* Modern hover/active state
-* Existing save functionality must remain unchanged
+---
 
-Do not add fake functionality or fake loading states.
+# 3. ACTIVE BOT MODE
 
-### INFORMATION BOX
+Upgrade the existing Active Bot Mode card visually.
 
-Redesign the bottom informational message into a cleaner SaaS-style information panel.
+For example:
 
-Keep the existing message/content and functionality.
+**ACTIVE BOT MODE**
+**Customize Flow Mode**
 
-Use a subtle icon and visually balanced spacing.
+Add a subtle AI visual/illustration such as:
 
-### SIDEBAR
+- AI brain
+- AI robot
+- Neural network
+- Conversational AI graphic
 
-Do not redesign the entire application unnecessarily.
-
-Preserve the existing sidebar structure and navigation functionality.
-
-Only make minor visual improvements if required for consistency with the upgraded Integrations page.
-
-Do NOT change routes or navigation behavior.
-
-### RESPONSIVENESS
-
-Make the page properly responsive for:
-
-* Desktop
-* Laptop
-* Tablet
-* Mobile
-
-On smaller screens:
-
-* Form fields should stack appropriately.
-* Integration cards should stack.
-* Buttons should remain accessible.
-* No horizontal overflow.
-* Sidebar behavior must remain compatible with the existing application.
-
-### ANIMATIONS
-
-Use subtle professional micro-interactions only:
-
-* Card hover
-* Button hover
-* Input focus
-* Selection transition
-
-Keep animations fast and understated.
-
-Do not introduce heavy animation libraries unless the project already uses one.
-
-### CODE QUALITY
-
-Before editing:
-
-1. Inspect the existing Integrations page.
-2. Identify the exact frontend component(s).
-3. Identify existing CSS/Tailwind/styling conventions.
-4. Preserve the existing architecture.
-5. Modify only the frontend presentation layer.
-
-After editing:
-
-1. Run the project.
-2. Verify the Integrations page loads.
-3. Verify Inventory Mode selection still works.
-4. Verify Service Mode selection still works.
-5. Verify Base URL input still works.
-6. Verify Consumer Key input still works.
-7. Verify Consumer Secret input still works.
-8. Verify Fetch Website Info still calls the existing functionality.
-9. Verify Save Platform Settings still works.
-10. Verify no backend/API/database code was changed.
-11. Verify there are no console errors.
-12. Verify responsive layout.
+The visual should enhance the card without changing the existing data.
 
 ### IMPORTANT
 
-Do not rebuild the page from scratch if an existing component already handles the functionality.
+The displayed bot mode must remain **100% dynamic**.
 
-**Reuse the existing functionality and state. Only upgrade the presentation/UI layer.**
+If User A has one mode and User B has another mode, the dashboard must continue displaying the correct mode for each user.
 
-The final result should look like a **production-ready premium SaaS Integrations page**, while behaving exactly the same as the current version.
+Do NOT hardcode "Customize Flow Mode" or any other mode.
 
-Do not make any unrelated changes elsewhere in the application.
+Only redesign the presentation of whatever mode the existing system provides.
+
+---
+
+# 4. STATISTICS / KPI CARDS
+
+Improve the UI of:
+
+- Messages Sent
+- Active Leads
+- AI Responses
+
+Make them visually stronger with:
+
+- Better icons
+- Better number hierarchy
+- Better spacing
+- Modern card design
+- Subtle trend visuals
+- Professional hover effects
+
+### IMPORTANT
+
+Do NOT hardcode:
+
+- Messages
+- Leads
+- AI responses
+- Trends
+- Any statistics
+
+Continue displaying the exact dynamic values coming from the existing implementation.
+
+---
+
+# 5. ANALYTICS
+
+Upgrade the visual presentation of the existing:
+
+**Performance Neural / Conversation Analytics**
+
+Keep the existing:
+
+- Data
+- Chart logic
+- Messages/Leads tabs
+- Date range selector
+- Insights
+- Calculations
+- API/data source
+
+Only improve their visual presentation.
+
+Do NOT create fake analytics.
+
+Do NOT replace real user data with demo data.
+
+---
+
+# 6. WHATSAPP ENGINE
+
+Improve the visual design of the existing WhatsApp Engine card.
+
+Keep all existing dynamic information:
+
+- Connected Number
+- Phone Number ID
+- Bot Status
+- Message Quota
+- Connection state
+
+Improve:
+
+- Card header
+- WhatsApp icon
+- Status badge
+- Progress bar
+- Typography
+- Spacing
+- Visual hierarchy
+
+### IMPORTANT
+
+Statuses must remain dynamic.
+
+For example:
+
+If the user is not connected, continue showing the existing not-connected state.
+
+If the user is connected, continue showing the existing connected state.
+
+Do NOT hardcode either state.
+
+---
+
+# 7. AUTOMATION ENGINE
+
+Improve the visual appearance of:
+
+- Automation Engine
+- Active Bot Mode
+- WhatsApp Integration
+- WooCommerce Sync
+- Bot Engine
+- Status indicators
+
+All values/statuses must continue coming from the existing user-specific implementation.
+
+Do NOT hardcode:
+
+- "2 ACTIVE"
+- "LIVE"
+- "Store connected"
+- "Not connected"
+- Any other status
+
+Those are examples only.
+
+Display whatever the current logged-in user's actual data says.
+
+---
+
+# 8. VISUALS / IMAGES
+
+Add a few tasteful visuals to make the dashboard more premium.
+
+Possible visuals:
+
+- AI brain illustration
+- Neural network graphic
+- AI chatbot illustration
+- Automation illustration
+- Abstract conversational AI graphic
+
+Use visuals mainly in:
+
+- Active Bot Mode card
+- Header/banner area
+- Empty/neutral areas where appropriate
+
+Avoid random stock photos.
+
+Prefer:
+
+- SVG
+- Lightweight illustrations
+- Existing icon libraries
+- CSS-based visuals
+- Optimized local assets
+
+The visuals must work in both light and dark mode.
+
+---
+
+# 9. CARD DESIGN
+
+Create a consistent premium SaaS card style.
+
+Use:
+
+- Rounded corners
+- Subtle borders
+- Soft shadows
+- Controlled gradients
+- Good spacing
+- Strong typography hierarchy
+- Consistent icon containers
+- Clean hover states
+
+Avoid:
+
+- Excessive neon
+- Excessive glow
+- Gaming-style UI
+- Huge gradients
+- Too many decorative elements
+
+---
+
+# 10. LIGHT / DARK MODE
+
+This MUST remain functional.
+
+Do not break the existing theme implementation.
+
+### DARK MODE
+
+Make sure:
+
+- Text is readable
+- Cards have proper contrast
+- Borders are visible
+- Icons are visible
+- Status indicators are clear
+- Purple/indigo accents look professional
+
+### LIGHT MODE
+
+Make sure:
+
+- Cards remain readable
+- Text has proper contrast
+- Borders remain visible
+- Icons remain visible
+- Buttons remain readable
+- No dark-only styling causes visibility problems
+
+---
+
+# 11. RESPONSIVE DESIGN
+
+Improve responsiveness for:
+
+- Desktop
+- Laptop
+- Tablet
+- Mobile
+
+Ensure:
+
+- No horizontal overflow
+- Cards stack correctly
+- Right-side panels move appropriately
+- Charts remain usable
+- Header controls remain accessible
+- Sidebar continues using the existing responsive behavior
+
+Do not change existing functionality to achieve responsiveness.
+
+---
+
+# 12. MICRO-INTERACTIONS
+
+Add subtle professional animations:
+
+- Hover
+- Focus
+- Active states
+- Card transitions
+- Button transitions
+- Navigation transitions
+- Theme transitions
+
+Keep animations lightweight.
+
+---
+
+# 13. IMPLEMENTATION PROCESS
+
+Before editing:
+
+1. Inspect the existing dashboard frontend.
+2. Identify the components responsible for each dashboard section.
+3. Identify the existing styling system.
+4. Identify the existing theme implementation.
+5. Identify how user-specific data is being rendered.
+6. Preserve all existing data/state logic.
+
+Then modify **ONLY the UI/presentation layer**.
+
+Do not rewrite working functionality.
+
+Do not rebuild components unnecessarily if the existing component can simply be restyled.
+
+---
+
+# 14. FINAL VERIFICATION
+
+After the UI update, verify that:
+
+- Different users still see their own data.
+- Active Bot Mode remains user-specific.
+- Messages remain user-specific.
+- Leads remain user-specific.
+- AI responses remain user-specific.
+- Analytics remain user-specific.
+- WhatsApp status remains user-specific.
+- WooCommerce status remains user-specific.
+- Automation status remains user-specific.
+- Subscription/plan remains user-specific.
+- Message quota remains user-specific.
+- Existing buttons still work.
+- Existing tabs still work.
+- Existing filters still work.
+- Existing integrations still work.
+- Light/Dark mode still works.
+- Sidebar navigation still works.
+- No API behavior changed.
+- No backend code was modified.
+- No database logic was modified.
+- No existing functionality was removed.
+- No static/mock data was introduced.
+- No console errors are introduced.
+
+---
+
+# FINAL RULE
+
+## ONLY CHANGE THE FRONTEND UI/UX.
+
+The current application functionality is already implemented and working.
+
+**Do not change how the system works.**
+
+Only make the existing dashboard **look significantly more professional, modern, polished, and visually engaging** while preserving **100% of the existing user-specific functionality and dynamic data.**
