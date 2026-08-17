@@ -59,22 +59,22 @@ function PlanBadge() {
   const displayName = plan.charAt(0).toUpperCase() + plan.slice(1);
 
   return (
-    <div className="px-4 pb-4">
-      <Link href="/dashboard/subscription" className="block no-underline">
-        <div className={`rounded-2xl p-4 border transition-all duration-300 hover:scale-[1.01] group ${colors.bg} ${colors.border}`}>
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.12em]">Current Plan</p>
-              <p className={`text-sm font-black uppercase tracking-wide mt-0.5 ${colors.text}`}>
+    <div className="px-4 pb-6">
+      <Link href="/dashboard/subscription" className="block">
+        <div className={`rounded-2xl p-4 border-2 transition-all hover:scale-[1.02] ${colors.bg} ${colors.border}`}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Current Plan</p>
+              <p className={`text-sm font-black uppercase tracking-wide ${colors.text}`}>
                 {displayName}
               </p>
             </div>
             {plan === 'free' ? (
-              <div className="flex-shrink-0 btn-upgrade px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider">
+              <div className="btn-upgrade px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider">
                 Upgrade
               </div>
             ) : (
-              <div className="flex-shrink-0 bg-emerald-500/90 text-white px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider shadow-lg shadow-emerald-500/20">
+              <div className="bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider shadow-lg shadow-emerald-500/20">
                 Active
               </div>
             )}
@@ -300,27 +300,27 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
     <div className={`flex h-screen font-sans overflow-hidden transition-colors duration-300 ${isDark ? "bg-[#050505] text-zinc-100" : "bg-[#F8FAFC] text-[#0F172A]"}`}>
       {/* Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"} ${isDark ? "bg-[#08080a] border-r border-white/[0.04]" : "bg-white border-r border-slate-100"}`}>
+      <aside className={`fixed inset-y-0 left-0 z-50 w-72 transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"} ${isDark ? "bg-[#090909] border-r border-zinc-800" : "bg-white border-r border-[#F1F5F9]"}`}>
         <div className="flex flex-col h-full">
           {/* Brand Logo */}
-          <div className="p-6 pb-4 flex items-center justify-between">
-            <Link href="/dashboard" className="flex items-center gap-3 group no-underline">
+          <div className="p-8 pb-6 flex items-center justify-between">
+            <Link href="/dashboard" className="flex items-center gap-4 group">
               <div
-                className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-300 border ${
+                className={`p-4 rounded-2xl group-hover:scale-[1.03] transition-all duration-300 border ${
                   isDark
-                    ? "bg-black border-zinc-800/80 shadow-lg shadow-black/40 group-hover:border-zinc-700"
-                    : "bg-white border-slate-200 shadow-md shadow-slate-200/60 group-hover:border-slate-300"
+                    ? "bg-black border-zinc-800 shadow-xl shadow-black/40"
+                    : "bg-white border-slate-200 shadow-xl shadow-slate-200/60"
                 }`}
               >
-                <Logo variant="symbol" theme={theme} className="w-8 h-8 object-contain" fallbackText="O" />
+                <Logo variant="symbol" theme={theme} className="w-16 h-16 object-contain" fallbackText="O" />
               </div>
               <div>
-                <span className={`text-base font-bold tracking-tight platform-name ${isDark ? "text-white" : "text-[#0F172A]"}`}>ORVYM NEXUS</span>
-                <p className={`text-[8px] font-bold uppercase tracking-[0.15em] leading-none mt-0.5 ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Live Conversation AI</p>
+                <span className={`text-2xl font-bold tracking-tight platform-name ${isDark ? "text-white" : "text-[#0F172A]"}`}>ORVYM NEXUS</span>
+                <p className={`text-[9px] font-bold uppercase tracking-wide leading-none mt-1 ${isDark ? "text-zinc-500" : "text-slate-600"}`}>Live Conversation AI</p>
               </div>
             </Link>
             <button className={`lg:hidden p-2 rounded-lg ${isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-slate-500 hover:bg-slate-100"}`} onClick={() => setIsSidebarOpen(false)}>
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
           </div>
 
@@ -328,22 +328,20 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           <PlanBadge />
 
           {/* Navigation */}
-          <nav className="flex-1 px-3 py-6 space-y-0.5 overflow-y-auto">
-            <p className={`px-4 mb-3 text-[9px] font-bold uppercase tracking-[0.15em] ${isDark ? "text-zinc-600" : "text-slate-400"}`}>Navigation</p>
+          <nav className="flex-1 px-4 py-8 space-y-1.5 overflow-y-auto">
+            <p className={`px-5 text-[10px] font-bold uppercase tracking-wide mb-4 ${isDark ? "text-zinc-500" : "text-slate-400"}`}>Navigation</p>
             {navItems.map(item => {
               const active = pathname === item.href || (item.href !== "/dashboard" && pathname?.startsWith(item.href));
               return (
                 <Link key={item.href} href={item.href}
-                  className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-200 group no-underline ${
+                  className={`flex items-center gap-3.5 px-5 py-3.5 rounded-2xl text-[14px] font-bold transition-all duration-200 group ${
                     active
-                      ? isDark
-                        ? "bg-violet-500/10 text-violet-300 shadow-sm"
-                        : "bg-violet-50 text-violet-700 shadow-sm"
+                      ? isDark ? "bg-blue-600 text-white shadow-lg shadow-blue-900/30" : "bg-blue-600 text-white"
                       : isDark
-                        ? "text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-300"
-                        : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                        ? "text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                        : "text-slate-500 hover:bg-slate-50 hover:text-slate-600"
                   }`}>
-                  <span className={`flex-shrink-0 transition-transform duration-200 ${active ? "scale-110" : "group-hover:scale-105"}`}>{item.icon}</span>
+                  <span className={`w-5 h-5 transition-transform duration-200 ${active ? "scale-110" : "group-hover:scale-110"}`}>{item.icon}</span>
                   {item.label}
                 </Link>
               );
@@ -351,20 +349,18 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           </nav>
 
           {/* Sidebar Footer */}
-          <div className="p-4 mt-auto">
-            <button onClick={handleLogout}
-              className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-[12px] font-bold transition-all duration-200 border ${
-                isDark
-                  ? "border-zinc-800 text-zinc-500 hover:text-red-400 hover:border-red-500/20 hover:bg-red-500/5"
-                  : "border-slate-200 text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50"
-              }`}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-              Sign Out
-            </button>
+          <div className="p-6 mt-auto">
+            <div className={`rounded-2xl p-5 border ${isDark ? "bg-zinc-900/50 border-zinc-800" : "bg-slate-50 border-slate-100"}`}>
+              <button onClick={handleLogout}
+                className="btn-danger w-full">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                Sign Out
+              </button>
+            </div>
             {/* ORVYM LABS Footer */}
-            <div className="mt-4 text-center">
+            <div className="mt-6 text-center">
               <p className={`text-[10px] font-medium ${isDark ? "text-zinc-700" : "text-slate-400"}`}>
                 Powered by{" "}
                 <a href="https://orvym.com" target="_blank" rel="noopener noreferrer" className={`font-semibold hover:underline ${isDark ? "text-slate-500/80" : "text-slate-600"}`}>
@@ -379,40 +375,40 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       {/* Main App Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top Header */}
-        <header className={`h-16 backdrop-blur-xl flex items-center justify-between px-6 z-40 sticky top-0 transition-colors duration-300 ${
-          isDark ? "bg-black/70 border-b border-white/[0.04]" : "bg-white/80 border-b border-slate-100"
+        <header className={`h-20 backdrop-blur-xl flex items-center justify-between px-8 z-40 sticky top-0 transition-colors duration-300 ${
+          isDark ? "bg-black/60 border-b border-zinc-800" : "bg-white/80 border-b border-[#F1F5F9]"
         }`}>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
             <button className={`lg:hidden p-2 rounded-lg ${isDark ? "text-zinc-400 hover:bg-zinc-800" : "text-slate-500 hover:bg-slate-100"}`} onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16m-7 6h7"/></svg>
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16m-7 6h7"/></svg>
             </button>
-            <h2 className={`text-base font-bold tracking-tight capitalize ${isDark ? "text-white" : "text-slate-800"}`}>
+            <h2 className={`text-lg font-bold tracking-tight capitalize ${isDark ? "text-white" : "text-slate-800"}`}>
               {pathname === "/dashboard" ? "Dashboard" : pathname === "/dashboard/orders" ? "Submissions" : pathname?.split("/").pop()?.replace("-", " ")}
             </h2>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
             {/* Moved elements: WA Chip, Notif, User */}
             <div className={`wa-chip ${!botStatus ? 'offline' : ''} hidden md:flex`}>
-              <svg viewBox="0 0 24 24" fill={botStatus ? "#25d366" : "#ef4444"} width="14" height="14">
+              <svg viewBox="0 0 24 24" fill={botStatus ? "#25d366" : "#ef4444"} width="15" height="15">
                 <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884" />
               </svg>
               <span>{botStatus ? "Connected" : "Offline"}</span>
             </div>
 
             <button
-              className={`relative p-2.5 rounded-xl transition-all duration-200 ${
+              className={`relative p-3 rounded-xl transition-all duration-200 ${
                 isDark
-                  ? "text-zinc-500 hover:text-white hover:bg-white/[0.05]"
-                  : "text-slate-500 hover:text-slate-900 hover:bg-slate-100"
+                  ? "bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white"
+                  : "bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900"
               }`}
               onClick={() => setShowNotifications(!showNotifications)}
             >
-              <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
               </svg>
               {unreadCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 w-4.5 h-4.5 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center shadow-sm shadow-red-500/30 border-2 border-black">
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-gradient-to-br from-red-500 to-red-600 text-white text-[10px] font-black rounded-full flex items-center justify-center shadow-lg shadow-red-500/50">
                   {unreadCount > 9 ? '9+' : unreadCount}
                 </span>
               )}
@@ -535,20 +531,20 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
-              className={`p-2.5 rounded-xl transition-all duration-200 ${
+              className={`p-2.5 rounded-xl transition-all ${
                 isDark
-                  ? "text-amber-400 hover:bg-amber-500/10 hover:text-amber-300"
-                  : "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                  ? "bg-zinc-900 text-amber-300 hover:bg-zinc-800"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
               }`}
             >
               {isDark ? (
-                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M14 12a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M14 12a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
               ) : (
-                <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
               )}
             </button>
 
-            <div className={`h-5 w-px ${isDark ? "bg-white/10" : "bg-slate-200"}`}></div>
+            <div className={`h-6 w-px ${isDark ? "bg-zinc-800" : "bg-slate-200"}`}></div>
             
             <div className="user-chip">
               <div className="user-avatar">{userName.charAt(0).toUpperCase()}</div>
@@ -560,8 +556,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </header>
 
         {/* Dynamic Page Content */}
-        <main className="flex-1 overflow-y-auto p-6 relative">
-          <div className="max-w-7xl mx-auto space-y-6 pb-12">
+        <main className="flex-1 overflow-y-auto p-8 relative">
+          <div className="max-w-7xl mx-auto space-y-8 pb-12">
             {children}
           </div>
         </main>

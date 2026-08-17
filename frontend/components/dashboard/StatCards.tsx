@@ -57,38 +57,36 @@ export default function StatCards({ messagesCount, contactsCount, aiRequestsCoun
     };
   }, [isDark]);
 
+  // Icon colors based on theme
   const purpleIconColor = isDark ? '#a78bfa' : '#6c4ef2';
   const blueIconColor = isDark ? '#60a5fa' : '#3b82f6';
   const greenIconColor = isDark ? '#4ade80' : '#10b981';
 
   return (
     <div className="stat-row">
-      {/* WhatsApp Messages Sent */}
+      {/* WhatsApp Messages Sent (Purple) */}
       <div className="stat-card">
         <div className="stat-card-top">
           <div className="stat-icon purple">
             <svg viewBox="0 0 24 24" fill="none" stroke={purpleIconColor} strokeWidth="2" width="20" height="20">
-              <path d="M22 2L11 13" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M22 2L15 22L11 13L2 9L22 2Z" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M12 2a10 10 0 110 20 10 10 0 010-20zm0 6v4l3 3" />
             </svg>
           </div>
           <canvas ref={chartRefs[0]} className="stat-mini-chart" width="70" height="30"></canvas>
         </div>
         <div>
           <div className="stat-label">Messages Sent</div>
+          {/* Ensure messagesCount is a string before splitting */}
           <h3>{typeof messagesCount === 'string' && messagesCount.includes('/') ? messagesCount.split('/')[0] : (typeof messagesCount === 'number' ? messagesCount : 'N/A')}</h3>
         </div>
       </div>
 
-      {/* Active Leads */}
+      {/* Total Contacts / Active Leads (Blue) */}
       <div className="stat-card">
         <div className="stat-card-top">
           <div className="stat-icon blue">
             <svg viewBox="0 0 24 24" fill="none" stroke={blueIconColor} strokeWidth="2" width="20" height="20">
-              <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2" strokeLinecap="round" strokeLinejoin="round" />
-              <circle cx="9" cy="7" r="4" />
-              <path d="M22 21v-2a4 4 0 00-3-3.87" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M16 3.13a4 4 0 010 7.75" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
             </svg>
           </div>
           <canvas ref={chartRefs[1]} className="stat-mini-chart" width="70" height="30"></canvas>
@@ -97,26 +95,26 @@ export default function StatCards({ messagesCount, contactsCount, aiRequestsCoun
           <div className="stat-label">Active Leads</div>
           <h3>{contactsCount}</h3>
         </div>
-        <div className="stat-change">Total Contacts</div>
+        <div className="stat-change">
+          Total Contacts
+        </div>
       </div>
 
-      {/* AI Responses */}
+      {/* AI Requests / AI Responses (Green) */}
       <div className="stat-card">
         <div className="stat-card-top">
           <div className="stat-icon green">
             <svg viewBox="0 0 24 24" fill="none" stroke={greenIconColor} strokeWidth="2" width="20" height="20">
-              <path d="M12 2a4 4 0 014 4c0 1.95-1.4 3.58-3.25 3.93" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M8.56 9.8A4.002 4.002 0 0112 2" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M12 6v6l3 3" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M22 12a10 10 0 11-20 0 10 10 0 0120 0z" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M16 16l2 2" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M18 14l2 2" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
             </svg>
           </div>
           <canvas ref={chartRefs[2]} className="stat-mini-chart" width="70" height="30"></canvas>
         </div>
         <div>
           <div className="stat-label">AI Responses</div>
+          {/* Ensure aiRequestsCount is a string before splitting */}
           <h3>{typeof aiRequestsCount === 'string' && aiRequestsCount.includes('/') ? aiRequestsCount.split('/')[0] : (typeof aiRequestsCount === 'number' ? aiRequestsCount : 'N/A')}</h3>
         </div>
       </div>
